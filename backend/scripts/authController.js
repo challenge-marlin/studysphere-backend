@@ -1,5 +1,13 @@
 const bcrypt = require('bcryptjs');
 const { pool } = require('../utils/database');
+const { 
+  generateAccessToken, 
+  generateRefreshToken, 
+  saveRefreshToken,
+  verifyRefreshToken,
+  deleteRefreshToken,
+  deleteAllUserRefreshTokens
+} = require('../utils/tokenManager');
 
 // 管理者ログイン処理
 const adminLogin = async (username, password) => {
@@ -15,6 +23,7 @@ const adminLogin = async (username, password) => {
         ua.login_code,
         ua.role,
         ua.company_id,
+        ua.status,
         COALESCE(c.name, 'システム管理者') as company_name
       FROM admin_credentials ac
       JOIN user_accounts ua ON ac.user_id = ua.id
@@ -50,6 +59,16 @@ const adminLogin = async (username, password) => {
       [admin.id]
     );
 
+    // 既存のリフレッシュトークンを削除
+    await deleteAllUserRefreshTokens(admin.user_id);
+
+    // トークン生成
+    const accessToken = generateAccessToken(admin);
+    const refreshToken = generateRefreshToken(admin);
+
+    // リフレッシュトークンをデータベースに保存
+    await saveRefreshToken(admin.user_id, refreshToken);
+
     // レスポンスデータ（パスワードハッシュは除外）
     const responseData = {
       user_id: admin.user_id,
@@ -57,7 +76,9 @@ const adminLogin = async (username, password) => {
       company_name: admin.company_name,      // 所属企業名
       login_code: admin.login_code,
       role: admin.role,
-      company_id: admin.company_id
+      company_id: admin.company_id,
+      access_token: accessToken,
+      refresh_token: refreshToken
     };
 
     return {
@@ -69,6 +90,98 @@ const adminLogin = async (username, password) => {
 
   } catch (error) {
     console.error('Admin login error:', error);
+    return {
+      success: false,
+      statusCode: 500,
+      message: 'サーバーエラーが発生しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    };
+  }
+};
+
+// リフレッシュトークン処理
+const refreshToken = async (refreshToken) => {
+  try {
+    // リフレッシュトークンの検証
+    const tokenData = await verifyRefreshToken(refreshToken);
+    if (!tokenData) {
+      return {
+        success: false,
+        statusCode: 401,
+        message: '無効なリフレッシュトークンです'
+      };
+    }
+
+    // ユーザー情報を取得
+    const [userRows] = await pool.execute(`
+      SELECT 
+        ua.id as user_id,
+        ua.name as user_name,
+        ua.login_code,
+        ua.role,
+        ua.company_id,
+        COALESCE(c.name, 'システム管理者') as company_name
+      FROM user_accounts ua
+      LEFT JOIN companies c ON ua.company_id = c.id
+      WHERE ua.id = ? AND ua.status = 1
+    `, [tokenData.user_id]);
+
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        statusCode: 401,
+        message: 'ユーザーが見つかりません'
+      };
+    }
+
+    const user = userRows[0];
+
+    // 新しいトークンを生成
+    const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken(user);
+
+    // 古いリフレッシュトークンを削除
+    await deleteRefreshToken(refreshToken);
+
+    // 新しいリフレッシュトークンを保存
+    await saveRefreshToken(user.user_id, newRefreshToken);
+
+    return {
+      success: true,
+      statusCode: 200,
+      message: 'トークンが更新されました',
+      data: {
+        access_token: newAccessToken,
+        refresh_token: newRefreshToken
+      }
+    };
+
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    return {
+      success: false,
+      statusCode: 500,
+      message: 'サーバーエラーが発生しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    };
+  }
+};
+
+// ログアウト処理
+const logout = async (refreshToken) => {
+  try {
+    if (refreshToken) {
+      await deleteRefreshToken(refreshToken);
+    }
+
+    return {
+      success: true,
+      statusCode: 200,
+      message: 'ログアウトしました'
+    };
+
+  } catch (error) {
+    console.error('Logout error:', error);
     return {
       success: false,
       statusCode: 500,
@@ -111,5 +224,7 @@ const createAdminAccount = async (userData) => {
 
 module.exports = {
   adminLogin,
+  refreshToken,
+  logout,
   createAdminAccount
 }; 

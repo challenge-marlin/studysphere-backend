@@ -16,7 +16,7 @@ const {
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 // コントローラーのインポート
-const { adminLogin } = require('./scripts/authController');
+const { adminLogin, refreshToken, logout } = require('./scripts/authController');
 const { getUsers, getTopUsersByCompany, getTeachersByCompany, healthCheck } = require('./scripts/userController');
 const { 
   getSatellitesByCompany, 
@@ -71,6 +71,31 @@ app.post('/login', loginValidation, handleValidationErrors, async (req, res) => 
     success: result.success,
     message: result.message,
     ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error })
+  });
+});
+
+// リフレッシュトークンエンドポイント
+app.post('/refresh', async (req, res) => {
+  const { refresh_token } = req.body;
+  const result = await refreshToken(refresh_token);
+  
+  res.status(result.statusCode || 200).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error })
+  });
+});
+
+// ログアウトエンドポイント
+app.post('/logout', async (req, res) => {
+  const { refresh_token } = req.body;
+  const result = await logout(refresh_token);
+  
+  res.status(result.statusCode || 200).json({
+    success: result.success,
+    message: result.message,
     ...(result.error && { error: result.error })
   });
 });

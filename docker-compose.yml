@@ -52,6 +52,7 @@ services:
       - NODE_ENV=development
       - PORT=5000
       - FRONTEND_URL=http://localhost:3000
+      - JWT_SECRET=5717beb0435d9de18748f91fc0be629371b2ef694d79689fb60b0764724981fc1db009971e523783bbb6313bb9f45e39f2393dbfc845abeac55df03cef39ae52
     depends_on:
       db:
         condition: service_healthy
