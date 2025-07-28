@@ -10,15 +10,13 @@ COPY package*.json ./
 
 # 開発環境用にnodemonも含めてインストール
 RUN npm ci
+RUN npm install -g nodemon
 
 # アプリケーションコードをコピー
 COPY . .
-
-# 起動スクリプトに実行権限を付与
-RUN chmod +x scripts/start.sh
 
 # ポート5000を公開
 EXPOSE 5000
 
 # 起動スクリプトで起動
-CMD ["./scripts/start.sh"] 
+CMD ["npm", "run", "dev"] 

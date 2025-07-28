@@ -3,11 +3,6 @@
 
 USE `curriculum-portal`;
 
--- システム管理者ユーザーアカウントを作成
-INSERT INTO `user_accounts` (`name`, `role`, `status`, `login_code`, `company_id`) 
-VALUES ('システム管理者', 9, 1, 'ADMIN-0001-001', NULL)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
-
 -- 管理者ユーザーアカウントを作成
 INSERT INTO `user_accounts` (`name`, `role`, `status`, `login_code`, `company_id`) 
 VALUES ('admin001', 9, 1, 'CGA8-CH0R-QVEC', NULL)
