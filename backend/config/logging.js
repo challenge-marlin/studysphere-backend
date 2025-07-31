@@ -54,9 +54,11 @@ const logConfig = {
   // ログフォーマット設定
   format: {
     timestamp: 'YYYY-MM-DD HH:mm:ss',
+    timezone: 'Asia/Tokyo',
     console: {
       colors: true,
-      timestamp: 'HH:mm:ss'
+      timestamp: 'HH:mm:ss',
+      timezone: 'Asia/Tokyo'
     }
   },
   

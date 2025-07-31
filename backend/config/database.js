@@ -20,11 +20,7 @@ const dbConfig = {
   // 接続のアイドル時間制限
   maxIdle: 60000, // アイドル接続の最大時間（60秒）
   // デバッグ設定（開発環境のみ）
-  debug: process.env.NODE_ENV === 'development' ? false : false,
-  // 接続の検証設定
-  validateConnection: true,
-  // 接続の再利用設定
-  reuseConnection: true
+  debug: process.env.NODE_ENV === 'development' ? false : false
 };
 
 module.exports = dbConfig; 

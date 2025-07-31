@@ -28,3 +28,31 @@
   "code": "ECONNREFUSED",
   "duration": "53ms"
 }
+2025-07-31 04:18:06 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "49ms"
+}
+2025-07-31 04:18:54 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "43ms"
+}
+2025-07-31 04:22:32 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:15 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:48 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:23 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}

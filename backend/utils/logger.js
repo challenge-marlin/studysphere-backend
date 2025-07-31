@@ -16,7 +16,49 @@ const logFormat = winston.format.combine(
   winston.format.errors({ stack: true }),
   winston.format.json(),
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    let log = `${timestamp} [${level.toUpperCase()}]: ${message}`;
+    // 日本時間に変換
+    let jstTime;
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        // タイムスタンプが無効な場合は現在時刻を使用
+        jstTime = new Date().toLocaleString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).replace(/\//g, '-');
+      } else {
+        jstTime = date.toLocaleString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).replace(/\//g, '-');
+      }
+    } catch (error) {
+      // エラーが発生した場合は現在時刻を使用
+      jstTime = new Date().toLocaleString('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).replace(/\//g, '-');
+    }
+    
+    let log = `${jstTime} [${level.toUpperCase()}]: ${message}`;
     
     if (Object.keys(meta).length > 0) {
       log += ` ${JSON.stringify(meta, null, 2)}`;
@@ -33,7 +75,40 @@ const consoleFormat = winston.format.combine(
     format: 'HH:mm:ss'
   }),
   winston.format.printf(({ timestamp, level, message, ...meta }) => {
-    let log = `${timestamp} [${level}]: ${message}`;
+    // 日本時間に変換
+    let jstTime;
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        // タイムスタンプが無効な場合は現在時刻を使用
+        jstTime = new Date().toLocaleString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+      } else {
+        jstTime = date.toLocaleString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        });
+      }
+    } catch (error) {
+      // エラーが発生した場合は現在時刻を使用
+      jstTime = new Date().toLocaleString('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    }
+    
+    let log = `${jstTime} [${level}]: ${message}`;
     
     if (Object.keys(meta).length > 0) {
       log += ` ${JSON.stringify(meta, null, 2)}`;

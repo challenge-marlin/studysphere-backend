@@ -6283,3 +6283,354 @@
   "code": "ECONNREFUSED",
   "duration": "53ms"
 }
+2025-07-31 04:18:06 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "49ms"
+}
+2025-07-31 04:18:54 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "43ms"
+}
+2025-07-31 04:21:41 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 16
+}
+2025-07-31 04:21:41 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 16
+}
+2025-07-31 04:21:41 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 16,
+  "duration": "106ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 04:21:41 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 16
+}
+2025-07-31 04:21:41 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 04:21:53 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 18
+}
+2025-07-31 04:21:53 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 18
+}
+2025-07-31 04:21:53 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 18,
+  "duration": "157ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 04:21:53 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 18
+}
+2025-07-31 04:21:53 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 04:22:25 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 21
+}
+2025-07-31 04:22:25 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 21
+}
+2025-07-31 04:22:25 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 21,
+  "duration": "107ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 04:22:25 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 21
+}
+2025-07-31 04:22:25 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 04:22:32 [INFO]: 日本時間でのログ出力テスト {
+  "service": "curriculum-portal-backend",
+  "test": true,
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 04:22:32 [WARN]: 警告メッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 04:22:32 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 04:22:32 [DEBUG]: デバッグメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:22:59 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 23
+}
+2025-07-31 13:22:59 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 23
+}
+2025-07-31 13:22:59 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 23,
+  "duration": "166ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:22:59 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 23
+}
+2025-07-31 13:22:59 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:23:09 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 25
+}
+2025-07-31 13:23:09 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 25
+}
+2025-07-31 13:23:09 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 25,
+  "duration": "150ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:23:09 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 25
+}
+2025-07-31 13:23:09 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:23:15 [INFO]: 日本時間でのログ出力テスト {
+  "service": "curriculum-portal-backend",
+  "test": true,
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:15 [WARN]: 警告メッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:15 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:15 [DEBUG]: デバッグメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:32 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 27
+}
+2025-07-31 13:23:32 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 27
+}
+2025-07-31 13:23:32 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 27,
+  "duration": "169ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:23:32 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 27
+}
+2025-07-31 13:23:32 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:23:41 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 28
+}
+2025-07-31 13:23:42 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 28
+}
+2025-07-31 13:23:42 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 28,
+  "duration": "180ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:23:42 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 28
+}
+2025-07-31 13:23:42 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:23:48 [INFO]: 日本時間でのログ出力テスト {
+  "service": "curriculum-portal-backend",
+  "test": true,
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:48 [WARN]: 警告メッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:48 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:23:48 [DEBUG]: デバッグメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:03 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 30
+}
+2025-07-31 13:24:03 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 30
+}
+2025-07-31 13:24:03 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 30,
+  "duration": "141ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:24:03 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 30
+}
+2025-07-31 13:24:03 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:24:17 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 32
+}
+2025-07-31 13:24:17 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 32
+}
+2025-07-31 13:24:17 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 32,
+  "duration": "191ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:24:17 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 32
+}
+2025-07-31 13:24:17 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:24:23 [INFO]: 日本時間でのログ出力テスト {
+  "service": "curriculum-portal-backend",
+  "test": true,
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:23 [WARN]: 警告メッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:23 [ERROR]: エラーメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:23 [DEBUG]: デバッグメッセージのテスト {
+  "service": "curriculum-portal-backend",
+  "timezone": "Asia/Tokyo"
+}
+2025-07-31 13:24:36 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 34
+}
+2025-07-31 13:24:36 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 34
+}
+2025-07-31 13:24:36 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 34,
+  "duration": "284ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:24:36 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 34
+}
+2025-07-31 13:24:36 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:24:40 [INFO]: 新しいデータベース接続が作成されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 35
+}
+2025-07-31 13:24:40 [DEBUG]: 接続がプールから取得されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 35
+}
+2025-07-31 13:24:40 [INFO]: データベース接続テスト成功 {
+  "service": "curriculum-portal-backend",
+  "threadId": 35,
+  "duration": "132ms",
+  "poolSize": 10,
+  "activeConnections": 0,
+  "idleConnections": 0
+}
+2025-07-31 13:24:40 [DEBUG]: 接続がプールに返されました {
+  "service": "curriculum-portal-backend",
+  "threadId": 35
+}
+2025-07-31 13:24:40 [INFO]: Memory monitoring started {
+  "service": "curriculum-portal-backend",
+  "interval": "60000ms"
+}
+2025-07-31 13:25:42 [DEBUG]: Memory Usage {
+  "service": "curriculum-portal-backend",
+  "rss": "68MB",
+  "heapUsed": "13MB",
+  "heapTotal": "15MB",
+  "external": "2MB"
+}

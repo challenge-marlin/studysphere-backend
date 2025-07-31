@@ -6,7 +6,6 @@ const { customLogger } = require('./logger');
 const pool = mysql.createPool({
   ...dbConfig,
   // 接続プールの設定を最適化
-  acquireTimeout: 60000, // 接続取得タイムアウト
   timeout: 60000, // クエリタイムアウト
   reconnect: true, // 自動再接続
   // 接続プールの監視設定
