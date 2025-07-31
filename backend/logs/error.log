@@ -56,3 +56,7 @@
   "service": "curriculum-portal-backend",
   "timezone": "Asia/Tokyo"
 }
+2025-07-31 13:43:24 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}

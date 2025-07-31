@@ -24,6 +24,11 @@ const satelliteValidation = [
     .trim()
     .isLength({ min: 1, max: 65535 })
     .withMessage('住所は1文字以上65535文字以下で入力してください'),
+  body('phone')
+    .optional()
+    .trim()
+    .isLength({ min: 0, max: 20 })
+    .withMessage('電話番号は20文字以下で入力してください'),
   body('office_type_id')
     .optional()
     .custom((value) => {
@@ -65,6 +70,11 @@ const satelliteUpdateValidation = [
     .trim()
     .isLength({ min: 1, max: 65535 })
     .withMessage('住所は1文字以上65535文字以下で入力してください'),
+  body('phone')
+    .optional()
+    .trim()
+    .isLength({ min: 0, max: 20 })
+    .withMessage('電話番号は20文字以下で入力してください'),
   body('office_type_id')
     .optional()
     .custom((value) => {

@@ -77,6 +77,23 @@ docker-compose logs backend
 docker-compose logs db
 ```
 
+## データベースマイグレーション
+
+サテライトテーブルに電話番号カラムを追加するマイグレーション：
+
+```bash
+# Windows (バッチファイル)
+run-migration.bat
+
+# Windows (PowerShell)
+.\run-migration.ps1
+
+# Linux/Mac
+mysql -u root -p < db/add-phone-to-satellites.sql
+```
+
+**注意**: マイグレーション実行前にデータベースのバックアップを取ることを推奨します。
+
 ## Docker クリーンアップ
 
 Dockerボリュームやキャッシュが蓄積された場合は、以下のスクリプトでクリーンアップできます：

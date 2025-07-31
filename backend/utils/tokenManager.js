@@ -241,20 +241,22 @@ const generateToken = () => {
 };
 
 /**
- * 契約タイプに基づいて有効期限を計算
+ * 契約タイプに基づいて有効期限を計算（日本時間）
  * @param {string} contractType - 契約タイプ ('30days', '90days', '1year')
- * @returns {Date} 有効期限の日付
+ * @returns {Date} 有効期限の日付（日本時間）
  */
 const calculateExpiryDate = (contractType) => {
+  // 現在の日本時間を取得
   const now = new Date();
+  const japanTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
   
   switch (contractType) {
     case '30days':
-      return new Date(now.getTime() + (30 * 24 * 60 * 60 * 1000));
+      return new Date(japanTime.getTime() + (30 * 24 * 60 * 60 * 1000));
     case '90days':
-      return new Date(now.getTime() + (90 * 24 * 60 * 60 * 1000));
+      return new Date(japanTime.getTime() + (90 * 24 * 60 * 60 * 1000));
     case '1year':
-      return new Date(now.getTime() + (365 * 24 * 60 * 60 * 1000));
+      return new Date(japanTime.getTime() + (365 * 24 * 60 * 60 * 1000));
     default:
       throw new Error('無効な契約タイプです');
   }

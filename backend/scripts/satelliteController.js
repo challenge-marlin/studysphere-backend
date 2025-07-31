@@ -14,6 +14,7 @@ const getSatellites = async () => {
         s.company_id,
         s.name,
         s.address,
+        s.phone,
         s.office_type_id,
         s.token,
         s.token_issued_at,
@@ -117,7 +118,7 @@ const getSatelliteById = async (id) => {
  * 拠点情報を作成
  */
 const createSatellite = async (satelliteData) => {
-  const { company_id, name, address, office_type_id, contract_type, max_users } = satelliteData;
+  const { company_id, name, address, phone, office_type_id, contract_type, max_users } = satelliteData;
   let connection;
   
   try {
@@ -127,6 +128,9 @@ const createSatellite = async (satelliteData) => {
     const token = generateToken();
     const tokenIssuedAt = new Date();
     const tokenExpiryAt = calculateExpiryDate(contract_type || '30days');
+    
+    // 日本時間として保存するため、UTCに変換
+    const utcExpiryAt = new Date(tokenExpiryAt.getTime() - (9 * 60 * 60 * 1000)); // JSTからUTCに変換（-9時間）
     
     let officeTypeId = office_type_id;
     
@@ -149,9 +153,9 @@ const createSatellite = async (satelliteData) => {
     }
     
     const [result] = await connection.execute(`
-      INSERT INTO satellites (company_id, name, address, office_type_id, token, token_issued_at, token_expiry_at, contract_type, max_users)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [company_id, name, address, officeTypeId, token, tokenIssuedAt, tokenExpiryAt, contract_type || '30days', max_users || 10]);
+      INSERT INTO satellites (company_id, name, address, phone, office_type_id, token, token_issued_at, token_expiry_at, contract_type, max_users)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [company_id, name, address, phone, officeTypeId, token, tokenIssuedAt, utcExpiryAt, contract_type || '30days', max_users || 10]);
 
     const satelliteId = result.insertId;
     
@@ -162,6 +166,7 @@ const createSatellite = async (satelliteData) => {
         s.company_id,
         s.name,
         s.address,
+        s.phone,
         s.office_type_id,
         s.token,
         s.token_issued_at,
@@ -206,7 +211,7 @@ const createSatellite = async (satelliteData) => {
  * 拠点情報を更新
  */
 const updateSatellite = async (id, satelliteData) => {
-  const { name, address, office_type_id, contract_type, max_users, status } = satelliteData;
+  const { name, address, phone, office_type_id, contract_type, max_users, status, token_expiry_at } = satelliteData;
   let connection;
   
   try {
@@ -237,6 +242,10 @@ const updateSatellite = async (id, satelliteData) => {
     if (address !== undefined) {
       updateFields.push('address = ?');
       updateValues.push(address);
+    }
+    if (phone !== undefined) {
+      updateFields.push('phone = ?');
+      updateValues.push(phone);
     }
     if (office_type_id !== undefined) {
       let officeTypeId = office_type_id;
@@ -274,6 +283,13 @@ const updateSatellite = async (id, satelliteData) => {
       updateFields.push('status = ?');
       updateValues.push(status);
     }
+    if (token_expiry_at !== undefined) {
+      // 日本時間として保存するため、UTCに変換
+      const japanDate = new Date(token_expiry_at);
+      const utcDate = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000)); // JSTからUTCに変換（-9時間）
+      updateFields.push('token_expiry_at = ?');
+      updateValues.push(utcDate.toISOString().slice(0, 19).replace('T', ' '));
+    }
     
     if (updateFields.length === 0) {
       return {
@@ -306,6 +322,7 @@ const updateSatellite = async (id, satelliteData) => {
         s.company_id,
         s.name,
         s.address,
+        s.phone,
         s.office_type_id,
         s.token,
         s.token_issued_at,
