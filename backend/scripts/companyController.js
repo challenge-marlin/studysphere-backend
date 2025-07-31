@@ -1,47 +1,37 @@
 const { pool } = require('../utils/database');
+const { generateToken } = require('../utils/tokenManager');
 
 /**
  * 企業情報を取得
  */
 const getCompanies = async () => {
+  let connection;
   try {
-    const [rows] = await pool.execute(`
-      SELECT 
-        c.id, 
-        c.name, 
-        c.address, 
-        c.phone, 
-        c.office_type_id,
-        ot.type as office_type_name,
-        c.token_issued_at, 
-        c.token_expiry_at,
-        u.name as contact_person_name,
-        u.role as contact_person_role
-      FROM companies c
-      LEFT JOIN office_types ot ON c.office_type_id = ot.id
-      LEFT JOIN (
-        SELECT 
-          ua.company_id,
-          ua.name,
-          ua.role,
-          ROW_NUMBER() OVER (PARTITION BY ua.company_id ORDER BY ua.role DESC, ua.id ASC) as rn
-        FROM user_accounts ua
-        WHERE ua.company_id IS NOT NULL
-      ) u ON c.id = u.company_id AND u.rn = 1
-      ORDER BY c.id
-    `);
-
+    console.log('getCompanies: クエリ実行開始');
+    
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT * FROM companies');
+    
+    console.log('getCompanies: 取得成功, データ件数:', rows.length);
     return {
       success: true,
       data: rows
     };
   } catch (error) {
-    console.error('企業情報取得エラー:', error);
+    console.error('getCompanies: 予期しないエラー:', error);
     return {
       success: false,
-      message: '企業情報の取得に失敗しました',
+      message: '企業一覧の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -49,41 +39,31 @@ const getCompanies = async () => {
  * 企業情報をIDで取得
  */
 const getCompanyById = async (id) => {
+  let connection;
   try {
-    const [rows] = await pool.execute(`
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(`
       SELECT 
-        c.id, 
-        c.name, 
-        c.address, 
-        c.phone, 
-        c.office_type_id,
-        ot.type as office_type_name,
-        c.token_issued_at, 
-        c.token_expiry_at,
-        u.name as contact_person_name,
-        u.role as contact_person_role
-      FROM companies c
-      LEFT JOIN office_types ot ON c.office_type_id = ot.id
-      LEFT JOIN (
-        SELECT 
-          ua.company_id,
-          ua.name,
-          ua.role,
-          ROW_NUMBER() OVER (PARTITION BY ua.company_id ORDER BY ua.role DESC, ua.id ASC) as rn
-        FROM user_accounts ua
-        WHERE ua.company_id IS NOT NULL
-      ) u ON c.id = u.company_id AND u.rn = 1
-      WHERE c.id = ?
+        id, 
+        name, 
+        address,
+        phone,
+        token,
+        token_issued_at,
+        created_at,
+        updated_at
+      FROM companies
+      WHERE id = ?
     `, [id]);
-
+    
     if (rows.length === 0) {
       return {
         success: false,
-        message: '企業が見つかりません',
-        statusCode: 404
+        message: '指定された企業が見つかりません',
+        error: 'Company not found'
       };
     }
-
+    
     return {
       success: true,
       data: rows[0]
@@ -95,48 +75,45 @@ const getCompanyById = async (id) => {
       message: '企業情報の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 /**
  * 企業情報を作成
+ * @param {Object} companyData - 企業データ
+ * @returns {Object} 作成結果
  */
 const createCompany = async (companyData) => {
-  const { name, address, phone, office_type_id } = companyData;
+  const { name, address, phone } = companyData;
+  let connection;
   
   try {
-    const [result] = await pool.execute(`
-      INSERT INTO companies (name, address, phone, office_type_id, token_issued_at, token_expiry_at)
-      VALUES (?, ?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR))
-    `, [name, address, phone, office_type_id]);
+    connection = await pool.getConnection();
+    
+    // トークン生成
+    const token = generateToken();
+    const tokenIssuedAt = new Date();
+    
+    const [insertResult] = await connection.execute(`
+      INSERT INTO companies (name, address, phone, token, token_issued_at)
+      VALUES (?, ?, ?, ?, ?)
+    `, [name, address, phone, token, tokenIssuedAt]);
 
-    const companyId = result.insertId;
+    const companyId = insertResult.insertId;
     
     // 作成された企業情報を取得
-    const [rows] = await pool.execute(`
-      SELECT 
-        c.id, 
-        c.name, 
-        c.address, 
-        c.phone, 
-        c.office_type_id,
-        ot.type as office_type_name,
-        c.token_issued_at, 
-        c.token_expiry_at,
-        u.name as contact_person_name,
-        u.role as contact_person_role
-      FROM companies c
-      LEFT JOIN office_types ot ON c.office_type_id = ot.id
-      LEFT JOIN (
-        SELECT 
-          ua.company_id,
-          ua.name,
-          ua.role,
-          ROW_NUMBER() OVER (PARTITION BY ua.company_id ORDER BY ua.role DESC, ua.id ASC) as rn
-        FROM user_accounts ua
-        WHERE ua.company_id IS NOT NULL
-      ) u ON c.id = u.company_id AND u.rn = 1
-      WHERE c.id = ?
+    const [rows] = await connection.execute(`
+      SELECT id, name, address, phone, token, token_issued_at, created_at, updated_at
+      FROM companies
+      WHERE id = ?
     `, [companyId]);
 
     return {
@@ -151,6 +128,14 @@ const createCompany = async (companyData) => {
       message: '企業情報の作成に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -158,30 +143,31 @@ const createCompany = async (companyData) => {
  * 企業情報を更新
  */
 const updateCompany = async (id, companyData) => {
-  const { name, address, phone, office_type_id } = companyData;
-  
-  console.log('受信した企業更新データ:', { id, name, address, phone, office_type_id });
+  const { name, address, phone } = companyData;
+  let connection;
   
   try {
+    connection = await pool.getConnection();
+    
     // 企業の存在確認
-    const [existingRows] = await pool.execute(
+    const [existingRows] = await connection.execute(
       'SELECT id FROM companies WHERE id = ?',
       [id]
     );
-
+    
     if (existingRows.length === 0) {
       return {
         success: false,
-        message: '企業が見つかりません',
-        statusCode: 404
+        message: '指定された企業が見つかりません',
+        error: 'Company not found'
       };
     }
-
-    // 更新用のSQLを動的に構築
+    
+    // 更新フィールドを動的に構築
     const updateFields = [];
     const updateValues = [];
-
-    if (name !== undefined && name !== null && name !== '') {
+    
+    if (name !== undefined) {
       updateFields.push('name = ?');
       updateValues.push(name);
     }
@@ -193,53 +179,38 @@ const updateCompany = async (id, companyData) => {
       updateFields.push('phone = ?');
       updateValues.push(phone);
     }
-    if (office_type_id !== undefined) {
-      updateFields.push('office_type_id = ?');
-      updateValues.push(office_type_id);
-    }
-
+    
     if (updateFields.length === 0) {
       return {
         success: false,
-        message: '更新するデータが指定されていません'
+        message: '更新するデータがありません',
+        error: 'No data to update'
       };
     }
-
+    
     updateValues.push(id);
     
-    await pool.execute(`
+    const [updateResult] = await connection.execute(`
       UPDATE companies 
-      SET ${updateFields.join(', ')}
+      SET ${updateFields.join(', ')}, updated_at = NOW()
       WHERE id = ?
     `, updateValues);
-
+    
+    if (updateResult.affectedRows === 0) {
+      return {
+        success: false,
+        message: '企業情報の更新に失敗しました',
+        error: 'Update failed'
+      };
+    }
+    
     // 更新された企業情報を取得
-    const [rows] = await pool.execute(`
-      SELECT 
-        c.id, 
-        c.name, 
-        c.address, 
-        c.phone, 
-        c.office_type_id,
-        ot.type as office_type_name,
-        c.token_issued_at, 
-        c.token_expiry_at,
-        u.name as contact_person_name,
-        u.role as contact_person_role
-      FROM companies c
-      LEFT JOIN office_types ot ON c.office_type_id = ot.id
-      LEFT JOIN (
-        SELECT 
-          ua.company_id,
-          ua.name,
-          ua.role,
-          ROW_NUMBER() OVER (PARTITION BY ua.company_id ORDER BY ua.role DESC, ua.id ASC) as rn
-        FROM user_accounts ua
-        WHERE ua.company_id IS NOT NULL
-      ) u ON c.id = u.company_id AND u.rn = 1
-      WHERE c.id = ?
+    const [rows] = await connection.execute(`
+      SELECT id, name, address, phone, created_at, updated_at
+      FROM companies
+      WHERE id = ?
     `, [id]);
-
+    
     return {
       success: true,
       message: '企業情報が正常に更新されました',
@@ -252,6 +223,14 @@ const updateCompany = async (id, companyData) => {
       message: '企業情報の更新に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -259,9 +238,12 @@ const updateCompany = async (id, companyData) => {
  * 企業情報を削除
  */
 const deleteCompany = async (id) => {
+  let connection;
   try {
+    connection = await pool.getConnection();
+    
     // 企業の存在確認
-    const [existingRows] = await pool.execute(
+    const [existingRows] = await connection.execute(
       'SELECT id FROM companies WHERE id = ?',
       [id]
     );
@@ -275,7 +257,7 @@ const deleteCompany = async (id) => {
     }
 
     // 関連するユーザーがいるかチェック
-    const [userRows] = await pool.execute(
+    const [userRows] = await connection.execute(
       'SELECT COUNT(*) as count FROM user_accounts WHERE company_id = ?',
       [id]
     );
@@ -288,7 +270,7 @@ const deleteCompany = async (id) => {
       };
     }
 
-    await pool.execute('DELETE FROM companies WHERE id = ?', [id]);
+    await connection.execute('DELETE FROM companies WHERE id = ?', [id]);
 
     return {
       success: true,
@@ -301,6 +283,86 @@ const deleteCompany = async (id) => {
       message: '企業情報の削除に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 企業トークンを再生成
+ * @param {number} id - 企業ID
+ * @returns {Object} 再生成結果
+ */
+const regenerateCompanyToken = async (id) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 企業の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id FROM companies WHERE id = ?',
+      [id]
+    );
+    
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '指定された企業が見つかりません',
+        error: 'Company not found'
+      };
+    }
+    
+    // 新しいトークンを生成
+    const newToken = generateToken();
+    const tokenIssuedAt = new Date();
+    
+    const [updateResult] = await connection.execute(`
+      UPDATE companies 
+      SET token = ?, token_issued_at = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [newToken, tokenIssuedAt, id]);
+    
+    if (updateResult.affectedRows === 0) {
+      return {
+        success: false,
+        message: '企業トークンの再生成に失敗しました',
+        error: 'Token regeneration failed'
+      };
+    }
+    
+    // 更新された企業情報を取得
+    const [rows] = await connection.execute(`
+      SELECT id, name, address, phone, token, token_issued_at, created_at, updated_at
+      FROM companies
+      WHERE id = ?
+    `, [id]);
+    
+    return {
+      success: true,
+      message: '企業トークンが正常に再生成されました',
+      data: rows[0]
+    };
+  } catch (error) {
+    console.error('企業トークン再生成エラー:', error);
+    return {
+      success: false,
+      message: '企業トークンの再生成に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -309,5 +371,6 @@ module.exports = {
   getCompanyById,
   createCompany,
   updateCompany,
-  deleteCompany
+  deleteCompany,
+  regenerateCompanyToken
 }; 

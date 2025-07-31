@@ -11,9 +11,12 @@ const {
 
 // 管理者ログイン処理
 const adminLogin = async (username, password) => {
+  let connection;
   try {
+    connection = await pool.getConnection();
+    
     // 管理者認証情報を取得
-    const [adminRows] = await pool.execute(`
+    const [adminRows] = await connection.execute(`
       SELECT 
         ac.id,
         ac.user_id,
@@ -54,7 +57,7 @@ const adminLogin = async (username, password) => {
     }
 
     // 最終ログイン日時を更新
-    await pool.execute(
+    await connection.execute(
       'UPDATE admin_credentials SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?',
       [admin.id]
     );
@@ -96,11 +99,20 @@ const adminLogin = async (username, password) => {
       message: 'サーバーエラーが発生しました',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 // リフレッシュトークン処理
 const refreshToken = async (refreshToken) => {
+  let connection;
   try {
     // リフレッシュトークンの検証
     const tokenData = await verifyRefreshToken(refreshToken);
@@ -112,8 +124,10 @@ const refreshToken = async (refreshToken) => {
       };
     }
 
+    connection = await pool.getConnection();
+    
     // ユーザー情報を取得
-    const [userRows] = await pool.execute(`
+    const [userRows] = await connection.execute(`
       SELECT 
         ua.id as user_id,
         ua.name as user_name,
@@ -164,6 +178,14 @@ const refreshToken = async (refreshToken) => {
       message: 'サーバーエラーが発生しました',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -193,15 +215,18 @@ const logout = async (refreshToken) => {
 
 // 管理者アカウント作成（開発用）
 const createAdminAccount = async (userData) => {
+  let connection;
   try {
     const { user_id, username, password } = userData;
+    
+    connection = await pool.getConnection();
     
     // パスワードのハッシュ化
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
     
     // 管理者認証情報を登録
-    const [result] = await pool.execute(`
+    const [result] = await connection.execute(`
       INSERT INTO admin_credentials (user_id, username, password_hash)
       VALUES (?, ?, ?)
     `, [user_id, username, passwordHash]);
@@ -219,6 +244,14 @@ const createAdminAccount = async (userData) => {
       message: '管理者アカウントの作成に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 

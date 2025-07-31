@@ -17,22 +17,18 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - app-network
-    command: --default-authentication-plugin=mysql_native_password
+    command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --max-connections=100
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mysqladmin",
-          "ping",
-          "-h",
-          "localhost",
-          "-u",
-          "root",
-          "-pshinomoto926!",
-        ]
-      timeout: 20s
-      retries: 10
-      interval: 10s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pshinomoto926!"]
+      timeout: 30s
+      retries: 20
+      interval: 20s
+      start_period: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Node.js Application
   backend:
@@ -53,14 +49,16 @@ services:
       - PORT=5000
       - FRONTEND_URL=http://localhost:3000
       - JWT_SECRET=5717beb0435d9de18748f91fc0be629371b2ef694d79689fb60b0764724981fc1db009971e523783bbb6313bb9f45e39f2393dbfc845abeac55df03cef39ae52
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     networks:
       - app-network
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - ./db:/app/db
     healthcheck:
       test:
         [
@@ -75,6 +73,11 @@ services:
       retries: 5
       interval: 30s
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql_data:

@@ -4,12 +4,13 @@ const { pool } = require('../utils/database');
  * システム概要の統計情報を取得
  */
 const getSystemOverview = async () => {
+  let connection;
   try {
     console.log('システム概要取得開始');
     
     // データベース接続テスト
     console.log('データベース接続テスト開始');
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
     console.log('データベース接続成功');
     
     // テーブル存在確認
@@ -165,8 +166,6 @@ const getSystemOverview = async () => {
       }
     }
     
-    connection.release();
-    
     // 統計情報を整理
     const stats = {
       totalCompanies: companyCount[0].count,
@@ -199,6 +198,14 @@ const getSystemOverview = async () => {
       message: 'システム概要の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -206,9 +213,10 @@ const getSystemOverview = async () => {
  * 企業詳細統計を取得
  */
 const getCompanyStats = async (companyId) => {
+  let connection;
   try {
     // データベース接続テスト
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
     
     // テーブル存在確認
     const [tables] = await connection.execute(`
@@ -242,7 +250,6 @@ const getCompanyStats = async (companyId) => {
     }
     
     if (companyInfo.length === 0) {
-      connection.release();
       return {
         success: false,
         message: '企業が見つかりません',
@@ -291,8 +298,6 @@ const getCompanyStats = async (companyId) => {
       `, [companyId]);
     }
     
-    connection.release();
-    
     const stats = {
       company: companyInfo[0],
       satellites,
@@ -314,6 +319,14 @@ const getCompanyStats = async (companyId) => {
       message: '企業統計の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
@@ -321,11 +334,12 @@ const getCompanyStats = async (companyId) => {
  * アラート情報を取得
  */
 const getAlerts = async () => {
+  let connection;
   try {
     const alerts = [];
     
     // データベース接続テスト
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
     
     // テーブル存在確認
     const [tables] = await connection.execute(`
@@ -396,8 +410,6 @@ const getAlerts = async () => {
       });
     }
     
-    connection.release();
-    
     return {
       success: true,
       data: alerts
@@ -409,6 +421,14 @@ const getAlerts = async () => {
       message: 'アラートの取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 

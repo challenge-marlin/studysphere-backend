@@ -1,272 +1,472 @@
 const { pool } = require('../utils/database');
+const { generateToken, calculateExpiryDate } = require('../utils/tokenManager');
 
 /**
- * 企業の拠点一覧を取得
- * @param {number} companyId - 企業ID
- * @returns {Object} 結果オブジェクト
+ * 拠点情報を取得
  */
-const getSatellitesByCompany = async (companyId) => {
+const getSatellites = async () => {
+  let connection;
   try {
-    const [rows] = await pool.execute(`
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(`
       SELECT 
         s.id,
+        s.company_id,
         s.name,
         s.address,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
         s.max_users,
         s.status,
         s.created_at,
         s.updated_at,
-        COUNT(ua.id) as current_users
+        c.name as company_name,
+        ot.type as office_type_name
       FROM satellites s
-      LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.role = 1 AND ua.status = 1
-      WHERE s.company_id = ?
-      GROUP BY s.id
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
       ORDER BY s.created_at DESC
-    `, [companyId]);
-
+    `);
+    
     return {
       success: true,
       data: rows
     };
   } catch (error) {
-    console.error('Get satellites error:', error);
+    console.error('拠点一覧取得エラー:', error);
     return {
       success: false,
       message: '拠点一覧の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 /**
- * 拠点詳細を取得
- * @param {number} satelliteId - 拠点ID
- * @returns {Object} 結果オブジェクト
+ * 拠点情報をIDで取得
  */
-const getSatelliteById = async (satelliteId) => {
+const getSatelliteById = async (id) => {
+  let connection;
   try {
-    const [rows] = await pool.execute(`
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(`
       SELECT 
-        s.*,
+        s.id,
+        s.company_id,
+        s.name,
+        s.address,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
+        s.max_users,
+        s.status,
+        s.created_at,
+        s.updated_at,
         c.name as company_name,
-        COUNT(ua.id) as current_users
+        ot.type as office_type_name
       FROM satellites s
-      JOIN companies c ON s.company_id = c.id
-      LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.role = 1 AND ua.status = 1
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
       WHERE s.id = ?
-      GROUP BY s.id
-    `, [satelliteId]);
-
+    `, [id]);
+    
     if (rows.length === 0) {
       return {
         success: false,
-        message: '拠点が見つかりません'
+        message: '指定された拠点が見つかりません',
+        error: 'Satellite not found'
       };
     }
-
+    
     return {
       success: true,
       data: rows[0]
     };
   } catch (error) {
-    console.error('Get satellite error:', error);
+    console.error('拠点情報取得エラー:', error);
     return {
       success: false,
-      message: '拠点詳細の取得に失敗しました',
+      message: '拠点情報の取得に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 /**
- * 拠点を作成
- * @param {Object} satelliteData - 拠点データ
- * @param {number} satelliteData.company_id - 企業ID
- * @param {string} satelliteData.name - 拠点名
- * @param {string} satelliteData.address - 拠点住所
- * @param {number} satelliteData.max_users - 利用者上限数
- * @returns {Object} 結果オブジェクト
+ * 拠点情報を作成
  */
 const createSatellite = async (satelliteData) => {
+  const { company_id, name, address, office_type_id, contract_type, max_users } = satelliteData;
+  let connection;
+  
   try {
-    const { company_id, name, address, max_users } = satelliteData;
-
-    // 企業の存在確認
-    const [companyRows] = await pool.execute(
-      'SELECT id FROM companies WHERE id = ?',
-      [company_id]
-    );
-
-    if (companyRows.length === 0) {
-      return {
-        success: false,
-        message: '指定された企業が見つかりません'
-      };
+    connection = await pool.getConnection();
+    
+    // トークン生成
+    const token = generateToken();
+    const tokenIssuedAt = new Date();
+    const tokenExpiryAt = calculateExpiryDate(contract_type || '30days');
+    
+    let officeTypeId = office_type_id;
+    
+    // office_type_idが文字列の場合、IDを取得
+    if (office_type_id && typeof office_type_id === 'string' && isNaN(Number(office_type_id))) {
+      const [typeRows] = await connection.execute(
+        'SELECT id FROM office_types WHERE type = ?',
+        [office_type_id]
+      );
+      
+      if (typeRows.length === 0) {
+        return {
+          success: false,
+          message: '指定された事業所タイプが見つかりません',
+          error: 'Invalid office type'
+        };
+      }
+      
+      officeTypeId = typeRows[0].id;
     }
+    
+    const [result] = await connection.execute(`
+      INSERT INTO satellites (company_id, name, address, office_type_id, token, token_issued_at, token_expiry_at, contract_type, max_users)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [company_id, name, address, officeTypeId, token, tokenIssuedAt, tokenExpiryAt, contract_type || '30days', max_users || 10]);
 
-    // 拠点作成
-    const [result] = await pool.execute(`
-      INSERT INTO satellites (company_id, name, address, max_users)
-      VALUES (?, ?, ?, ?)
-    `, [company_id, name, address, max_users]);
+    const satelliteId = result.insertId;
+    
+    // 作成された拠点情報を取得
+    const [rows] = await connection.execute(`
+      SELECT 
+        s.id,
+        s.company_id,
+        s.name,
+        s.address,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
+        s.max_users,
+        s.status,
+        s.created_at,
+        s.updated_at,
+        c.name as company_name,
+        ot.type as office_type_name
+      FROM satellites s
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
+      WHERE s.id = ?
+    `, [satelliteId]);
 
     return {
       success: true,
-      message: '拠点が作成されました',
-      data: { id: result.insertId }
+      message: '拠点情報が正常に作成されました',
+      data: rows[0]
     };
   } catch (error) {
-    console.error('Create satellite error:', error);
+    console.error('拠点情報作成エラー:', error);
     return {
       success: false,
-      message: '拠点の作成に失敗しました',
+      message: '拠点情報の作成に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 /**
- * 拠点を更新
- * @param {number} satelliteId - 拠点ID
- * @param {Object} satelliteData - 更新データ
- * @returns {Object} 結果オブジェクト
+ * 拠点情報を更新
  */
-const updateSatellite = async (satelliteId, satelliteData) => {
+const updateSatellite = async (id, satelliteData) => {
+  const { name, address, office_type_id, contract_type, max_users, status } = satelliteData;
+  let connection;
+  
   try {
-    const { name, address, max_users, status } = satelliteData;
-
+    connection = await pool.getConnection();
+    
     // 拠点の存在確認
-    const [existingRows] = await pool.execute(
+    const [existingRows] = await connection.execute(
       'SELECT id FROM satellites WHERE id = ?',
-      [satelliteId]
+      [id]
+    );
+    
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '指定された拠点が見つかりません',
+        error: 'Satellite not found'
+      };
+    }
+    
+    // 更新フィールドを動的に構築
+    const updateFields = [];
+    const updateValues = [];
+    
+    if (name !== undefined) {
+      updateFields.push('name = ?');
+      updateValues.push(name);
+    }
+    if (address !== undefined) {
+      updateFields.push('address = ?');
+      updateValues.push(address);
+    }
+    if (office_type_id !== undefined) {
+      let officeTypeId = office_type_id;
+      
+      // office_type_idが文字列の場合、IDを取得
+      if (office_type_id && typeof office_type_id === 'string' && isNaN(Number(office_type_id))) {
+        const [typeRows] = await connection.execute(
+          'SELECT id FROM office_types WHERE type = ?',
+          [office_type_id]
+        );
+        
+        if (typeRows.length === 0) {
+          return {
+            success: false,
+            message: '指定された事業所タイプが見つかりません',
+            error: 'Invalid office type'
+          };
+        }
+        
+        officeTypeId = typeRows[0].id;
+      }
+      
+      updateFields.push('office_type_id = ?');
+      updateValues.push(officeTypeId);
+    }
+    if (contract_type !== undefined) {
+      updateFields.push('contract_type = ?');
+      updateValues.push(contract_type);
+    }
+    if (max_users !== undefined) {
+      updateFields.push('max_users = ?');
+      updateValues.push(max_users);
+    }
+    if (status !== undefined) {
+      updateFields.push('status = ?');
+      updateValues.push(status);
+    }
+    
+    if (updateFields.length === 0) {
+      return {
+        success: false,
+        message: '更新するデータがありません',
+        error: 'No data to update'
+      };
+    }
+    
+    updateValues.push(id);
+    
+    const [result] = await connection.execute(`
+      UPDATE satellites 
+      SET ${updateFields.join(', ')}, updated_at = NOW()
+      WHERE id = ?
+    `, updateValues);
+    
+    if (result.affectedRows === 0) {
+      return {
+        success: false,
+        message: '拠点情報の更新に失敗しました',
+        error: 'Update failed'
+      };
+    }
+    
+    // 更新された拠点情報を取得
+    const [rows] = await connection.execute(`
+      SELECT 
+        s.id,
+        s.company_id,
+        s.name,
+        s.address,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
+        s.max_users,
+        s.status,
+        s.created_at,
+        s.updated_at,
+        c.name as company_name,
+        ot.type as office_type_name
+      FROM satellites s
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
+      WHERE s.id = ?
+    `, [id]);
+    
+    return {
+      success: true,
+      message: '拠点情報が正常に更新されました',
+      data: rows[0]
+    };
+  } catch (error) {
+    console.error('拠点情報更新エラー:', error);
+    return {
+      success: false,
+      message: '拠点情報の更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点情報を削除
+ */
+const deleteSatellite = async (id) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id FROM satellites WHERE id = ?',
+      [id]
     );
 
     if (existingRows.length === 0) {
       return {
         success: false,
-        message: '拠点が見つかりません'
+        message: '拠点が見つかりません',
+        statusCode: 404
       };
     }
 
-    // 拠点更新
-    await pool.execute(`
-      UPDATE satellites 
-      SET name = ?, address = ?, max_users = ?, status = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [name, address, max_users, status, satelliteId]);
-
-    return {
-      success: true,
-      message: '拠点が更新されました'
-    };
-  } catch (error) {
-    console.error('Update satellite error:', error);
-    return {
-      success: false,
-      message: '拠点の更新に失敗しました',
-      error: error.message
-    };
-  }
-};
-
-/**
- * 拠点を削除
- * @param {number} satelliteId - 拠点ID
- * @returns {Object} 結果オブジェクト
- */
-const deleteSatellite = async (satelliteId) => {
-  try {
-    // 拠点に所属する利用者がいるかチェック
-    const [userRows] = await pool.execute(
-      'SELECT COUNT(*) as count FROM user_accounts WHERE satellite_id = ? AND role = 1',
-      [satelliteId]
+    // 関連するユーザーがいるかチェック
+    const [userRows] = await connection.execute(
+      'SELECT COUNT(*) as count FROM user_accounts WHERE satellite_id = ?',
+      [id]
     );
 
     if (userRows[0].count > 0) {
       return {
         success: false,
-        message: '拠点に所属する利用者がいるため削除できません'
+        message: 'この拠点に所属するユーザーが存在するため削除できません',
+        statusCode: 400
       };
     }
 
-    // 拠点削除
-    const [result] = await pool.execute(
-      'DELETE FROM satellites WHERE id = ?',
-      [satelliteId]
-    );
-
-    if (result.affectedRows === 0) {
-      return {
-        success: false,
-        message: '拠点が見つかりません'
-      };
-    }
+    await connection.execute('DELETE FROM satellites WHERE id = ?', [id]);
 
     return {
       success: true,
-      message: '拠点が削除されました'
+      message: '拠点情報が正常に削除されました'
     };
   } catch (error) {
-    console.error('Delete satellite error:', error);
+    console.error('拠点情報削除エラー:', error);
     return {
       success: false,
-      message: '拠点の削除に失敗しました',
+      message: '拠点情報の削除に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 /**
- * 拠点の利用者数を取得
- * @param {number} satelliteId - 拠点ID
- * @returns {Object} 結果オブジェクト
+ * トークンを再生成
  */
-const getSatelliteUserCount = async (satelliteId) => {
+const regenerateToken = async (id, contract_type) => {
+  let connection;
   try {
-    const [rows] = await pool.execute(`
-      SELECT 
-        s.max_users,
-        COUNT(ua.id) as current_users
-      FROM satellites s
-      LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.role = 1 AND ua.status = 1
-      WHERE s.id = ?
-      GROUP BY s.id
-    `, [satelliteId]);
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id FROM satellites WHERE id = ?',
+      [id]
+    );
 
-    if (rows.length === 0) {
+    if (existingRows.length === 0) {
       return {
         success: false,
-        message: '拠点が見つかりません'
+        message: '拠点が見つかりません',
+        statusCode: 404
       };
     }
 
-    const data = rows[0];
-    const availableSlots = data.max_users - data.current_users;
+    // 新しいトークンを生成
+    const token = generateToken();
+    const tokenIssuedAt = new Date();
+    const tokenExpiryAt = calculateExpiryDate(contract_type || '30days');
+
+    await connection.execute(`
+      UPDATE satellites 
+      SET token = ?, token_issued_at = ?, token_expiry_at = ?, contract_type = ?
+      WHERE id = ?
+    `, [token, tokenIssuedAt, tokenExpiryAt, contract_type || '30days', id]);
 
     return {
       success: true,
-      data: {
-        max_users: data.max_users,
-        current_users: data.current_users,
-        available_slots: availableSlots,
-        is_full: availableSlots <= 0
-      }
+      message: 'トークンが正常に再生成されました',
+      data: { token, token_issued_at: tokenIssuedAt, token_expiry_at: tokenExpiryAt }
     };
   } catch (error) {
-    console.error('Get satellite user count error:', error);
+    console.error('トークン再生成エラー:', error);
     return {
       success: false,
-      message: '利用者数の取得に失敗しました',
+      message: 'トークンの再生成に失敗しました',
       error: error.message
     };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
 };
 
 module.exports = {
-  getSatellitesByCompany,
+  getSatellites,
   getSatelliteById,
   createSatellite,
   updateSatellite,
   deleteSatellite,
-  getSatelliteUserCount
+  regenerateToken
 }; 

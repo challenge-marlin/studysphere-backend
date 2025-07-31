@@ -21,11 +21,11 @@ CREATE TABLE `companies` (
     `name` VARCHAR(255) NOT NULL COMMENT '企業名（管理者以上のユーザ名として使用）',
     `address` TEXT DEFAULT NULL COMMENT '企業住所',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '企業電話番号',
-    `office_type_id` INT DEFAULT NULL COMMENT '事業所タイプID',
-    `token_issued_at` DATETIME NOT NULL COMMENT 'トークン発行日',
-    `token_expiry_at` DATETIME NOT NULL COMMENT 'トークン有効期限',
-    `max_users` INT NOT NULL DEFAULT 5 COMMENT 'ロール1の上限登録人数',
-    FOREIGN KEY (`office_type_id`) REFERENCES `office_types`(`id`) ON DELETE SET NULL
+    `token` VARCHAR(14) DEFAULT NULL COMMENT '管理符号トークン（形式：XXXX-XXXX-XXXX）',
+    `token_issued_at` DATETIME DEFAULT NULL COMMENT 'トークン発行日時',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    UNIQUE KEY `unique_company_token` (`token`)
 ) COMMENT = '企業情報テーブル';
 
 -- 拠点（サテライト）テーブル
@@ -34,29 +34,38 @@ CREATE TABLE `satellites` (
     `company_id` INT NOT NULL COMMENT '所属企業ID',
     `name` VARCHAR(255) NOT NULL COMMENT '拠点名',
     `address` TEXT NOT NULL COMMENT '拠点住所',
+    `office_type_id` INT DEFAULT NULL COMMENT '事業所タイプID',
+    `token` VARCHAR(14) DEFAULT NULL COMMENT '拠点トークン（形式：XXXX-XXXX-XXXX）',
+    `contract_type` ENUM('30days', '90days', '1year') DEFAULT '30days' COMMENT '契約タイプ',
     `max_users` INT NOT NULL DEFAULT 10 COMMENT '利用者（ロール1）の上限登録人数',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT 'ステータス（1=稼働中、0=停止中）',
+    `manager_ids` JSON DEFAULT NULL COMMENT '管理者（ロール5）のユーザーID配列',
+    `token_issued_at` DATETIME NOT NULL COMMENT 'トークン発行日',
+    `token_expiry_at` DATETIME NOT NULL COMMENT 'トークン有効期限',
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`office_type_id`) REFERENCES `office_types`(`id`) ON DELETE SET NULL,
     INDEX `idx_company_id` (`company_id`),
-    INDEX `idx_status` (`status`)
+    INDEX `idx_status` (`status`),
+    INDEX `idx_manager_ids` ((CAST(`manager_ids` AS CHAR(100)))),
+    UNIQUE KEY `unique_satellite_token` (`token`)
 ) COMMENT = '拠点（サテライト）テーブル';
 
 -- ユーザー情報テーブル
 CREATE TABLE `user_accounts` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ユーザーID',
     `name` VARCHAR(255) NOT NULL COMMENT 'ユーザー名（個人名または企業名）',
-    `role` TINYINT NOT NULL COMMENT 'ロール（9=アドミン、5=管理者、1=利用者）',
+    `role` TINYINT NOT NULL COMMENT 'ロール（9=アドミン、5=管理者、4=指導員、1=利用者）',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT 'ステータス（1=稼働中、0=停止中）',
     `login_code` CHAR(14) NOT NULL COMMENT 'ログインコード（形式：XXXX-XXXX-XXXX）',
     `company_id` INT DEFAULT NULL COMMENT '所属企業ID（利用者は必須、管理者以上はNULL可）',
-    `satellite_id` INT DEFAULT NULL COMMENT '所属拠点ID（利用者専用、拠点所属の場合）',
+    `satellite_ids` JSON DEFAULT NULL COMMENT '所属拠点ID配列（複数拠点対応）',
     `is_remote_user` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '在宅支援対象（ロール1専用）',
     `recipient_number` VARCHAR(30) DEFAULT NULL COMMENT '受給者証番号',
     UNIQUE KEY `unique_login_code` (`login_code`),
     FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY (`satellite_id`) REFERENCES `satellites`(`id`) ON DELETE SET NULL
+    INDEX `idx_satellite_ids` ((CAST(`satellite_ids` AS CHAR(100))))
 ) COMMENT = 'ユーザー情報テーブル';
 
 -- 管理者認証テーブル（ロール5以上専用）
@@ -288,25 +297,25 @@ INSERT INTO `office_types` (`id`, `type`) VALUES
 (9, 'その他');
 
 -- 企業情報のサンプル
-INSERT INTO `companies` (`name`, `token_issued_at`, `token_expiry_at`, `max_users`) VALUES
-('アドミニストレータ', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), 100),
-('スタディスフィア株式会社', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), 50),
-('テックサポート株式会社', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), 30);
+INSERT INTO `companies` (`name`) VALUES
+('アドミニストレータ'),
+('スタディスフィア株式会社'),
+('テックサポート株式会社');
 
 -- 拠点情報のサンプル
-INSERT INTO `satellites` (`company_id`, `name`, `address`, `max_users`, `status`) VALUES
-(2, '東京本校', '東京都渋谷区渋谷1-1-1 スタディスフィアビル1F', 20, 1),
-(2, '大阪支校', '大阪府大阪市北区梅田1-1-1 梅田ビジネスセンター2F', 15, 1),
-(2, '名古屋支校', '愛知県名古屋市中区栄1-1-1 栄ビジネスパーク3F', 10, 1),
-(3, 'テックサポート東京オフィス', '東京都新宿区新宿1-1-1 新宿スカイタワー5F', 15, 1),
-(3, 'テックサポート大阪オフィス', '大阪府大阪市中央区本町1-1-1 本町ビジネスセンター4F', 10, 1);
+INSERT INTO `satellites` (`company_id`, `name`, `address`, `max_users`, `status`, `manager_ids`, `token_issued_at`, `token_expiry_at`) VALUES
+(2, '東京本校', '東京都渋谷区渋谷1-1-1 スタディスフィアビル1F', 20, 1, '[2]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+(2, '大阪支校', '大阪府大阪市北区梅田1-1-1 梅田ビジネスセンター2F', 15, 1, '[3]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+(2, '名古屋支校', '愛知県名古屋市中区栄1-1-1 栄ビジネスパーク3F', 10, 1, '[2, 3]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+(3, 'テックサポート東京オフィス', '東京都新宿区新宿1-1-1 新宿スカイタワー5F', 15, 1, '[4]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+(3, 'テックサポート大阪オフィス', '大阪府大阪市中央区本町1-1-1 本町ビジネスセンター4F', 10, 1, '[4]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR));
 
 -- ユーザーアカウントのサンプル（管理者）
-INSERT INTO `user_accounts` (`name`, `role`, `status`, `login_code`, `company_id`) VALUES
-('アドミン', 9, 1, 'ADMN-0001-0001', 1),
-('佐藤指導員', 5, 1, 'INSTR-0001-0001', 2),
-('田中指導員', 5, 1, 'INSTR-0001-0002', 2),
-('山田指導員', 5, 1, 'INSTR-0002-0001', 3);
+INSERT INTO `user_accounts` (`name`, `role`, `status`, `login_code`, `company_id`, `satellite_ids`) VALUES
+('アドミン', 9, 1, 'ADMN-0001-0001', 1, NULL),
+('佐藤指導員', 5, 1, 'INSTR-0001-0001', 2, '[1, 3]'),
+('田中指導員', 5, 1, 'INSTR-0001-0002', 2, '[2]'),
+('山田指導員', 5, 1, 'INSTR-0002-0001', 3, '[4, 5]');
 
 -- 管理者認証情報のサンプル
 INSERT INTO `admin_credentials` (`user_id`, `username`, `password_hash`) VALUES

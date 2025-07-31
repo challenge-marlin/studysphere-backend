@@ -11,8 +11,10 @@ const generateHash = async (password) => {
 
 // 管理者アカウント用のハッシュを生成
 generateHash('admin123')
-  .then(() => {
-    console.log('\nハッシュ生成完了！');
+  .then((hash) => {
+    console.log('\n=== 復元エンドポイント用のハッシュ ===');
+    console.log('新しいハッシュ:', hash);
+    console.log('\nこのハッシュを復元エンドポイントで使用してください。');
     process.exit(0);
   })
   .catch(error => {

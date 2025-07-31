@@ -1,0 +1,31 @@
+{
+  "watch": [
+    ".",
+    "../db"
+  ],
+  "ext": "js,json,sql",
+  "ignore": [
+    "node_modules",
+    "*.test.js",
+    "*.spec.js",
+    "logs",
+    "*.log",
+    "proc",
+    "/proc",
+    "../proc",
+    "**/proc/**",
+    "**/proc",
+    "proc/**",
+    "**/net/**",
+    "**/ns/**",
+    "**/task/**",
+    "**/root/**"
+  ],
+  "env": {
+    "NODE_ENV": "development"
+  },
+  "delay": "1000",
+  "verbose": false,
+  "legacyWatch": true,
+  "polling": false
+} 
