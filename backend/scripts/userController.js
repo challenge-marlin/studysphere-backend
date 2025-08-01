@@ -1,16 +1,83 @@
 const { pool } = require('../utils/database');
+const bcrypt = require('bcryptjs');
+const { customLogger } = require('../utils/logger');
 
 // ユーザー一覧取得
 const getUsers = async () => {
   let connection;
   try {
     connection = await pool.getConnection();
+    
+    // ユーザー情報を取得
     const [rows] = await connection.execute('SELECT * FROM user_accounts');
+    console.log('取得したユーザー数:', rows.length);
+    
+    // 拠点情報を取得
+    const [satellites] = await connection.execute(`
+      SELECT s.*, c.name as company_name, ot.type as office_type_name
+      FROM satellites s
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
+    `);
+    console.log('取得した拠点数:', satellites.length);
+    console.log('拠点データ:', satellites);
+    
+    // 拠点情報をマップ化
+    const satelliteMap = {};
+    satellites.forEach(sat => {
+      satelliteMap[Number(sat.id)] = {
+        id: sat.id,
+        name: sat.name,
+        address: sat.address,
+        phone: sat.phone,
+        company_name: sat.company_name,
+        office_type_name: sat.office_type_name
+      };
+    });
+    console.log('拠点マップ:', satelliteMap);
+    
+    // ユーザー情報に拠点情報を追加
+    const processedRows = rows.map(row => {
+      const user = { ...row };
+      
+      // satellite_idsから拠点情報を取得
+      let satelliteDetails = [];
+      if (user.satellite_ids) {
+        try {
+          const satelliteIds = JSON.parse(user.satellite_ids);
+          console.log(`ユーザー${user.id}の拠点ID:`, satelliteIds);
+          console.log(`ユーザー${user.id}の拠点IDの型:`, typeof satelliteIds);
+          console.log(`拠点マップのキー:`, Object.keys(satelliteMap));
+          
+          // satelliteIdsが配列でない場合は配列に変換
+          const idsArray = Array.isArray(satelliteIds) ? satelliteIds : [satelliteIds];
+          
+          satelliteDetails = idsArray
+            .map(id => {
+              const mappedSatellite = satelliteMap[Number(id)];
+              console.log(`拠点ID ${id} のマッピング結果:`, mappedSatellite);
+              return mappedSatellite;
+            })
+            .filter(sat => sat); // nullの要素を除外
+          console.log(`ユーザー${user.id}の拠点詳細:`, satelliteDetails);
+        } catch (e) {
+          console.error('拠点IDのパースエラー:', e);
+          console.error('パース対象のsatellite_ids:', user.satellite_ids);
+          satelliteDetails = [];
+        }
+      } else {
+        console.log(`ユーザー${user.id}のsatellite_idsはnullまたはundefined`);
+      }
+      
+      user.satellite_details = satelliteDetails;
+      return user;
+    });
+    
     return {
       success: true,
       data: {
-        users: rows,
-        count: rows.length
+        users: processedRows,
+        count: processedRows.length
       }
     };
   } catch (error) {
@@ -365,6 +432,255 @@ const removeSatelliteFromUser = async (userId, satelliteId) => {
   }
 };
 
+// ユーザー作成
+const createUser = async (userData) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // トランザクション開始
+    await connection.beginTransaction();
+    
+    // ログインコードの生成（指定されていない場合）
+    // XXXX-XXXX-XXXX形式（英数大文字小文字交じり）
+    const generateLoginCode = () => {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      const generatePart = () => {
+        let result = '';
+        for (let i = 0; i < 4; i++) {
+          result += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return result;
+      };
+      return `${generatePart()}-${generatePart()}-${generatePart()}`;
+    };
+    
+
+    
+    const loginCode = userData.login_code || generateLoginCode();
+    
+    // ユーザー作成
+    const [result] = await connection.execute(
+      `INSERT INTO user_accounts (
+        name, 
+        email,
+        role, 
+        status, 
+        login_code, 
+        company_id, 
+        satellite_ids
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userData.name,
+        userData.email || null,
+        userData.role || 1,
+        userData.status || 1,
+        loginCode,
+        userData.company_id || 4,
+        JSON.stringify(userData.satellite_ids || [])
+      ]
+    );
+
+    const userId = result.insertId;
+
+    // ロール4以上（指導員・管理者）の場合は認証情報も作成
+    if (userData.role >= 4) {
+      const hashedPassword = await bcrypt.hash(userData.password || 'defaultPassword123', 10);
+      
+      await connection.execute(
+        `INSERT INTO admin_credentials (
+          user_id, 
+          username, 
+          password_hash
+        ) VALUES (?, ?, ?)`,
+        [
+          userId,
+          userData.name, // ユーザー名をログインIDとして使用
+          hashedPassword
+        ]
+      );
+    }
+
+    // トランザクションコミット
+    await connection.commit();
+
+    return {
+      success: true,
+      message: 'ユーザーが正常に作成されました',
+      data: {
+        id: userId,
+        name: userData.name,
+        role: userData.role,
+        login_code: loginCode
+      }
+    };
+  } catch (error) {
+    // エラー時はロールバック
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Error creating user:', error);
+    return {
+      success: false,
+      message: 'ユーザーの作成に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// ユーザー更新
+const updateUser = async (userId, updateData) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 更新可能なフィールドを構築
+    const updateFields = [];
+    const updateValues = [];
+    
+    if (updateData.name !== undefined) {
+      updateFields.push('name = ?');
+      updateValues.push(updateData.name);
+    }
+    
+    if (updateData.email !== undefined) {
+      updateFields.push('email = ?');
+      updateValues.push(updateData.email);
+    }
+    
+    if (updateData.role !== undefined) {
+      updateFields.push('role = ?');
+      updateValues.push(updateData.role);
+    }
+    
+    if (updateData.status !== undefined) {
+      updateFields.push('status = ?');
+      updateValues.push(updateData.status);
+    }
+    
+    if (updateData.satellite_ids !== undefined) {
+      updateFields.push('satellite_ids = ?');
+      updateValues.push(JSON.stringify(updateData.satellite_ids));
+    }
+    
+    if (updateFields.length === 0) {
+      return {
+        success: false,
+        message: '更新するフィールドが指定されていません'
+      };
+    }
+    
+    updateValues.push(userId);
+    
+    const [result] = await connection.execute(
+      `UPDATE user_accounts SET ${updateFields.join(', ')} WHERE id = ?`,
+      updateValues
+    );
+
+    if (result.affectedRows === 0) {
+      return {
+        success: false,
+        message: '指定されたユーザーが見つかりません'
+      };
+    }
+
+    return {
+      success: true,
+      message: 'ユーザーが正常に更新されました'
+    };
+  } catch (error) {
+    console.error('Error updating user:', error);
+    return {
+      success: false,
+      message: 'ユーザーの更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// パスワードリセット
+const resetUserPassword = async (userId, resetData) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザーの存在確認
+    const [userRows] = await connection.execute(
+      'SELECT id, name FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: '指定されたユーザーが見つかりません'
+      };
+    }
+
+    let hashedPassword;
+    if (resetData.tempPassword) {
+      // 一時パスワードを設定
+      hashedPassword = await bcrypt.hash(resetData.tempPassword, 10);
+    } else {
+      // デフォルトパスワードを設定
+      hashedPassword = await bcrypt.hash('defaultPassword123', 10);
+    }
+    
+    // admin_credentialsテーブルを更新
+    const [result] = await connection.execute(
+      'UPDATE admin_credentials SET password_hash = ? WHERE user_id = ?',
+      [hashedPassword, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      // admin_credentialsにレコードがない場合は新規作成
+      await connection.execute(
+        'INSERT INTO admin_credentials (user_id, username, password_hash) VALUES (?, ?, ?)',
+        [userId, userRows[0].name, hashedPassword]
+      );
+    }
+
+    return {
+      success: true,
+      message: 'パスワードが正常にリセットされました',
+      data: {
+        tempPassword: resetData.tempPassword || 'defaultPassword123'
+      }
+    };
+  } catch (error) {
+    console.error('Error resetting user password:', error);
+    return {
+      success: false,
+      message: 'パスワードのリセットに失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
@@ -373,5 +689,8 @@ module.exports = {
   getUserSatellites,
   getSatelliteUsers,
   addSatelliteToUser,
-  removeSatelliteFromUser
+  removeSatelliteFromUser,
+  createUser,
+  updateUser,
+  resetUserPassword
 }; 

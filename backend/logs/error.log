@@ -60,3 +60,111 @@
   "service": "curriculum-portal-backend",
   "error": "Can't add new command when connection is in closed state"
 }
+2025-07-31 15:24:48 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 12:17:53 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:08:25 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:14:40 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:20:39 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:29:09 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:33:13 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:36:21 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:38:21 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:45:57 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:46:27 [ERROR]: 拠点IDのパースエラー: {
+  "service": "curriculum-portal-backend",
+  "error": "satelliteIds.map is not a function"
+}
+2025-08-01 13:46:27 [ERROR]: 拠点IDのパースエラー: {
+  "service": "curriculum-portal-backend",
+  "error": "satelliteIds.map is not a function"
+}
+2025-08-01 13:48:31 [ERROR]: 拠点IDのパースエラー: {
+  "service": "curriculum-portal-backend",
+  "error": "satelliteIds.map is not a function"
+}
+2025-08-01 13:49:05 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:49:36 [ERROR]: 拠点IDのパースエラー: {
+  "service": "curriculum-portal-backend",
+  "error": "satelliteIds.map is not a function"
+}
+2025-08-01 13:49:36 [ERROR]: 拠点IDのパースエラー: {
+  "service": "curriculum-portal-backend",
+  "error": "satelliteIds.map is not a function"
+}
+2025-08-01 13:52:18 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 13:54:03 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:07:19 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:08:44 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:13:46 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:16:52 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:18:08 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:32:49 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:36:24 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:40:03 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-01 14:40:37 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}

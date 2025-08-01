@@ -34,6 +34,7 @@ CREATE TABLE `satellites` (
     `company_id` INT NOT NULL COMMENT '所属企業ID',
     `name` VARCHAR(255) NOT NULL COMMENT '拠点名',
     `address` TEXT NOT NULL COMMENT '拠点住所',
+    `phone` VARCHAR(20) DEFAULT NULL COMMENT '拠点電話番号',
     `office_type_id` INT DEFAULT NULL COMMENT '事業所タイプID',
     `token` VARCHAR(14) DEFAULT NULL COMMENT '拠点トークン（形式：XXXX-XXXX-XXXX）',
     `contract_type` ENUM('30days', '90days', '1year') DEFAULT '30days' COMMENT '契約タイプ',
@@ -56,6 +57,7 @@ CREATE TABLE `satellites` (
 CREATE TABLE `user_accounts` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ユーザーID',
     `name` VARCHAR(255) NOT NULL COMMENT 'ユーザー名（個人名または企業名）',
+    `email` VARCHAR(255) DEFAULT NULL COMMENT 'メールアドレス',
     `role` TINYINT NOT NULL COMMENT 'ロール（9=アドミン、5=管理者、4=指導員、1=利用者）',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT 'ステータス（1=稼働中、0=停止中）',
     `login_code` CHAR(14) NOT NULL COMMENT 'ログインコード（形式：XXXX-XXXX-XXXX）',
@@ -65,10 +67,11 @@ CREATE TABLE `user_accounts` (
     `recipient_number` VARCHAR(30) DEFAULT NULL COMMENT '受給者証番号',
     UNIQUE KEY `unique_login_code` (`login_code`),
     FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
-    INDEX `idx_satellite_ids` ((CAST(`satellite_ids` AS CHAR(100))))
+    INDEX `idx_satellite_ids` ((CAST(`satellite_ids` AS CHAR(100)))),
+    INDEX `idx_email` (`email`)
 ) COMMENT = 'ユーザー情報テーブル';
 
--- 管理者認証テーブル（ロール5以上専用）
+-- 管理者認証テーブル（ロール4以上専用）
 CREATE TABLE `admin_credentials` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '認証ID',
     `user_id` INT NOT NULL COMMENT 'ユーザーID（user_accounts.id）',
@@ -77,11 +80,10 @@ CREATE TABLE `admin_credentials` (
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     `last_login_at` DATETIME DEFAULT NULL COMMENT '最終ログイン日時',
-    UNIQUE KEY `unique_username` (`username`),
     UNIQUE KEY `unique_user_id` (`user_id`),
     FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
     INDEX `idx_username` (`username`)
-) COMMENT = '管理者認証テーブル（ロール5以上専用）';
+) COMMENT = '管理者認証テーブル（ロール4以上専用）';
 
 -- カリキュラム進行状況テーブル
 CREATE TABLE `curriculum_progress` (
@@ -282,44 +284,13 @@ CREATE TABLE `deliverables` (
     INDEX (`user_id`, `curriculum_name`, `session_number`)
 ) COMMENT = 'カリキュラム成果物ファイル情報';
 
--- サンプルデータの挿入
-
--- 事業所タイプのサンプル
-INSERT INTO `office_types` (`id`, `type`) VALUES
-(1, '就労移行支援事務所'),
-(2, '就労継続支援A型事務所'),
-(3, '就労継続支援B型事務所'),
-(4, '生活介護事務所'),
-(5, '自立訓練事務所'),
-(6, '就労定着支援事務所'),
-(7, '地域活動支援センター'),
-(8, '福祉ホーム'),
-(9, 'その他');
-
--- 企業情報のサンプル
-INSERT INTO `companies` (`name`) VALUES
-('アドミニストレータ'),
-('スタディスフィア株式会社'),
-('テックサポート株式会社');
-
--- 拠点情報のサンプル
-INSERT INTO `satellites` (`company_id`, `name`, `address`, `max_users`, `status`, `manager_ids`, `token_issued_at`, `token_expiry_at`) VALUES
-(2, '東京本校', '東京都渋谷区渋谷1-1-1 スタディスフィアビル1F', 20, 1, '[2]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
-(2, '大阪支校', '大阪府大阪市北区梅田1-1-1 梅田ビジネスセンター2F', 15, 1, '[3]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
-(2, '名古屋支校', '愛知県名古屋市中区栄1-1-1 栄ビジネスパーク3F', 10, 1, '[2, 3]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
-(3, 'テックサポート東京オフィス', '東京都新宿区新宿1-1-1 新宿スカイタワー5F', 15, 1, '[4]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
-(3, 'テックサポート大阪オフィス', '大阪府大阪市中央区本町1-1-1 本町ビジネスセンター4F', 10, 1, '[4]', NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR));
-
--- ユーザーアカウントのサンプル（管理者）
-INSERT INTO `user_accounts` (`name`, `role`, `status`, `login_code`, `company_id`, `satellite_ids`) VALUES
-('アドミン', 9, 1, 'ADMN-0001-0001', 1, NULL),
-('佐藤指導員', 5, 1, 'INSTR-0001-0001', 2, '[1, 3]'),
-('田中指導員', 5, 1, 'INSTR-0001-0002', 2, '[2]'),
-('山田指導員', 5, 1, 'INSTR-0002-0001', 3, '[4, 5]');
-
--- 管理者認証情報のサンプル
-INSERT INTO `admin_credentials` (`user_id`, `username`, `password_hash`) VALUES
-(1, 'admin001', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3bp.gS8O.m'), -- admin123
-(2, 'instructor001', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3bp.gS8O.m'), -- instructor123
-(3, 'instructor002', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3bp.gS8O.m'), -- instructor123
-(4, 'instructor003', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj3bp.gS8O.m'); -- instructor123
+-- 指導者専門分野テーブル
+CREATE TABLE `instructor_specializations` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '専門分野ID',
+    `user_id` INT NOT NULL COMMENT '指導者のユーザーID（user_accounts.id）',
+    `specialization` VARCHAR(255) NOT NULL COMMENT '専門分野（テキスト形式）',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    INDEX `idx_user_id` (`user_id`)
+) COMMENT = '指導者専門分野テーブル';

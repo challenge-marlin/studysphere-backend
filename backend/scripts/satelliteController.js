@@ -115,6 +115,79 @@ const getSatelliteById = async (id) => {
 };
 
 /**
+ * 複数の拠点情報をIDで取得
+ */
+const getSatellitesByIds = async (ids) => {
+  let connection;
+  try {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+      return {
+        success: true,
+        data: []
+      };
+    }
+
+    connection = await pool.getConnection();
+    
+    // IDを数値に変換してデバッグログを追加
+    const numericIds = ids.map(id => Number(id));
+    console.log('getSatellitesByIds 呼び出し:', { originalIds: ids, numericIds });
+    
+    // データベース内の全拠点IDを確認
+    const [allSatellites] = await connection.execute('SELECT id, name FROM satellites ORDER BY id');
+    console.log('データベース内の全拠点:', allSatellites);
+    
+    const placeholders = numericIds.map(() => '?').join(',');
+    const [rows] = await connection.execute(`
+      SELECT 
+        s.id,
+        s.company_id,
+        s.name,
+        s.address,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
+        s.max_users,
+        s.status,
+        s.created_at,
+        s.updated_at,
+        c.name as company_name,
+        ot.type as office_type_name
+      FROM satellites s
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
+      WHERE s.id IN (${placeholders})
+      ORDER BY s.id
+    `, numericIds);
+    
+    console.log('getSatellitesByIds 結果:', { foundCount: rows.length, data: rows });
+    
+    return {
+      success: true,
+      data: rows
+    };
+  } catch (error) {
+    console.error('複数拠点情報取得エラー:', error);
+    console.error('エラー詳細:', { ids, errorMessage: error.message, errorStack: error.stack });
+    return {
+      success: false,
+      message: '拠点情報の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
  * 拠点情報を作成
  */
 const createSatellite = async (satelliteData) => {
@@ -482,6 +555,7 @@ const regenerateToken = async (id, contract_type) => {
 module.exports = {
   getSatellites,
   getSatelliteById,
+  getSatellitesByIds,
   createSatellite,
   updateSatellite,
   deleteSatellite,

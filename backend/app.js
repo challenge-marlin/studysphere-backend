@@ -35,11 +35,15 @@ const {
   getUserSatellites,
   getSatelliteUsers,
   addSatelliteToUser,
-  removeSatelliteFromUser
+  removeSatelliteFromUser,
+  createUser,
+  updateUser,
+  resetUserPassword
 } = require('./scripts/userController');
 const { 
   getSatellites, 
   getSatelliteById, 
+  getSatellitesByIds,
   createSatellite, 
   updateSatellite, 
   deleteSatellite,
@@ -68,6 +72,16 @@ const {
   getCompanyStats,
   getAlerts
 } = require('./scripts/dashboardController');
+
+// 指導者専門分野管理コントローラーのインポート
+const {
+  getInstructorSpecializations,
+  addInstructorSpecialization,
+  setInstructorSpecializations,
+  deleteInstructorSpecialization,
+  getSatelliteInstructors,
+  getSatelliteStats
+} = require('./scripts/instructorSpecializationController');
 
 // ログ管理コントローラーのインポート
 const {
@@ -342,11 +356,14 @@ app.get('/', async (req, res) => {
 });
 
 // ユーザー一覧取得エンドポイント
-app.get('/users', async (req, res) => {
+app.get('/api/users', async (req, res) => {
+  console.log('GET /api/users エンドポイントが呼び出されました');
   const result = await getUsers();
+  console.log('getUsers の結果:', result);
+  console.log('getUsers の結果の詳細:', JSON.stringify(result, null, 2));
   
   if (result.success) {
-    res.json(result.data);
+    res.json(result.data.users);
   } else {
     res.status(500).json({
       message: result.message,
@@ -356,30 +373,15 @@ app.get('/users', async (req, res) => {
 });
 
 // ユーザー作成エンドポイント
-app.post('/users', async (req, res) => {
+app.post('/api/users', async (req, res) => {
   try {
-    const { pool } = require('./utils/database');
-    const { name, role, status, login_code, company_id, satellite_ids, is_remote_user, recipient_number } = req.body;
-
-    // 必須フィールドの検証
-    if (!name || !role || !login_code) {
-      return res.status(400).json({
-        success: false,
-        message: '名前、ロール、ログインコードは必須です'
-      });
+    const result = await createUser(req.body);
+    
+    if (result.success) {
+      res.status(201).json(result);
+    } else {
+      res.status(400).json(result);
     }
-
-    // ユーザー作成
-    const [result] = await pool.execute(`
-      INSERT INTO user_accounts (name, role, status, login_code, company_id, satellite_ids, is_remote_user, recipient_number)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [name, role, status || 1, login_code, company_id, satellite_ids ? JSON.stringify(satellite_ids) : null, is_remote_user || false, recipient_number]);
-
-    res.status(201).json({
-      success: true,
-      message: 'ユーザーが作成されました',
-      data: { id: result.insertId }
-    });
   } catch (error) {
     console.error('ユーザー作成エラー:', error);
     res.status(500).json({
@@ -390,8 +392,50 @@ app.post('/users', async (req, res) => {
   }
 });
 
+// ユーザーパスワードリセットエンドポイント
+app.post('/api/users/:userId/reset-password', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await resetUserPassword(userId, req.body);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('パスワードリセットエラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'パスワードリセットに失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// ユーザー更新エンドポイント
+app.put('/api/users/:userId', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await updateUser(userId, req.body);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('ユーザー更新エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'ユーザーの更新に失敗しました',
+      error: error.message
+    });
+  }
+});
+
 // 企業別最上位ユーザー取得エンドポイント
-app.get('/users/top-by-company', async (req, res) => {
+app.get('/api/users/top-by-company', async (req, res) => {
   const result = await getTopUsersByCompany();
   
   if (result.success) {
@@ -405,7 +449,7 @@ app.get('/users/top-by-company', async (req, res) => {
 });
 
 // 企業別教師数取得エンドポイント
-app.get('/users/teachers-by-company', async (req, res) => {
+app.get('/api/users/teachers-by-company', async (req, res) => {
   const result = await getTeachersByCompany();
   
   if (result.success) {
@@ -421,7 +465,7 @@ app.get('/users/teachers-by-company', async (req, res) => {
 // 企業管理エンドポイント
 
 // 企業一覧取得
-app.get('/companies', async (req, res) => {
+app.get('/api/companies', async (req, res) => {
   try {
     const result = await getCompanies();
     
@@ -448,7 +492,7 @@ app.get('/companies', async (req, res) => {
 });
 
 // 企業詳細取得
-app.get('/companies/:id', async (req, res) => {
+app.get('/api/companies/:id', async (req, res) => {
   const companyId = parseInt(req.params.id);
   const result = await getCompanyById(companyId);
   
@@ -463,7 +507,7 @@ app.get('/companies/:id', async (req, res) => {
 });
 
 // 企業作成
-app.post('/companies', companyValidation, handleValidationErrors, async (req, res) => {
+app.post('/api/companies', companyValidation, handleValidationErrors, async (req, res) => {
   const result = await createCompany(req.body);
   
   res.status(result.success ? 201 : 400).json({
@@ -475,7 +519,7 @@ app.post('/companies', companyValidation, handleValidationErrors, async (req, re
 });
 
 // 企業更新
-app.put('/companies/:id', companyUpdateValidation, handleValidationErrors, async (req, res) => {
+app.put('/api/companies/:id', companyUpdateValidation, handleValidationErrors, async (req, res) => {
   const companyId = parseInt(req.params.id);
   const result = await updateCompany(companyId, req.body);
   
@@ -488,7 +532,7 @@ app.put('/companies/:id', companyUpdateValidation, handleValidationErrors, async
 });
 
 // 企業削除
-app.delete('/companies/:id', async (req, res) => {
+app.delete('/api/companies/:id', async (req, res) => {
   const companyId = parseInt(req.params.id);
   const result = await deleteCompany(companyId);
   
@@ -500,7 +544,7 @@ app.delete('/companies/:id', async (req, res) => {
 });
 
 // 企業トークン再生成
-app.post('/companies/:id/regenerate-token', async (req, res) => {
+app.post('/api/companies/:id/regenerate-token', async (req, res) => {
   const companyId = parseInt(req.params.id);
   const result = await regenerateCompanyToken(companyId);
   
@@ -515,7 +559,7 @@ app.post('/companies/:id/regenerate-token', async (req, res) => {
 // 事業所タイプ管理エンドポイント
 
 // 事業所タイプ一覧取得
-app.get('/office-types', async (req, res) => {
+app.get('/api/office-types', async (req, res) => {
   const result = await getOfficeTypes();
   
   if (result.success) {
@@ -529,7 +573,7 @@ app.get('/office-types', async (req, res) => {
 });
 
 // 事業所タイプ作成
-app.post('/office-types', officeTypeValidation, handleValidationErrors, async (req, res) => {
+app.post('/api/office-types', officeTypeValidation, handleValidationErrors, async (req, res) => {
   const result = await createOfficeType(req.body);
   
   res.status(result.success ? 201 : 400).json({
@@ -541,7 +585,7 @@ app.post('/office-types', officeTypeValidation, handleValidationErrors, async (r
 });
 
 // 事業所タイプ削除
-app.delete('/office-types/:id', async (req, res) => {
+app.delete('/api/office-types/:id', async (req, res) => {
   const officeTypeId = parseInt(req.params.id);
   const result = await deleteOfficeType(officeTypeId);
   
@@ -555,7 +599,7 @@ app.delete('/office-types/:id', async (req, res) => {
 // ダッシュボード管理エンドポイント
 
 // システム概要取得
-app.get('/dashboard/overview', async (req, res) => {
+app.get('/api/dashboard/overview', async (req, res) => {
   const result = await getSystemOverview();
   
   if (result.success) {
@@ -569,7 +613,7 @@ app.get('/dashboard/overview', async (req, res) => {
 });
 
 // 企業統計取得
-app.get('/dashboard/company/:id', async (req, res) => {
+app.get('/api/dashboard/company/:id', async (req, res) => {
   const companyId = parseInt(req.params.id);
   const result = await getCompanyStats(companyId);
   
@@ -584,7 +628,7 @@ app.get('/dashboard/company/:id', async (req, res) => {
 });
 
 // アラート情報取得
-app.get('/dashboard/alerts', async (req, res) => {
+app.get('/api/dashboard/alerts', async (req, res) => {
   const result = await getAlerts();
   
   if (result.success) {
@@ -600,19 +644,22 @@ app.get('/dashboard/alerts', async (req, res) => {
 // 拠点管理エンドポイント
 
 // 拠点一覧取得
-app.get('/satellites', async (req, res) => {
+app.get('/api/satellites', async (req, res) => {
   const result = await getSatellites();
   
-  res.status(result.success ? 200 : 400).json({
-    success: result.success,
-    message: result.message,
-    ...(result.data && { data: result.data }),
-    ...(result.error && { error: result.error })
-  });
+  if (result.success) {
+    res.json(result.data);
+  } else {
+    res.status(400).json({
+      success: result.success,
+      message: result.message,
+      ...(result.error && { error: result.error })
+    });
+  }
 });
 
 // 拠点詳細取得
-app.get('/satellites/:id', async (req, res) => {
+app.get('/api/satellites/:id', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await getSatelliteById(satelliteId);
   
@@ -624,8 +671,56 @@ app.get('/satellites/:id', async (req, res) => {
   });
 });
 
+// 複数拠点情報取得
+app.get('/api/satellites/by-ids', async (req, res) => {
+  const { ids } = req.query;
+  
+  console.log('複数拠点情報取得API呼び出し:', { ids });
+  
+  if (!ids) {
+    console.log('拠点IDパラメータが不足');
+    return res.status(400).json({
+      success: false,
+      message: '拠点IDの配列が必要です',
+      error: 'IDs parameter is required'
+    });
+  }
+  
+  try {
+    const satelliteIds = JSON.parse(ids);
+    console.log('パースされた拠点ID:', satelliteIds);
+    
+    if (!Array.isArray(satelliteIds)) {
+      console.log('拠点IDが配列ではありません:', typeof satelliteIds);
+      return res.status(400).json({
+        success: false,
+        message: '拠点IDは配列形式である必要があります',
+        error: 'IDs must be an array'
+      });
+    }
+    
+    console.log('getSatellitesByIdsを呼び出し:', satelliteIds);
+    const result = await getSatellitesByIds(satelliteIds);
+    console.log('getSatellitesByIds結果:', result);
+    
+    res.status(result.success ? 200 : 400).json({
+      success: result.success,
+      message: result.message,
+      data: result.data,
+      ...(result.error && { error: result.error })
+    });
+  } catch (error) {
+    console.error('複数拠点情報取得APIエラー:', error);
+    res.status(400).json({
+      success: false,
+      message: '拠点IDの形式が正しくありません',
+      error: 'Invalid IDs format'
+    });
+  }
+});
+
 // 拠点作成
-app.post('/satellites', satelliteValidation, handleValidationErrors, async (req, res) => {
+app.post('/api/satellites', satelliteValidation, handleValidationErrors, async (req, res) => {
   const result = await createSatellite(req.body);
   
   res.status(result.success ? 201 : 400).json({
@@ -637,7 +732,7 @@ app.post('/satellites', satelliteValidation, handleValidationErrors, async (req,
 });
 
 // 拠点更新
-app.put('/satellites/:id', satelliteUpdateValidation, handleValidationErrors, async (req, res) => {
+app.put('/api/satellites/:id', satelliteUpdateValidation, handleValidationErrors, async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await updateSatellite(satelliteId, req.body);
   
@@ -650,7 +745,7 @@ app.put('/satellites/:id', satelliteUpdateValidation, handleValidationErrors, as
 });
 
 // 拠点削除
-app.delete('/satellites/:id', async (req, res) => {
+app.delete('/api/satellites/:id', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await deleteSatellite(satelliteId);
   
@@ -662,7 +757,7 @@ app.delete('/satellites/:id', async (req, res) => {
 });
 
 // トークン再生成
-app.post('/satellites/:id/regenerate-token', async (req, res) => {
+app.post('/api/satellites/:id/regenerate-token', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const { contract_type } = req.body;
   
@@ -677,7 +772,7 @@ app.post('/satellites/:id/regenerate-token', async (req, res) => {
 });
 
 // 拠点の利用者数取得
-app.get('/satellites/:id/users/count', async (req, res) => {
+app.get('/api/satellites/:id/users/count', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await getSatelliteUserCount(satelliteId);
   
@@ -692,7 +787,7 @@ app.get('/satellites/:id/users/count', async (req, res) => {
 });
 
 // 拠点の管理者一覧取得
-app.get('/satellites/:id/managers', async (req, res) => {
+app.get('/api/satellites/:id/managers', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await getSatelliteManagers(satelliteId);
   
@@ -707,7 +802,7 @@ app.get('/satellites/:id/managers', async (req, res) => {
 });
 
 // 管理者が管理する拠点一覧取得
-app.get('/managers/:managerId/satellites', async (req, res) => {
+app.get('/api/managers/:managerId/satellites', async (req, res) => {
   const managerId = parseInt(req.params.managerId);
   const result = await getManagerSatellites(managerId);
   
@@ -722,7 +817,7 @@ app.get('/managers/:managerId/satellites', async (req, res) => {
 });
 
 // 拠点に管理者を追加
-app.post('/satellites/:id/managers', async (req, res) => {
+app.post('/api/satellites/:id/managers', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const { manager_id } = req.body;
   const result = await addManagerToSatellite(satelliteId, manager_id);
@@ -735,7 +830,7 @@ app.post('/satellites/:id/managers', async (req, res) => {
 });
 
 // 拠点から管理者を削除
-app.delete('/satellites/:id/managers/:managerId', async (req, res) => {
+app.delete('/api/satellites/:id/managers/:managerId', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const managerId = parseInt(req.params.managerId);
   const result = await removeManagerFromSatellite(satelliteId, managerId);
@@ -748,7 +843,7 @@ app.delete('/satellites/:id/managers/:managerId', async (req, res) => {
 });
 
 // ユーザーの所属拠点一覧取得
-app.get('/users/:userId/satellites', async (req, res) => {
+app.get('/api/users/:userId/satellites', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const result = await getUserSatellites(userId);
   
@@ -763,7 +858,7 @@ app.get('/users/:userId/satellites', async (req, res) => {
 });
 
 // 拠点に所属するユーザー一覧取得
-app.get('/satellites/:id/users', async (req, res) => {
+app.get('/api/satellites/:id/users', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const result = await getSatelliteUsers(satelliteId);
   
@@ -778,7 +873,7 @@ app.get('/satellites/:id/users', async (req, res) => {
 });
 
 // ユーザーに拠点を追加
-app.post('/users/:userId/satellites', async (req, res) => {
+app.post('/api/users/:userId/satellites', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const { satellite_id } = req.body;
   const result = await addSatelliteToUser(userId, satellite_id);
@@ -791,7 +886,7 @@ app.post('/users/:userId/satellites', async (req, res) => {
 });
 
 // ユーザーから拠点を削除
-app.delete('/users/:userId/satellites/:satelliteId', async (req, res) => {
+app.delete('/api/users/:userId/satellites/:satelliteId', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const satelliteId = parseInt(req.params.satelliteId);
   const result = await removeSatelliteFromUser(userId, satelliteId);
@@ -799,6 +894,83 @@ app.delete('/users/:userId/satellites/:satelliteId', async (req, res) => {
   res.status(result.success ? 200 : 400).json({
     success: result.success,
     message: result.message,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 指導者専門分野関連エンドポイント
+
+// 指導者の専門分野一覧取得
+app.get('/api/instructors/:userId/specializations', async (req, res) => {
+  const userId = parseInt(req.params.userId);
+  const result = await getInstructorSpecializations(userId);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 指導者専門分野一括設定
+app.post('/api/instructors/:userId/specializations', async (req, res) => {
+  const userId = parseInt(req.params.userId);
+  const { specializations } = req.body;
+  
+  if (!specializations || !Array.isArray(specializations)) {
+    return res.status(400).json({
+      success: false,
+      message: '専門分野の配列は必須です',
+      error: 'Specializations array is required'
+    });
+  }
+  
+  const result = await setInstructorSpecializations(userId, specializations);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 指導者専門分野削除
+app.delete('/api/instructors/:userId/specializations/:specializationId', async (req, res) => {
+  const userId = parseInt(req.params.userId);
+  const specializationId = parseInt(req.params.specializationId);
+  const result = await deleteInstructorSpecialization(specializationId, userId);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 拠点内指導者一覧取得（専門分野含む）
+app.get('/api/satellites/:satelliteId/instructors', async (req, res) => {
+  const satelliteId = parseInt(req.params.satelliteId);
+  const result = await getSatelliteInstructors(satelliteId);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 拠点統計情報取得
+app.get('/api/satellites/:satelliteId/stats', async (req, res) => {
+  const satelliteId = parseInt(req.params.satelliteId);
+  const result = await getSatelliteStats(satelliteId);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
     ...(result.error && { error: result.error })
   });
 });
