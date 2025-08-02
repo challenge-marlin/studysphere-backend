@@ -22,6 +22,7 @@ const getSatellites = async () => {
         s.contract_type,
         s.max_users,
         s.status,
+        s.manager_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -74,6 +75,7 @@ const getSatelliteById = async (id) => {
         s.contract_type,
         s.max_users,
         s.status,
+        s.manager_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -151,6 +153,7 @@ const getSatellitesByIds = async (ids) => {
         s.contract_type,
         s.max_users,
         s.status,
+        s.manager_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -247,6 +250,7 @@ const createSatellite = async (satelliteData) => {
         s.contract_type,
         s.max_users,
         s.status,
+        s.manager_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -403,6 +407,7 @@ const updateSatellite = async (id, satelliteData) => {
         s.contract_type,
         s.max_users,
         s.status,
+        s.manager_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -552,6 +557,60 @@ const regenerateToken = async (id, contract_type) => {
   }
 };
 
+/**
+ * 拠点管理者を設定
+ */
+const setSatelliteManagers = async (id, managerIds) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id FROM satellites WHERE id = ?',
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません',
+        statusCode: 404
+      };
+    }
+
+    // 管理者IDの配列をJSON形式で保存
+    const managerIdsJson = JSON.stringify(managerIds);
+
+    await connection.execute(`
+      UPDATE satellites 
+      SET manager_ids = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [managerIdsJson, id]);
+
+    return {
+      success: true,
+      message: '拠点管理者が正常に設定されました',
+      data: { manager_ids: managerIds }
+    };
+  } catch (error) {
+    console.error('拠点管理者設定エラー:', error);
+    return {
+      success: false,
+      message: '拠点管理者の設定に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   getSatellites,
   getSatelliteById,
@@ -559,5 +618,6 @@ module.exports = {
   createSatellite,
   updateSatellite,
   deleteSatellite,
-  regenerateToken
+  regenerateToken,
+  setSatelliteManagers
 }; 

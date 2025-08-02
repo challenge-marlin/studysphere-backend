@@ -15,10 +15,9 @@ const dbConfig = {
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
   // 接続の有効期限設定
-  timeout: 60000, // クエリタイムアウト（60秒）
-  reconnect: true, // 自動再接続
+  acquireTimeout: 60000, // 接続取得タイムアウト（60秒）
   // 接続のアイドル時間制限
-  maxIdle: 60000, // アイドル接続の最大時間（60秒）
+  idleTimeout: 60000, // アイドル接続の最大時間（60秒）
   // デバッグ設定（開発環境のみ）
   debug: process.env.NODE_ENV === 'development' ? false : false
 };

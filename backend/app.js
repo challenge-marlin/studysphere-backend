@@ -52,7 +52,8 @@ const {
   getManagerSatellites,
   addManagerToSatellite,
   removeManagerFromSatellite,
-  regenerateToken
+  regenerateToken,
+  setSatelliteManagers
 } = require('./scripts/satelliteController');
 const {
   getCompanies,
@@ -834,6 +835,19 @@ app.delete('/api/satellites/:id/managers/:managerId', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const managerId = parseInt(req.params.managerId);
   const result = await removeManagerFromSatellite(satelliteId, managerId);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    ...(result.error && { error: result.error })
+  });
+});
+
+// 拠点管理者を一括設定
+app.put('/api/satellites/:id/managers', async (req, res) => {
+  const satelliteId = parseInt(req.params.id);
+  const { manager_ids } = req.body;
+  const result = await setSatelliteManagers(satelliteId, manager_ids);
   
   res.status(result.success ? 200 : 400).json({
     success: result.success,

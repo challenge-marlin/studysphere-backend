@@ -243,7 +243,6 @@ const getSatelliteInstructors = async (satelliteId) => {
         ua.status,
         ua.login_code,
         ua.satellite_ids,
-        ua.created_at,
         c.name as company_name
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id

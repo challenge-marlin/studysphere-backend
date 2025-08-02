@@ -8,8 +8,17 @@ const getUsers = async () => {
   try {
     connection = await pool.getConnection();
     
-    // ユーザー情報を取得
-    const [rows] = await connection.execute('SELECT * FROM user_accounts');
+    // ユーザー情報を取得（JSON形式のsatellite_idsを適切に処理）
+    const [rows] = await connection.execute(`
+      SELECT 
+        *,
+        CASE 
+          WHEN satellite_ids IS NOT NULL AND satellite_ids != 'null' 
+          THEN JSON_UNQUOTE(satellite_ids)
+          ELSE NULL 
+        END as satellite_ids_processed
+      FROM user_accounts
+    `);
     console.log('取得したユーザー数:', rows.length);
     
     // 拠点情報を取得
@@ -42,9 +51,19 @@ const getUsers = async () => {
       
       // satellite_idsから拠点情報を取得
       let satelliteDetails = [];
-      if (user.satellite_ids) {
+      if (user.satellite_ids_processed) {
         try {
-          const satelliteIds = JSON.parse(user.satellite_ids);
+          let satelliteIds;
+          
+          // satellite_ids_processedを使用して処理
+          if (typeof user.satellite_ids_processed === 'string') {
+            satelliteIds = JSON.parse(user.satellite_ids_processed);
+          } else if (Array.isArray(user.satellite_ids_processed)) {
+            satelliteIds = user.satellite_ids_processed;
+          } else {
+            satelliteIds = [user.satellite_ids_processed];
+          }
+          
           console.log(`ユーザー${user.id}の拠点ID:`, satelliteIds);
           console.log(`ユーザー${user.id}の拠点IDの型:`, typeof satelliteIds);
           console.log(`拠点マップのキー:`, Object.keys(satelliteMap));
@@ -62,7 +81,9 @@ const getUsers = async () => {
           console.log(`ユーザー${user.id}の拠点詳細:`, satelliteDetails);
         } catch (e) {
           console.error('拠点IDのパースエラー:', e);
-          console.error('パース対象のsatellite_ids:', user.satellite_ids);
+          console.error('パース対象のsatellite_ids_processed:', user.satellite_ids_processed);
+          console.error('satellite_ids_processedの型:', typeof user.satellite_ids_processed);
+          console.error('元のsatellite_ids:', user.satellite_ids);
           satelliteDetails = [];
         }
       } else {

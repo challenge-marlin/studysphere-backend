@@ -168,3 +168,43 @@
   "service": "curriculum-portal-backend",
   "error": "Can't add new command when connection is in closed state"
 }
+2025-08-01 15:30:40 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-02 10:19:07 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "79ms"
+}
+2025-08-02 10:20:52 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "40ms"
+}
+2025-08-02 10:40:52 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-02 10:40:55 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "59ms"
+}
+2025-08-02 10:48:29 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "63ms"
+}
+2025-08-02 10:51:17 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-02 12:28:27 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
