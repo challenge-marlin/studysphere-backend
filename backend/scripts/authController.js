@@ -33,7 +33,7 @@ const adminLogin = async (username, password) => {
       LEFT JOIN companies c ON ua.company_id = c.id
       WHERE ac.username = ? 
         AND ua.status = 1
-        AND ua.role >= 5
+        AND ua.role >= 9
     `, [username]);
 
     if (adminRows.length === 0) {
@@ -114,9 +114,14 @@ const adminLogin = async (username, password) => {
 const refreshToken = async (refreshToken) => {
   let connection;
   try {
+    console.log('リフレッシュトークン更新開始:', { refreshToken: refreshToken ? '存在' : 'なし' });
+    
     // リフレッシュトークンの検証
     const tokenData = await verifyRefreshToken(refreshToken);
+    console.log('トークン検証結果:', { tokenData: tokenData ? '有効' : '無効' });
+    
     if (!tokenData) {
+      console.log('リフレッシュトークンが無効です');
       return {
         success: false,
         statusCode: 401,
@@ -149,16 +154,20 @@ const refreshToken = async (refreshToken) => {
     }
 
     const user = userRows[0];
+    console.log('ユーザー情報取得完了:', { userId: user.user_id, userName: user.user_name });
 
     // 新しいトークンを生成
     const newAccessToken = generateAccessToken(user);
     const newRefreshToken = generateRefreshToken(user);
+    console.log('新しいトークン生成完了');
 
     // 古いリフレッシュトークンを削除
-    await deleteRefreshToken(refreshToken);
+    const deleteResult = await deleteRefreshToken(refreshToken);
+    console.log('古いトークン削除結果:', deleteResult);
 
     // 新しいリフレッシュトークンを保存
-    await saveRefreshToken(user.user_id, newRefreshToken);
+    const saveResult = await saveRefreshToken(user.user_id, newRefreshToken);
+    console.log('新しいトークン保存結果:', saveResult);
 
     return {
       success: true,

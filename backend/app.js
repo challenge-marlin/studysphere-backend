@@ -94,6 +94,25 @@ const {
   getLogStats
 } = require('./scripts/logController');
 
+// 操作ログ管理コントローラーのインポート
+const {
+  recordOperationLog,
+  getOperationLogs,
+  getOperationLogStats,
+  exportOperationLogs,
+  clearOperationLogs
+} = require('./scripts/operationLogController');
+
+// 管理者管理コントローラーのインポート
+const {
+  getAdmins,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+  restoreAdmin,
+  permanentlyDeleteAdmin
+} = require('./scripts/adminController');
+
 const app = express();
 
 // セキュリティミドルウェア
@@ -459,6 +478,137 @@ app.get('/api/users/teachers-by-company', async (req, res) => {
     res.status(500).json({
       message: result.message,
       error: result.error
+    });
+  }
+});
+
+// 管理者管理エンドポイント
+
+// 管理者一覧取得
+app.get('/api/admins', async (req, res) => {
+  try {
+    const includeDeleted = req.query.includeDeleted === 'true';
+    const result = await getAdmins(includeDeleted);
+    
+    if (result.success) {
+      res.json(result.data);
+    } else {
+      res.status(500).json({
+        success: false,
+        message: result.message,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('管理者一覧取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者一覧の取得に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 管理者作成
+app.post('/api/admins', async (req, res) => {
+  try {
+    const result = await createAdmin(req.body);
+    
+    if (result.success) {
+      res.status(201).json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('管理者作成エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者の作成に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 管理者更新
+app.put('/api/admins/:adminId', async (req, res) => {
+  try {
+    const adminId = parseInt(req.params.adminId);
+    const result = await updateAdmin(adminId, req.body);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('管理者更新エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者の更新に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 管理者削除（論理削除）
+app.delete('/api/admins/:adminId', async (req, res) => {
+  try {
+    const adminId = parseInt(req.params.adminId);
+    const result = await deleteAdmin(adminId);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('管理者削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者の削除に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 管理者復元
+app.post('/api/admins/:adminId/restore', async (req, res) => {
+  try {
+    const adminId = parseInt(req.params.adminId);
+    const result = await restoreAdmin(adminId);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('管理者復元エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者の復元に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 管理者物理削除
+app.delete('/api/admins/:adminId/permanent', async (req, res) => {
+  try {
+    const adminId = parseInt(req.params.adminId);
+    const result = await permanentlyDeleteAdmin(adminId);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('管理者物理削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '管理者の物理削除に失敗しました',
+      error: error.message
     });
   }
 });
@@ -1022,6 +1172,13 @@ app.get('/api/logs/:filename/download', downloadLogFile);
 app.delete('/api/logs/:filename', deleteLogFile);
 app.post('/api/logs/cleanup', cleanupOldLogs);
 app.get('/api/logs/stats', getLogStats);
+
+// 操作ログ管理エンドポイント
+app.post('/api/operation-logs', recordOperationLog);
+app.get('/api/operation-logs', getOperationLogs);
+app.get('/api/operation-logs/stats', getOperationLogStats);
+app.get('/api/operation-logs/export', exportOperationLogs);
+app.delete('/api/operation-logs', clearOperationLogs);
 
 // エラーログミドルウェア
 app.use(errorLogger);

@@ -33,7 +33,7 @@ const requireAdmin = (req, res, next) => {
     });
   }
 
-  if (req.user.role < 5) {
+  if (req.user.role < 9) {
     return res.status(403).json({
       success: false,
       message: '管理者権限が必要です'
