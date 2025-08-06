@@ -25,7 +25,10 @@
     "NODE_ENV": "development"
   },
   "delay": "1000",
-  "verbose": false,
+  "verbose": true,
   "legacyWatch": true,
-  "polling": false
+  "polling": true,
+  "pollInterval": 2000,
+  "restartable": "rs",
+  "colours": true
 } 

@@ -13,8 +13,8 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # 開発環境ではinit.sqlの実行を制御
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # 初期化スクリプトを確実に実行
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - app-network
     command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --max-connections=100
@@ -52,13 +52,13 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     networks:
       - app-network
     volumes:
       - ./backend:/app
-      - /app/node_modules
-      - ./db:/app/db
+      - node_modules:/app/node_modules
     healthcheck:
       test:
         [
@@ -81,6 +81,8 @@ services:
 
 volumes:
   mysql_data:
+    driver: local
+  node_modules:
     driver: local
 
 networks:

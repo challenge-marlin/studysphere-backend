@@ -369,28 +369,40 @@ const exportOperationLogs = async (req, res) => {
 // 操作ログをクリアする
 const clearOperationLogs = async (req, res) => {
   try {
-    const { days = 30 } = req.query;
+    const { clearAll = 'true' } = req.query;
     
-    const query = `
-      DELETE FROM operation_logs 
-      WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)
-    `;
+    let query, params, message;
     
-    const result = await executeQuery(query, [parseInt(days)]);
+    if (clearAll === 'true') {
+      // すべてのログを削除
+      query = `DELETE FROM operation_logs`;
+      params = [];
+      message = 'すべての操作ログを削除しました';
+    } else {
+      // 指定日数以上古いログのみ削除（後方互換性のため）
+      const { days = 30 } = req.query;
+      query = `DELETE FROM operation_logs WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)`;
+      params = [parseInt(days)];
+      message = `${days}日以上古い操作ログを削除しました`;
+    }
+    
+    const result = await executeQuery(query, params);
     if (!result.success) {
       throw new Error(result.error || '操作ログのクリアに失敗しました');
     }
     
+    const deletedCount = result.data.affectedRows || 0;
+    
     customLogger.info('操作ログをクリア', {
-      deletedCount: result.affectedRows,
-      days: parseInt(days),
+      deletedCount,
+      clearAll: clearAll === 'true',
       user: req.user?.id || 'anonymous'
     });
     
     res.json({
       success: true,
-      message: `${result.data.affectedRows}件の操作ログを削除しました`,
-      data: { deletedCount: result.data.affectedRows }
+      message: `${deletedCount}件の${message}`,
+      data: { deletedCount }
     });
   } catch (error) {
     customLogger.error('操作ログクリアエラー', {

@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 5000
 
 # 開発環境用の起動コマンド（ホットリロード有効）
-CMD ["nodemon", "--legacy-watch", "index.js"] 
+CMD ["nodemon", "--legacy-watch", "--polling", "--watch", "/app", "--ext", "js,json,sql", "index.js"] 

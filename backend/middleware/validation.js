@@ -207,6 +207,68 @@ const officeTypeUpdateValidation = [
     .withMessage('事業所タイプ名は1文字以上100文字以下で入力してください')
 ];
 
+// コース作成・更新用バリデーション
+const courseValidation = [
+  body('title')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('コース名は1文字以上255文字以下で入力してください'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 65535 })
+    .withMessage('コースの説明は65535文字以下で入力してください'),
+  body('category')
+    .isIn(['必修科目', '選択科目'])
+    .withMessage('カテゴリは必修科目または選択科目で入力してください'),
+  body('order_index')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('表示順序は0以上の整数で入力してください'),
+  body('status')
+    .optional()
+    .isIn(['active', 'inactive', 'draft'])
+    .withMessage('ステータスはactive、inactive、draftのいずれかで入力してください')
+];
+
+// レッスン作成・更新用バリデーション
+const lessonValidation = [
+  body('title')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('レッスン名は1文字以上255文字以下で入力してください'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 65535 })
+    .withMessage('レッスンの説明は65535文字以下で入力してください'),
+  body('duration')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('所要時間は50文字以下で入力してください'),
+  body('order_index')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('レッスン順序は0以上の整数で入力してください'),
+  body('has_assignment')
+    .optional()
+    .isBoolean()
+    .withMessage('課題の有無は真偽値で入力してください'),
+  body('course_id')
+    .isInt({ min: 1 })
+    .withMessage('コースIDは正の整数で入力してください'),
+  body('youtube_url')
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage('YouTube URLは有効なURL形式で入力してください'),
+  body('status')
+    .optional()
+    .isIn(['active', 'inactive', 'draft'])
+    .withMessage('ステータスはactive、inactive、draftのいずれかで入力してください')
+];
+
 // バリデーションエラーハンドラー
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -236,5 +298,7 @@ module.exports = {
   companyUpdateValidation,
   officeTypeValidation,
   officeTypeUpdateValidation,
+  courseValidation,
+  lessonValidation,
   handleValidationErrors
 }; 

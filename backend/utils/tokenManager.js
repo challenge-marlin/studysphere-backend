@@ -3,8 +3,20 @@ const { pool } = require('./database');
 
 // JWT設定
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const ACCESS_TOKEN_EXPIRY = '10m'; // 10分
-const REFRESH_TOKEN_EXPIRY = '10m'; // 10分
+const ACCESS_TOKEN_EXPIRY = '1h'; // 1時間に延長
+
+// リフレッシュトークンの有効期限を当日23:59までに設定
+const getRefreshTokenExpiry = () => {
+  // 日本時間の当日23:59:59を計算
+  const now = new Date();
+  const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+  const todayEnd = new Date(japanTime.getFullYear(), japanTime.getMonth(), japanTime.getDate(), 23, 59, 59);
+  const todayEndUTC = new Date(todayEnd.getTime() - (9 * 60 * 60 * 1000)); // UTCに戻す
+  
+  // 現在時刻から当日23:59:59までの秒数を計算
+  const expirySeconds = Math.floor((todayEndUTC.getTime() - now.getTime()) / 1000);
+  return `${expirySeconds}s`;
+};
 
 // トークンキャッシュ（メモリリークを防ぐため制限付き）
 const tokenCache = new Map();
@@ -32,15 +44,44 @@ const generateRefreshToken = (userData) => {
       type: 'refresh'
     },
     JWT_SECRET,
-    { expiresIn: REFRESH_TOKEN_EXPIRY }
+    { expiresIn: getRefreshTokenExpiry() }
   );
 };
 
 // トークン検証
 const verifyToken = (token) => {
   try {
-    return jwt.verify(token, JWT_SECRET);
+    if (!token || typeof token !== 'string') {
+      console.warn('トークン検証: 無効なトークン形式');
+      return null;
+    }
+
+    // JWT形式のチェック（3つの部分に分割されているか）
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      console.warn('トークン検証: JWT形式が不正');
+      return null;
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // デコードされたトークンの基本チェック
+    if (!decoded || typeof decoded !== 'object') {
+      console.warn('トークン検証: デコード結果が無効');
+      return null;
+    }
+
+    return decoded;
   } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      console.warn('トークン検証: トークンの有効期限が切れています');
+    } else if (error.name === 'JsonWebTokenError') {
+      console.warn('トークン検証: JWT形式が不正です');
+    } else if (error.name === 'NotBeforeError') {
+      console.warn('トークン検証: トークンがまだ有効になっていません');
+    } else {
+      console.error('トークン検証エラー:', error.message);
+    }
     return null;
   }
 };
@@ -50,7 +91,12 @@ const saveRefreshToken = async (userId, refreshToken) => {
   let connection;
   try {
     const issuedAt = new Date();
-    const expiresAt = new Date(issuedAt.getTime() + 10 * 60 * 1000); // 10分後
+    
+    // 日本時間の当日23:59:59を計算
+    const now = new Date();
+    const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+    const todayEnd = new Date(japanTime.getFullYear(), japanTime.getMonth(), japanTime.getDate(), 23, 59, 59);
+    const expiresAt = new Date(todayEnd.getTime() - (9 * 60 * 60 * 1000)); // UTCに戻す
 
     connection = await pool.getConnection();
     await connection.execute(`
@@ -314,7 +360,7 @@ module.exports = {
   cleanupExpiredTokens,
   cleanupTokenCache,
   ACCESS_TOKEN_EXPIRY,
-  REFRESH_TOKEN_EXPIRY,
+  getRefreshTokenExpiry,
   generateToken,
   calculateExpiryDate,
   isTokenValid,

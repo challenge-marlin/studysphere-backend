@@ -635,6 +635,73 @@ const updateUser = async (userId, updateData) => {
   }
 };
 
+// ユーザー削除
+const deleteUser = async (userId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // トランザクション開始
+    await connection.beginTransaction();
+    
+    // ユーザーの存在確認
+    const [userRows] = await connection.execute(
+      'SELECT id, name, role FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: '指定されたユーザーが見つかりません'
+      };
+    }
+
+    const user = userRows[0];
+
+    // ロール4以上（指導員・管理者）の場合は認証情報も削除
+    if (user.role >= 4) {
+      await connection.execute(
+        'DELETE FROM admin_credentials WHERE user_id = ?',
+        [userId]
+      );
+    }
+
+    // ユーザーを削除
+    await connection.execute(
+      'DELETE FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+
+    // トランザクションコミット
+    await connection.commit();
+
+    return {
+      success: true,
+      message: 'ユーザーが正常に削除されました'
+    };
+  } catch (error) {
+    // エラー時はロールバック
+    if (connection) {
+      await connection.rollback();
+    }
+    console.error('Error deleting user:', error);
+    return {
+      success: false,
+      message: 'ユーザーの削除に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 // パスワードリセット
 const resetUserPassword = async (userId, resetData) => {
   let connection;
@@ -713,5 +780,6 @@ module.exports = {
   removeSatelliteFromUser,
   createUser,
   updateUser,
+  deleteUser,
   resetUserPassword
 }; 

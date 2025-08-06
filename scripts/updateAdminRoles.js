@@ -6,7 +6,7 @@ const dbConfig = {
   user: 'root',
   password: 'shinomoto926!',
   database: 'curriculum-portal',
-  port: 3306,
+  port: 3307, // Docker Composeでマッピングされたポート
   charset: 'utf8mb4'
 };
 
@@ -22,9 +22,10 @@ const updateAdminRoles = async () => {
 
     // admin001をマスターユーザー（ロール10）に更新
     const [updateResult] = await connection.execute(`
-      UPDATE user_accounts 
-      SET role = 10, updated_at = CURRENT_TIMESTAMP
-      WHERE name = 'admin001'
+      UPDATE user_accounts ua
+      INNER JOIN admin_credentials ac ON ua.id = ac.user_id
+      SET ua.role = 10
+      WHERE ac.username = 'admin001'
     `);
 
     if (updateResult.affectedRows > 0) {
@@ -33,11 +34,12 @@ const updateAdminRoles = async () => {
       console.log('⚠️ admin001が見つかりませんでした');
     }
 
-    // 他の管理者ユーザーをアドミンユーザー（ロール9）に更新
+    // 他の管理者ユーザーをアドミンユーザー（ロール9）に更新  
     const [updateOtherResult] = await connection.execute(`
-      UPDATE user_accounts 
-      SET role = 9, updated_at = CURRENT_TIMESTAMP
-      WHERE role >= 5 AND role < 9 AND name != 'admin001'
+      UPDATE user_accounts ua
+      LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
+      SET ua.role = 9
+      WHERE ua.role >= 5 AND ua.role < 9 AND (ac.username != 'admin001' OR ac.username IS NULL)
     `);
 
     if (updateOtherResult.affectedRows > 0) {

@@ -8,15 +8,20 @@ const port = process.env.PORT || 5000;
 // データベース接続を確認してからサーバーを起動
 const startServer = async () => {
   try {
-    console.log('Checking database connection...');
-    const dbTest = await testConnection();
-    
-    if (!dbTest.success) {
-      console.error('Database connection failed:', dbTest.error);
-      process.exit(1);
+    // SKIP_DB_CHECK環境変数が設定されている場合はDBチェックをスキップ
+    if (process.env.SKIP_DB_CHECK === 'true') {
+      console.log('Skipping database connection check (SKIP_DB_CHECK=true)');
+    } else {
+      console.log('Checking database connection...');
+      const dbTest = await testConnection();
+      
+      if (!dbTest.success) {
+        console.error('Database connection failed:', dbTest.error);
+        process.exit(1);
+      }
+      
+      console.log('Database connection successful:', dbTest.currentTime);
     }
-    
-    console.log('Database connection successful:', dbTest.currentTime);
     
     // メモリ監視を開始
     memoryMonitor.startMonitoring(60000); // 1分ごと

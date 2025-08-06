@@ -5,9 +5,9 @@ USE `curriculum-portal`;
 DELETE FROM admin_credentials WHERE username = 'admin001';
 DELETE FROM user_accounts WHERE name = 'admin001';
 
--- 管理者ユーザーアカウントを作成
+-- 管理者ユーザーアカウントを作成（マスターユーザー：ロール10）
 INSERT INTO user_accounts (name, role, status, login_code, company_id) 
-VALUES ('admin001', 9, 1, 'CGA8-CH0R-QVEC', NULL);
+VALUES ('admin001', 10, 1, 'CGA8-CH0R-QVEC', NULL);
 
 -- 管理者認証情報を作成（パスワード: admin123）
 INSERT INTO admin_credentials (user_id, username, password_hash) 

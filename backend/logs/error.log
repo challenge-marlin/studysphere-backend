@@ -6218,3 +6218,1430 @@
   "error": "Incorrect arguments to mysqld_stmt_execute",
   "user": "anonymous"
 }
+2025-08-04 15:27:32 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "39ms",
+  "threadId": 691
+}
+2025-08-04 15:27:32 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-04 15:27:32 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "41ms",
+  "threadId": 690
+}
+2025-08-04 15:27:32 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-04 15:28:00 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-05 10:57:39 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "64ms"
+}
+2025-08-05 11:00:15 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-05 11:01:44 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "24ms",
+  "threadId": 20
+}
+2025-08-05 11:01:44 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:01:53 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "6ms",
+  "threadId": 26
+}
+2025-08-05 11:01:53 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:01:53 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "34ms",
+  "threadId": 25
+}
+2025-08-05 11:01:53 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:15:57 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "42ms",
+  "threadId": 25
+}
+2025-08-05 11:15:57 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:15:57 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "26ms",
+  "threadId": 26
+}
+2025-08-05 11:15:57 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:15:59 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "30ms",
+  "threadId": 20
+}
+2025-08-05 11:15:59 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:15:59 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "53ms",
+  "threadId": 20
+}
+2025-08-05 11:15:59 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:17:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "6ms",
+  "threadId": 25
+}
+2025-08-05 11:17:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:17:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "17ms",
+  "threadId": 25
+}
+2025-08-05 11:17:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:17:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 26
+}
+2025-08-05 11:17:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:21:06 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "2ms",
+  "threadId": 25
+}
+2025-08-05 11:21:06 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:21:06 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "2ms",
+  "threadId": 25
+}
+2025-08-05 11:21:06 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:21:06 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "17ms",
+  "threadId": 26
+}
+2025-08-05 11:21:06 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:22:55 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "7ms",
+  "threadId": 25
+}
+2025-08-05 11:22:55 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:22:55 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "39ms",
+  "threadId": 25
+}
+2025-08-05 11:22:55 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:25:44 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "83ms"
+}
+2025-08-05 11:26:33 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 9
+}
+2025-08-05 11:26:33 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:26:33 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "11ms",
+  "threadId": 9
+}
+2025-08-05 11:26:33 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:26:33 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 12
+}
+2025-08-05 11:26:33 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:33:22 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 9
+}
+2025-08-05 11:33:22 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:33:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "13ms",
+  "threadId": 9
+}
+2025-08-05 11:33:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:33:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "5ms",
+  "threadId": 12
+}
+2025-08-05 11:33:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:33:49 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "7ms",
+  "threadId": 9
+}
+2025-08-05 11:33:49 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:32:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 9
+}
+2025-08-05 11:32:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:32:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "10ms",
+  "threadId": 9
+}
+2025-08-05 11:32:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:36:50 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "21ms",
+  "threadId": 44
+}
+2025-08-05 11:36:50 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:36:51 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "4ms",
+  "threadId": 44
+}
+2025-08-05 11:36:51 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:37:04 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "6ms",
+  "threadId": 44
+}
+2025-08-05 11:37:04 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:37:16 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "15ms",
+  "threadId": 45
+}
+2025-08-05 11:37:16 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:37:16 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "25ms",
+  "threadId": 44
+}
+2025-08-05 11:37:16 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:37:54 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "5ms",
+  "threadId": 45
+}
+2025-08-05 11:37:54 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:38:31 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "6ms",
+  "threadId": 50
+}
+2025-08-05 11:38:31 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:38:31 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "6ms",
+  "threadId": 50
+}
+2025-08-05 11:38:31 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:39:22 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "27ms",
+  "threadId": 55
+}
+2025-08-05 11:39:22 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-05 11:39:22 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "8ms",
+  "threadId": 50
+}
+2025-08-05 11:39:22 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-06 12:51:25 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "getaddrinfo ENOTFOUND db",
+  "code": "ENOTFOUND",
+  "duration": "2333ms"
+}
+2025-08-06 13:24:14 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "getaddrinfo ENOTFOUND db",
+  "code": "ENOTFOUND",
+  "duration": "2334ms"
+}
+2025-08-06 13:25:16 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "getaddrinfo ENOTFOUND db",
+  "code": "ENOTFOUND",
+  "duration": "2322ms"
+}
+2025-08-06 13:25:35 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "getaddrinfo ENOTFOUND db",
+  "code": "ENOTFOUND",
+  "duration": "2341ms"
+}
+2025-08-06 13:26:24 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "getaddrinfo ENOTFOUND db",
+  "code": "ENOTFOUND",
+  "duration": "2332ms"
+}
+2025-08-06 13:26:44 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "50ms"
+}
+2025-08-06 13:28:43 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "59ms"
+}
+2025-08-06 13:30:32 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "47ms"
+}
+2025-08-06 14:20:53 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "admin001",
+    "ログイン",
+    "管理者「admin001」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 9
+}
+2025-08-06 14:20:53 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:20:53 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 9
+}
+2025-08-06 14:20:53 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:27:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "admin001",
+    "指導員作成",
+    "指導員「盛内　稔史」を作成しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "10ms",
+  "threadId": 36
+}
+2025-08-06 14:27:38 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:27:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 36
+}
+2025-08-06 14:27:38 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:06 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "admin001",
+    "指導員更新",
+    "指導員「盛内　稔史」の情報を更新しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 36
+}
+2025-08-06 14:31:06 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:06 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 36
+}
+2025-08-06 14:31:06 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "18ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "12ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "11ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "14ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "13ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:31:29 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "19ms",
+  "threadId": 43
+}
+2025-08-06 14:31:29 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:32:07 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "admin001",
+    "管理者更新",
+    "管理者「マスターユーザ」の情報を更新しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:32:07 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:32:07 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 43
+}
+2025-08-06 14:32:07 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:32:07 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 43
+}
+2025-08-06 14:32:07 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:32:07 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "9ms",
+  "threadId": 43
+}
+2025-08-06 14:32:07 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:32:07 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:32:07 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:33:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "admin001",
+    "管理者作成",
+    "管理者「末吉　元気」を新規作成しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:33:30 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:33:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:33:30 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:33:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 43
+}
+2025-08-06 14:33:30 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:33:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:33:30 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:33:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "3ms",
+  "threadId": 43
+}
+2025-08-06 14:33:30 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:22 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "80ms",
+  "threadId": 104
+}
+2025-08-06 14:40:22 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:23 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "95ms",
+  "threadId": 102
+}
+2025-08-06 14:40:23 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:23 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "54ms",
+  "threadId": 102
+}
+2025-08-06 14:40:23 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:23 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "68ms",
+  "threadId": 104
+}
+2025-08-06 14:40:23 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:23 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "9ms",
+  "threadId": 104
+}
+2025-08-06 14:40:23 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:40:23 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 104
+}
+2025-08-06 14:40:23 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "62ms",
+  "threadId": 102
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "49ms",
+  "threadId": 104
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "54ms",
+  "threadId": 104
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "38ms",
+  "threadId": 102
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "33ms",
+  "threadId": 102
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:48:52 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "31ms",
+  "threadId": 104
+}
+2025-08-06 14:48:52 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:12 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "15ms",
+  "threadId": 102
+}
+2025-08-06 14:49:12 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:12 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 102
+}
+2025-08-06 14:49:12 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "12ms",
+  "threadId": 102
+}
+2025-08-06 14:49:13 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 102
+}
+2025-08-06 14:49:13 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 102
+}
+2025-08-06 14:49:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:49:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "10ms",
+  "threadId": 102
+}
+2025-08-06 14:49:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "34ms",
+  "threadId": 104
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "35ms",
+  "threadId": 102
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "25ms",
+  "threadId": 102
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "30ms",
+  "threadId": 104
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "21ms",
+  "threadId": 104
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:13 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "28ms",
+  "threadId": 102
+}
+2025-08-06 14:52:13 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 14:52:35 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 14:52:35 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 14:53:14 [ERROR]: Failed to create course {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist",
+  "title": "ITリテラシー・AIの基本"
+}
+2025-08-06 14:53:20 [ERROR]: Failed to create course {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist",
+  "title": "ITリテラシー・AIの基本"
+}
+2025-08-06 15:03:26 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 15:03:53 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 15:04:12 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 15:04:20 [ERROR]: Failed to retrieve courses {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist"
+}
+2025-08-06 15:04:49 [ERROR]: Failed to create course {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.courses' doesn't exist",
+  "title": "ITリテラシー・AIの基本"
+}
+2025-08-06 15:22:08 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    1,
+    "マスターユーザ",
+    "ログイン",
+    "管理者「マスターユーザ」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 246
+}
+2025-08-06 15:22:08 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-06 15:22:08 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 246
+}
+2025-08-06 15:22:08 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}

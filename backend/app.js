@@ -24,6 +24,7 @@ const {
   handleValidationErrors 
 } = require('./middleware/validation');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const { authenticateToken, requireAdmin } = require('./middleware/auth');
 
 // コントローラーのインポート
 const { adminLogin, refreshToken, logout } = require('./scripts/authController');
@@ -38,6 +39,7 @@ const {
   removeSatelliteFromUser,
   createUser,
   updateUser,
+  deleteUser,
   resetUserPassword
 } = require('./scripts/userController');
 const { 
@@ -53,7 +55,8 @@ const {
   addManagerToSatellite,
   removeManagerFromSatellite,
   regenerateToken,
-  setSatelliteManagers
+  setSatelliteManagers,
+  addSatelliteManager
 } = require('./scripts/satelliteController');
 const {
   getCompanies,
@@ -113,6 +116,28 @@ const {
   permanentlyDeleteAdmin
 } = require('./scripts/adminController');
 
+// コース管理コントローラーのインポート
+const {
+  getCourses,
+  getCourseById,
+  createCourse,
+  updateCourse,
+  deleteCourse,
+  updateCourseOrder
+} = require('./scripts/courseController');
+
+// レッスン管理コントローラーのインポート
+const {
+  getLessons,
+  getLessonById,
+  createLesson,
+  updateLesson,
+  deleteLesson,
+  updateLessonOrder,
+  downloadLessonFile,
+  upload
+} = require('./scripts/lessonController');
+
 const app = express();
 
 // セキュリティミドルウェア
@@ -139,7 +164,25 @@ if (process.env.NODE_ENV === 'development') {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// デバッグ用：すべてのリクエストをログ出力
+app.use((req, res, next) => {
+  if (req.method === 'DELETE' && req.url.includes('/api/users/')) {
+    console.log('=== DEBUG: DELETE request detected ===');
+    console.log('Method:', req.method);
+    console.log('URL:', req.url);
+    console.log('Headers:', req.headers);
+  }
+  next();
+});
+
 // ルート定義
+
+// テスト用DELETEエンドポイント
+app.delete('/api/test-delete/:id', (req, res) => {
+  console.log('=== TEST DELETE エンドポイントが呼び出されました ===');
+  console.log('ID:', req.params.id);
+  res.json({ success: true, message: 'DELETE test successful', id: req.params.id });
+});
 
 // ヘルスチェックエンドポイント
 app.get('/health', async (req, res) => {
@@ -271,10 +314,10 @@ app.post('/restore-admin', async (req, res) => {
     await executeQuery("DELETE FROM admin_credentials WHERE username = 'admin001'");
     await executeQuery("DELETE FROM user_accounts WHERE name = 'admin001'");
     
-    // 管理者ユーザーアカウントを作成
+    // 管理者ユーザーアカウントを作成（マスターユーザー：ロール10）
     const userResult = await executeQuery(`
       INSERT INTO user_accounts (name, role, status, login_code, company_id) 
-      VALUES ('admin001', 9, 1, 'CGA8-CH0R-QVEC', NULL)
+      VALUES ('admin001', 10, 1, 'CGA8-CH0R-QVEC', NULL)
     `);
     
     if (!userResult.success) {
@@ -412,6 +455,34 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+// 企業別最上位ユーザー取得エンドポイント
+app.get('/api/users/top-by-company', async (req, res) => {
+  const result = await getTopUsersByCompany();
+  
+  if (result.success) {
+    res.json(result.data);
+  } else {
+    res.status(500).json({
+      message: result.message,
+      error: result.error
+    });
+  }
+});
+
+// 企業別教師数取得エンドポイント
+app.get('/api/users/teachers-by-company', async (req, res) => {
+  const result = await getTeachersByCompany();
+  
+  if (result.success) {
+    res.json(result.data);
+  } else {
+    res.status(500).json({
+      message: result.message,
+      error: result.error
+    });
+  }
+});
+
 // ユーザーパスワードリセットエンドポイント
 app.post('/api/users/:userId/reset-password', async (req, res) => {
   try {
@@ -454,33 +525,7 @@ app.put('/api/users/:userId', async (req, res) => {
   }
 });
 
-// 企業別最上位ユーザー取得エンドポイント
-app.get('/api/users/top-by-company', async (req, res) => {
-  const result = await getTopUsersByCompany();
-  
-  if (result.success) {
-    res.json(result.data);
-  } else {
-    res.status(500).json({
-      message: result.message,
-      error: result.error
-    });
-  }
-});
 
-// 企業別教師数取得エンドポイント
-app.get('/api/users/teachers-by-company', async (req, res) => {
-  const result = await getTeachersByCompany();
-  
-  if (result.success) {
-    res.json(result.data);
-  } else {
-    res.status(500).json({
-      message: result.message,
-      error: result.error
-    });
-  }
-});
 
 // 管理者管理エンドポイント
 
@@ -1006,6 +1051,29 @@ app.put('/api/satellites/:id/managers', async (req, res) => {
   });
 });
 
+// 拠点に管理者を追加
+app.put('/api/satellites/:id/add-manager', async (req, res) => {
+  const satelliteId = parseInt(req.params.id);
+  const { manager_id } = req.body;
+  
+  if (!manager_id) {
+    return res.status(400).json({
+      success: false,
+      message: '管理者IDは必須です',
+      error: 'Manager ID is required'
+    });
+  }
+  
+  const result = await addSatelliteManager(satelliteId, manager_id);
+  
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    ...(result.error && { error: result.error })
+  });
+});
+
 // ユーザーの所属拠点一覧取得
 app.get('/api/users/:userId/satellites', async (req, res) => {
   const userId = parseInt(req.params.userId);
@@ -1049,7 +1117,7 @@ app.post('/api/users/:userId/satellites', async (req, res) => {
   });
 });
 
-// ユーザーから拠点を削除
+// ユーザーから拠点を削除（具体的なルートを先に配置）
 app.delete('/api/users/:userId/satellites/:satelliteId', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const satelliteId = parseInt(req.params.satelliteId);
@@ -1060,6 +1128,42 @@ app.delete('/api/users/:userId/satellites/:satelliteId', async (req, res) => {
     message: result.message,
     ...(result.error && { error: result.error })
   });
+});
+
+// ユーザー削除エンドポイント（一般的なルートを具体的なルートの後に配置）
+app.delete('/api/users/:userId', async (req, res) => {
+  console.log('=== DELETE /api/users/:userId エンドポイントが呼び出されました ===');
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('URL パラメータ:', req.params);
+  
+  try {
+    const { userId } = req.params;
+    console.log('削除対象のユーザーID:', userId);
+    
+    if (!userId || isNaN(parseInt(userId))) {
+      return res.status(400).json({
+        success: false,
+        message: '有効なユーザーIDが指定されていません'
+      });
+    }
+    
+    const result = await deleteUser(parseInt(userId));
+    console.log('削除結果:', result);
+    
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('ユーザー削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'ユーザーの削除に失敗しました',
+      error: error.message
+    });
+  }
 });
 
 // 指導者専門分野関連エンドポイント
@@ -1179,6 +1283,26 @@ app.get('/api/operation-logs', getOperationLogs);
 app.get('/api/operation-logs/stats', getOperationLogStats);
 app.get('/api/operation-logs/export', exportOperationLogs);
 app.delete('/api/operation-logs', clearOperationLogs);
+
+// コース管理エンドポイント
+app.get('/api/courses', authenticateToken, getCourses);
+app.get('/api/courses/:id', authenticateToken, getCourseById);
+app.post('/api/courses', authenticateToken, requireAdmin, createCourse);
+app.put('/api/courses/:id', authenticateToken, requireAdmin, updateCourse);
+app.delete('/api/courses/:id', authenticateToken, requireAdmin, deleteCourse);
+app.put('/api/courses/order', authenticateToken, requireAdmin, updateCourseOrder);
+
+// テスト用エンドポイント（認証なし）
+app.post('/api/test/courses', createCourse);
+
+// レッスン管理エンドポイント
+app.get('/api/lessons', getLessons);
+app.get('/api/lessons/:id', getLessonById);
+app.post('/api/lessons', upload.single('file'), createLesson);
+app.put('/api/lessons/:id', upload.single('file'), updateLesson);
+app.delete('/api/lessons/:id', deleteLesson);
+app.put('/api/lessons/order', updateLessonOrder);
+app.get('/api/lessons/:id/download', downloadLessonFile);
 
 // エラーログミドルウェア
 app.use(errorLogger);

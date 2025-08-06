@@ -611,6 +611,81 @@ const setSatelliteManagers = async (id, managerIds) => {
   }
 };
 
+/**
+ * 拠点に管理者を追加
+ */
+const addSatelliteManager = async (id, managerId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id, manager_ids FROM satellites WHERE id = ?',
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません',
+        statusCode: 404
+      };
+    }
+
+    // 現在の管理者IDを取得
+    let currentManagerIds = [];
+    if (existingRows[0].manager_ids) {
+      try {
+        currentManagerIds = JSON.parse(existingRows[0].manager_ids);
+      } catch (e) {
+        console.error('管理者IDのパースエラー:', e);
+        currentManagerIds = [];
+      }
+    }
+
+    // 既に管理者として設定されているかチェック
+    if (currentManagerIds.includes(managerId)) {
+      return {
+        success: true,
+        message: '既に管理者として設定されています',
+        data: { manager_ids: currentManagerIds }
+      };
+    }
+
+    // 新しい管理者IDを追加
+    currentManagerIds.push(managerId);
+    const managerIdsJson = JSON.stringify(currentManagerIds);
+
+    await connection.execute(`
+      UPDATE satellites 
+      SET manager_ids = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [managerIdsJson, id]);
+
+    return {
+      success: true,
+      message: '拠点管理者が正常に追加されました',
+      data: { manager_ids: currentManagerIds }
+    };
+  } catch (error) {
+    console.error('拠点管理者追加エラー:', error);
+    return {
+      success: false,
+      message: '拠点管理者の追加に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   getSatellites,
   getSatelliteById,
@@ -619,5 +694,6 @@ module.exports = {
   updateSatellite,
   deleteSatellite,
   regenerateToken,
-  setSatelliteManagers
+  setSatelliteManagers,
+  addSatelliteManager
 }; 
