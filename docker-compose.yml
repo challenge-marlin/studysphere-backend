@@ -13,8 +13,8 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # 初期化スクリプトを確実に実行
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # 初期化スクリプトは手動で実行（自動実行しない）
+      # - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - app-network
     command: --default-authentication-plugin=mysql_native_password --innodb-buffer-pool-size=256M --max-connections=100
@@ -48,16 +48,18 @@ services:
       - NODE_ENV=development
       - PORT=5000
       - FRONTEND_URL=http://localhost:3000
-      - JWT_SECRET=5717beb0435d9de18748f91fc0be629371b2ef694d79689fb60b0764724981fc1db009971e523783bbb6313bb9f45e39f2393dbfc845abeac55df03cef39ae52
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_S3_BUCKET=${AWS_S3_BUCKET:-studysphere}
     depends_on:
       db:
         condition: service_healthy
     networks:
       - app-network
     volumes:
-      - ./backend:/app
       - node_modules:/app/node_modules
     healthcheck:
       test:

@@ -135,6 +135,9 @@ const {
   deleteLesson,
   updateLessonOrder,
   downloadLessonFile,
+  downloadLessonFolder,
+  getLessonFiles,
+  downloadIndividualFile,
   upload
 } = require('./scripts/lessonController');
 
@@ -160,8 +163,18 @@ if (process.env.NODE_ENV === 'development') {
   app.use(detailedLogger);
 }
 
-// パースミドルウェア
-app.use(express.json({ limit: '10mb' }));
+// パースミドルウェア（FormDataエンドポイントを除く）
+app.use((req, res, next) => {
+  // FormDataを送信するエンドポイントの場合はJSONパーサーをスキップ
+  if (req.path === '/api/lessons' && req.method === 'POST') {
+    return next();
+  }
+  if (req.path.match(/^\/api\/lessons\/\d+$/) && req.method === 'PUT') {
+    return next();
+  }
+  express.json({ limit: '10mb' })(req, res, next);
+});
+
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // デバッグ用：すべてのリクエストをログ出力
@@ -1294,15 +1307,19 @@ app.put('/api/courses/order', authenticateToken, requireAdmin, updateCourseOrder
 
 // テスト用エンドポイント（認証なし）
 app.post('/api/test/courses', createCourse);
+app.get('/api/test/courses', getCourses);
 
-// レッスン管理エンドポイント
-app.get('/api/lessons', getLessons);
-app.get('/api/lessons/:id', getLessonById);
-app.post('/api/lessons', upload.single('file'), createLesson);
-app.put('/api/lessons/:id', upload.single('file'), updateLesson);
-app.delete('/api/lessons/:id', deleteLesson);
-app.put('/api/lessons/order', updateLessonOrder);
-app.get('/api/lessons/:id/download', downloadLessonFile);
+// レッスン管理エンドポイント（FormData用）
+app.get('/api/lessons', authenticateToken, getLessons);
+app.get('/api/lessons/:id', authenticateToken, getLessonById);
+app.post('/api/lessons', authenticateToken, requireAdmin, upload.single('file'), createLesson);
+app.put('/api/lessons/:id', authenticateToken, requireAdmin, upload.single('file'), updateLesson);
+app.delete('/api/lessons/:id', authenticateToken, requireAdmin, deleteLesson);
+app.put('/api/lessons/order', authenticateToken, requireAdmin, updateLessonOrder);
+app.get('/api/lessons/:id/download', authenticateToken, downloadLessonFile);
+app.get('/api/lessons/:id/download-folder', authenticateToken, downloadLessonFolder);
+app.get('/api/lessons/:id/files', authenticateToken, getLessonFiles);
+app.post('/api/lessons/download-file', authenticateToken, downloadIndividualFile);
 
 // エラーログミドルウェア
 app.use(errorLogger);

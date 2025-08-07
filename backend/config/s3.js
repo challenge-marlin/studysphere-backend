@@ -16,11 +16,83 @@ const s3 = new AWS.S3({
   region: s3Config.region
 });
 
+// メタデータの文字列を安全な形式に変換する関数
+const sanitizeMetadata = (str) => {
+  if (!str) return '';
+  // 日本語文字は保持し、S3で問題となる特殊文字のみを置換
+  return str
+    .replace(/[<>:"|?*]/g, '_') // S3で使用できない文字をアンダースコアに変換
+    .replace(/\\/g, '_') // バックスラッシュをアンダースコアに変換
+    .trim(); // 前後の空白を削除
+};
+
+// ファイル名を安全な形式に変換する関数（日本語保持）
+const sanitizeFileName = (fileName) => {
+  if (!fileName) return 'file';
+  
+  try {
+    // 日本語文字を保持し、S3で問題となる特殊文字のみを置換
+    const sanitized = fileName
+      .replace(/[<>:"|?*]/g, '_') // S3で使用できない文字をアンダースコアに変換
+      .replace(/\\/g, '_') // バックスラッシュをアンダースコアに変換
+      .trim() // 前後の空白を削除
+      .substring(0, 255); // 長さ制限
+    
+    // UTF-8として正しく処理できるか確認
+    Buffer.from(sanitized, 'utf8');
+    return sanitized;
+  } catch (error) {
+    // UTF-8エラーが発生した場合は、ASCII文字のみに変換
+    console.warn('UTF-8 encoding error, converting to ASCII:', error.message);
+    return fileName
+      .replace(/[^\x00-\x7F]/g, '_') // 非ASCII文字をアンダースコアに変換
+      .replace(/[<>:"|?*]/g, '_')
+      .replace(/\\/g, '_')
+      .trim()
+      .substring(0, 255);
+  }
+};
+
+// RFC 5987に準拠したUTF-8エンコーディング関数
+const encodeRFC5987 = (str) => {
+  if (!str) return '';
+  
+  try {
+    // UTF-8バイト配列に変換してから、各バイトを%XX形式でエンコード
+    const utf8Bytes = Buffer.from(str, 'utf8');
+    const encoded = Array.from(utf8Bytes)
+      .map(byte => '%' + byte.toString(16).padStart(2, '0').toUpperCase())
+      .join('');
+    
+    return encoded;
+  } catch (error) {
+    // エラーが発生した場合は元の文字列をそのまま返す
+    console.warn('UTF-8 encoding failed, using original string:', error.message);
+    return str;
+  }
+};
+
+// ファイル名を安全にエンコードする関数（ブラウザ互換性重視）
+const encodeFileName = (str) => {
+  if (!str) return '';
+  
+  try {
+    // 日本語文字を保持しつつ、特殊文字のみエンコード
+    return encodeURIComponent(str)
+      .replace(/['()]/g, escape)
+      .replace(/%20/g, '+');
+  } catch (error) {
+    console.warn('File name encoding failed, using original string:', error.message);
+    return str;
+  }
+};
+
 // S3操作のユーティリティ関数
 const s3Utils = {
   // ファイルアップロード
   uploadFile: async (file, courseName, lessonName, fileName) => {
     try {
+      // S3キーは日本語文字を保持（S3はUTF-8をサポート）
       const key = `lessons/${courseName}/${lessonName}/${fileName}`;
       
       const params = {
@@ -28,11 +100,12 @@ const s3Utils = {
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
+        ContentDisposition: `attachment; filename*=UTF-8''${encodeRFC5987(fileName)}`,
         Metadata: {
-          'original-name': file.originalname,
+          'original-name': Buffer.from(file.originalname, 'utf8').toString('base64'),
           'upload-date': new Date().toISOString(),
-          'course-name': courseName,
-          'lesson-name': lessonName
+          'course-name': Buffer.from(courseName, 'utf8').toString('base64'),
+          'lesson-name': Buffer.from(lessonName, 'utf8').toString('base64')
         }
       };
 
@@ -71,6 +144,19 @@ const s3Utils = {
 
       const result = await s3.getObject(params).promise();
       
+      // メタデータのBase64デコード
+      const decodedMetadata = {};
+      if (result.Metadata) {
+        Object.keys(result.Metadata).forEach(key => {
+          try {
+            decodedMetadata[key] = Buffer.from(result.Metadata[key], 'base64').toString('utf8');
+          } catch (error) {
+            // デコードに失敗した場合は元の値を保持
+            decodedMetadata[key] = result.Metadata[key];
+          }
+        });
+      }
+      
       customLogger.info(`S3 download successful: ${key}`, {
         bucket: s3Config.bucketName,
         key: key,
@@ -81,7 +167,7 @@ const s3Utils = {
         success: true,
         data: result.Body,
         contentType: result.ContentType,
-        metadata: result.Metadata
+        metadata: decodedMetadata
       };
     } catch (error) {
       customLogger.error('S3 download failed', {
@@ -197,11 +283,140 @@ const s3Utils = {
       }
       throw error;
     }
+  },
+
+  // フォルダ削除（フォルダ内の全ファイルを削除）
+  deleteFolder: async (prefix) => {
+    try {
+      // フォルダ内のファイル一覧を取得
+      const listResult = await s3Utils.listFiles(prefix);
+      
+      if (listResult.files.length === 0) {
+        customLogger.info(`S3 folder is empty or does not exist: ${prefix}`, {
+          bucket: s3Config.bucketName,
+          prefix: prefix
+        });
+        return {
+          success: true,
+          message: 'Folder is empty or does not exist',
+          deletedCount: 0
+        };
+      }
+
+      // 削除対象のファイルキーを準備
+      const deleteParams = {
+        Bucket: s3Config.bucketName,
+        Delete: {
+          Objects: listResult.files.map(file => ({ Key: file.Key })),
+          Quiet: false
+        }
+      };
+
+      // 複数ファイルを一括削除
+      const deleteResult = await s3.deleteObjects(deleteParams).promise();
+      
+      customLogger.info(`S3 folder delete successful: ${prefix}`, {
+        bucket: s3Config.bucketName,
+        prefix: prefix,
+        deletedCount: deleteResult.Deleted ? deleteResult.Deleted.length : 0,
+        errorCount: deleteResult.Errors ? deleteResult.Errors.length : 0
+      });
+
+      return {
+        success: true,
+        message: 'Folder deleted successfully',
+        deletedCount: deleteResult.Deleted ? deleteResult.Deleted.length : 0,
+        errors: deleteResult.Errors || []
+      };
+    } catch (error) {
+      customLogger.error('S3 folder delete failed', {
+        error: error.message,
+        prefix: prefix
+      });
+      throw error;
+    }
+  },
+
+  // フォルダダウンロード（ZIP形式）
+  downloadFolder: async (prefix, folderName) => {
+    try {
+      const JSZip = require('jszip');
+      const zip = new JSZip();
+      
+      // フォルダ内のファイル一覧を取得
+      const listResult = await s3Utils.listFiles(prefix);
+      
+      if (listResult.files.length === 0) {
+        customLogger.info(`S3 folder is empty or does not exist: ${prefix}`, {
+          bucket: s3Config.bucketName,
+          prefix: prefix
+        });
+        return {
+          success: false,
+          message: 'Folder is empty or does not exist'
+        };
+      }
+
+      // 各ファイルをダウンロードしてZIPに追加
+      for (const file of listResult.files) {
+        try {
+          const fileResult = await s3Utils.downloadFile(file.Key);
+          
+          // ファイルパスからフォルダ名を除去してZIP内のパスを決定
+          const relativePath = file.Key.replace(prefix, '').replace(/^\//, '');
+          const fileName = relativePath || file.Key.split('/').pop();
+          
+          // 元のファイル名を復元
+          let originalFileName = fileName;
+          if (fileResult.metadata && fileResult.metadata['original-name']) {
+            originalFileName = fileResult.metadata['original-name'];
+          }
+          
+          zip.file(originalFileName, fileResult.data);
+          
+          customLogger.info(`File added to ZIP: ${originalFileName}`, {
+            originalKey: file.Key,
+            originalName: originalFileName
+          });
+        } catch (fileError) {
+          customLogger.warn(`Failed to download file for ZIP: ${file.Key}`, {
+            error: fileError.message
+          });
+          // 個別ファイルのダウンロード失敗は続行
+        }
+      }
+
+      // ZIPファイルを生成
+      const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+      
+      customLogger.info(`S3 folder download successful: ${prefix}`, {
+        bucket: s3Config.bucketName,
+        prefix: prefix,
+        fileCount: listResult.files.length,
+        zipSize: zipBuffer.length
+      });
+
+      return {
+        success: true,
+        data: zipBuffer,
+        contentType: 'application/zip',
+        fileName: `${folderName || 'folder'}.zip`,
+        fileCount: listResult.files.length
+      };
+    } catch (error) {
+      customLogger.error('S3 folder download failed', {
+        error: error.message,
+        prefix: prefix
+      });
+      throw error;
+    }
   }
 };
 
 module.exports = {
   s3,
   s3Config,
-  s3Utils
+  s3Utils,
+  encodeRFC5987,
+  encodeFileName
 }; 

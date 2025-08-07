@@ -1,4 +1,7 @@
-require('dotenv').config({ path: __dirname + '/../.env' });
+// Docker環境では環境変数はdocker-compose.ymlで設定されるため、.envファイルは読み込まない
+if (!process.env.DB_HOST) {
+  require('dotenv').config({ path: __dirname + '/../.env' });
+}
 
 console.log('=== Database Configuration Debug ===');
 console.log('DB_HOST:', process.env.DB_HOST);

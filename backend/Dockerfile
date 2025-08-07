@@ -18,5 +18,5 @@ COPY . .
 # ポート5000を公開
 EXPOSE 5000
 
-# 開発環境用の起動コマンド（ホットリロード有効）
-CMD ["nodemon", "--legacy-watch", "--polling", "--watch", "/app", "--ext", "js,json,sql", "index.js"] 
+# 開発環境用の起動コマンド（nodemon.jsonの設定を使用）
+CMD ["nodemon", "index.js"] 

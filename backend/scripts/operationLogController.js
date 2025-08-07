@@ -1,6 +1,64 @@
 const { customLogger } = require('../utils/logger');
 const { executeQuery } = require('../utils/database');
 
+// 操作ログを記録する（直接オブジェクトを受け取る版）
+const recordOperationLogDirect = async (logData) => {
+  try {
+    const { userId, action, targetType, targetId, details } = logData;
+    
+    if (!userId || !action) {
+      customLogger.warn('操作ログ記録に必要な情報が不足しています', {
+        userId,
+        action,
+        targetType,
+        targetId
+      });
+      return { success: false, error: '必須項目が不足しています' };
+    }
+
+    // ユーザー情報を取得
+    const userQuery = `SELECT id, name FROM users WHERE id = ?`;
+    const userResult = await executeQuery(userQuery, [userId]);
+    
+    let adminId = userId;
+    let adminName = 'Unknown User';
+    
+    if (userResult.success && userResult.data.length > 0) {
+      adminName = userResult.data[0].name || 'Unknown User';
+    }
+
+    const query = `
+      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
+    `;
+    
+    const detailsStr = details ? JSON.stringify(details) : null;
+    const ipAddress = 'N/A'; // 直接呼び出しの場合はIPアドレスを取得できない
+    
+    const result = await executeQuery(query, [adminId, adminName, action, detailsStr, ipAddress]);
+    if (!result.success) {
+      throw new Error(result.error || '操作ログの記録に失敗しました');
+    }
+    
+    customLogger.info('操作ログを記録', {
+      adminId,
+      adminName,
+      action,
+      details: detailsStr,
+      ipAddress
+    });
+    
+    return { success: true, data: { id: result.data.insertId } };
+  } catch (error) {
+    customLogger.error('操作ログ記録エラー', {
+      error: error.message,
+      logData
+    });
+    
+    return { success: false, error: error.message };
+  }
+};
+
 // 操作ログを記録する
 const recordOperationLog = async (req, res) => {
   try {
@@ -419,6 +477,7 @@ const clearOperationLogs = async (req, res) => {
 };
 
 module.exports = {
+  recordOperationLogDirect,
   recordOperationLog,
   getOperationLogs,
   getOperationLogStats,

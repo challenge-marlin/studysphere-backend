@@ -10,7 +10,7 @@ const getCourses = async (req, res) => {
     const [rows] = await connection.execute(`
       SELECT 
         c.*,
-        COUNT(l.id) as lesson_count,
+        COUNT(CASE WHEN l.status != 'deleted' THEN 1 END) as lesson_count,
         COUNT(CASE WHEN l.status = 'active' THEN 1 END) as active_lessons
       FROM courses c
       LEFT JOIN lessons l ON c.id = l.course_id

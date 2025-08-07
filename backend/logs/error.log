@@ -7645,3 +7645,927 @@
   "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
   "user": "anonymous"
 }
+2025-08-06 15:32:17 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:26:11 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:27:04 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "34ms"
+}
+2025-08-07 10:38:46 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:42:45 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:45:12 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:49:14 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 10:49:18 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "35ms"
+}
+2025-08-07 10:51:39 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "35ms"
+}
+2025-08-07 10:53:26 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "37ms"
+}
+2025-08-07 10:55:22 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "34ms"
+}
+2025-08-07 10:58:44 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "35ms"
+}
+2025-08-07 11:02:22 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "43ms"
+}
+2025-08-07 11:06:43 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "33ms"
+}
+2025-08-07 11:08:48 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "32ms"
+}
+2025-08-07 11:10:45 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "58ms"
+}
+2025-08-07 11:12:50 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "2528ms"
+}
+2025-08-07 11:14:56 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "33ms"
+}
+2025-08-07 11:21:37 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "connect ECONNREFUSED 172.18.0.2:3306",
+  "code": "ECONNREFUSED",
+  "duration": "79ms"
+}
+2025-08-07 11:21:45 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "65ms"
+}
+2025-08-07 11:23:12 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "48ms"
+}
+2025-08-07 11:23:58 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "77ms"
+}
+2025-08-07 11:24:07 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "96ms"
+}
+2025-08-07 11:24:20 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "66ms"
+}
+2025-08-07 11:25:07 [ERROR]: データベース接続テスト失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "",
+  "code": "ECONNREFUSED",
+  "duration": "54ms"
+}
+2025-08-07 11:33:53 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 12:39:08 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "ログイン",
+    "管理者「admin001」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "11ms",
+  "threadId": 9
+}
+2025-08-07 12:39:08 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:08 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "16ms",
+  "threadId": 9
+}
+2025-08-07 12:39:08 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 9
+}
+2025-08-07 12:39:10 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "14ms",
+  "threadId": 9
+}
+2025-08-07 12:39:10 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "9ms",
+  "threadId": 9
+}
+2025-08-07 12:39:10 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "15ms",
+  "threadId": 9
+}
+2025-08-07 12:39:10 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "16ms",
+  "threadId": 9
+}
+2025-08-07 12:39:10 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:39:11 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "7ms",
+  "threadId": 9
+}
+2025-08-07 12:39:11 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:45:14 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "指導員作成",
+    "指導員「盛内　稔史」を作成しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "10ms",
+  "threadId": 9
+}
+2025-08-07 12:45:14 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:45:14 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 9
+}
+2025-08-07 12:45:14 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:45:32 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "指導員更新",
+    "指導員「盛内　稔史」の情報を更新しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 9
+}
+2025-08-07 12:45:32 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:45:32 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 9
+}
+2025-08-07 12:45:32 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "20ms",
+  "threadId": 49
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "20ms",
+  "threadId": 18
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "26ms",
+  "threadId": 18
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "23ms",
+  "threadId": 49
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "32ms",
+  "threadId": 49
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:48:38 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "32ms",
+  "threadId": 18
+}
+2025-08-07 12:48:38 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:01 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "管理者作成",
+    "管理者「小渕　正明」を新規作成しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "15ms",
+  "threadId": 18
+}
+2025-08-07 12:50:01 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:01 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "15ms",
+  "threadId": 18
+}
+2025-08-07 12:50:01 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:01 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "10ms",
+  "threadId": 18
+}
+2025-08-07 12:50:01 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:01 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "7ms",
+  "threadId": 18
+}
+2025-08-07 12:50:01 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:01 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "7ms",
+  "threadId": 18
+}
+2025-08-07 12:50:01 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "管理者作成",
+    "管理者「末吉　元気」を新規作成しました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 18
+}
+2025-08-07 12:50:34 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "7ms",
+  "threadId": 18
+}
+2025-08-07 12:50:34 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 18
+}
+2025-08-07 12:50:34 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "4ms",
+  "threadId": 18
+}
+2025-08-07 12:50:34 [ERROR]: 操作ログ統計取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:50:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "7ms",
+  "threadId": 18
+}
+2025-08-07 12:50:34 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 12:57:50 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539070021_uaaqp5bln"
+}
+2025-08-07 12:57:50 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 12:58:09 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539089534_ow28qftu9"
+}
+2025-08-07 12:58:09 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 12:58:25 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539105713_gszsei21z"
+}
+2025-08-07 12:58:25 [ERROR]: Application Error Multipart: Boundary not found {
+  "service": "curriculum-portal-backend",
+  "stack": "Error: Multipart: Boundary not found\n    at new Multipart (/app/node_modules/busboy/lib/types/multipart.js:233:13)\n    at getInstance (/app/node_modules/busboy/lib/index.js:33:12)\n    at module.exports (/app/node_modules/busboy/lib/index.js:56:10)\n    at multerMiddleware (/app/node_modules/multer/lib/make-middleware.js:28:16)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at next (/app/node_modules/express/lib/router/route.js:149:13)\n    at Route.dispatch (/app/node_modules/express/lib/router/route.js:119:3)\n    at Layer.handle [as handle_request] (/app/node_modules/express/lib/router/layer.js:95:5)\n    at /app/node_modules/express/lib/router/index.js:284:15\n    at Function.process_params (/app/node_modules/express/lib/router/index.js:346:12)",
+  "name": "Error",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 13:01:49 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 13:02:15 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539335069_hd8nw16ps"
+}
+2025-08-07 13:02:15 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 13:02:24 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539344631_4aio39p5i"
+}
+2025-08-07 13:02:24 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 13:02:32 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539352643_iggdwmwji"
+}
+2025-08-07 13:02:32 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 13:03:42 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "requestId": "req_1754539422634_xjci569kn"
+}
+2025-08-07 13:03:42 [ERROR]: Application Error Unexpected token '-', "------WebK"... is not valid JSON {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Unexpected token '-', \"------WebK\"... is not valid JSON\n    at JSON.parse (<anonymous>)\n    at createStrictSyntaxError (/app/node_modules/body-parser/lib/types/json.js:169:10)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:86:15)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/lessons",
+  "ip": "172.18.0.1",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-07 13:06:37 [ERROR]: S3 upload failed {
+  "service": "curriculum-portal-backend",
+  "error": "Missing credentials in config, if using AWS_CONFIG_FILE, set AWS_SDK_LOAD_CONFIG=1",
+  "courseName": "ITリテラシー・AIの基本",
+  "lessonName": "Windows 11 の基本操作とソフトウェアの活用",
+  "fileName": "ã«ãªã­ã¥ã©ã 1ç¬¬1å.pdf"
+}
+2025-08-07 13:06:37 [ERROR]: Failed to create lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Missing credentials in config, if using AWS_CONFIG_FILE, set AWS_SDK_LOAD_CONFIG=1",
+  "title": "Windows 11 の基本操作とソフトウェアの活用",
+  "courseId": "1"
+}
+2025-08-07 13:11:33 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 13:28:20 [ERROR]: S3 upload failed {
+  "service": "curriculum-portal-backend",
+  "error": "Invalid character in header content [\"x-amz-meta-course-name\"]",
+  "courseName": "ITリテラシー・AIの基本",
+  "lessonName": "Windows 11 の基本操作とソフトウェアの活用",
+  "fileName": "ã«ãªã­ã¥ã©ã 1ç¬¬1å.pdf"
+}
+2025-08-07 13:28:20 [ERROR]: Failed to create lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "title": "Windows 11 の基本操作とソフトウェアの活用",
+  "courseId": "1"
+}
+2025-08-07 13:34:24 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot destructure property 'adminId' of 'req.body' as it is undefined.",
+  "user": "anonymous"
+}
+2025-08-07 13:34:24 [ERROR]: Failed to create lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot read properties of undefined (reading 'status')",
+  "title": "Windows 11 の基本操作とソフトウェアの活用",
+  "courseId": "1"
+}
+2025-08-07 13:44:25 [ERROR]: Failed to delete lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "lessonId": "1"
+}
+2025-08-07 13:44:29 [ERROR]: Failed to delete lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "lessonId": "2"
+}
+2025-08-07 13:44:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "system",
+    "システム",
+    "ログアウト",
+    "不明「不明」がログアウトしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "8ms",
+  "threadId": 88
+}
+2025-08-07 13:44:34 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 13:44:34 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 88
+}
+2025-08-07 13:44:34 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 13:44:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "ログイン",
+    "管理者「admin001」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "5ms",
+  "threadId": 88
+}
+2025-08-07 13:44:47 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 13:44:47 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "48ms",
+  "threadId": 86
+}
+2025-08-07 13:44:47 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 13:48:36 [ERROR]: Failed to delete lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "lessonId": "1"
+}
+2025-08-07 14:06:41 [ERROR]: Failed to update lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "lessonId": "4",
+  "userId": null
+}
+2025-08-07 14:21:20 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-07 14:40:54 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "system",
+    "システム",
+    "ログアウト",
+    "不明「不明」がログアウトしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "15ms",
+  "threadId": 74
+}
+2025-08-07 14:40:54 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 14:40:54 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "11ms",
+  "threadId": 74
+}
+2025-08-07 14:40:54 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 14:41:09 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    2,
+    "admin001",
+    "ログイン",
+    "管理者「admin001」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "68ms",
+  "threadId": 74
+}
+2025-08-07 14:41:09 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}
+2025-08-07 14:41:09 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT COUNT(*) as total FROM operation_logs ",
+  "params": [],
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "121ms",
+  "threadId": 74
+}
+2025-08-07 14:41:09 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
+  "user": "anonymous"
+}

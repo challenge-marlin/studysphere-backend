@@ -27,7 +27,6 @@
   "delay": "1000",
   "verbose": true,
   "legacyWatch": true,
-  "polling": true,
   "pollInterval": 2000,
   "restartable": "rs",
   "colours": true

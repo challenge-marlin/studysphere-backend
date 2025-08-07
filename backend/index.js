@@ -1,4 +1,8 @@
-require('dotenv').config();
+// Docker環境では環境変数はdocker-compose.ymlで設定されるため、.envファイルは読み込まない
+// ローカル開発環境でのみ.envファイルを読み込む
+if (process.env.NODE_ENV !== 'production' && !process.env.DB_HOST) {
+  require('dotenv').config();
+}
 const app = require('./app');
 const { testConnection, endPool } = require('./utils/database');
 const { memoryMonitor } = require('./utils/memoryMonitor');

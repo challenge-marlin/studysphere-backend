@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "bcryptjs": "^3.0.2",
+    "jszip": "^3.10.1",
     "mysql2": "^3.14.3"
   }
 }
