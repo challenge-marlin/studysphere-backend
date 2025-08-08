@@ -1,6 +1,12 @@
 -- カリキュラムポータル データベース初期化SQL
 -- MySQL 8.0対応
 
+
+CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'shinomoto926!';
+ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'shinomoto926!';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
 -- データベースの作成（存在しない場合）
 CREATE DATABASE IF NOT EXISTS `curriculum-portal` 
 CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -332,3 +338,32 @@ CREATE TABLE IF NOT EXISTS lessons (
     updated_by INT COMMENT '更新者ID',
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン管理テーブル';
+
+-- 操作ログテーブル
+CREATE TABLE IF NOT EXISTS `operation_logs` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '操作ログID',
+  `admin_id` INT COMMENT '管理者ID',
+  `admin_name` VARCHAR(100) COMMENT '管理者名',
+  `action` VARCHAR(100) NOT NULL COMMENT '操作内容',
+  `details` TEXT COMMENT '詳細',
+  `ip_address` VARCHAR(45) COMMENT 'IPアドレス',
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+  INDEX `idx_admin_id` (`admin_id`),
+  INDEX `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作ログテーブル';
+
+-- 初期データの挿入
+-- 管理者企業の作成
+INSERT INTO companies (id, name, address, phone) VALUES 
+(1, 'アドミニストレータ', 'システム管理者', '000-0000-0000')
+ON DUPLICATE KEY UPDATE name = name;
+
+-- 管理者ユーザーの作成
+INSERT INTO user_accounts (id, name, role, status, login_code, company_id) VALUES 
+(1, 'admin001', 10, 1, 'ADMN-0001-0001', 1)
+ON DUPLICATE KEY UPDATE name = name;
+
+-- 管理者認証情報の作成（パスワード: admin123）
+INSERT INTO admin_credentials (user_id, username, password_hash) VALUES 
+(1, 'admin001', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O')
+ON DUPLICATE KEY UPDATE username = username;

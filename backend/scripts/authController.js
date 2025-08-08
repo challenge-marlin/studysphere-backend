@@ -13,6 +13,10 @@ const {
 const adminLogin = async (username, password) => {
   let connection;
   try {
+    console.log('=== Login Debug Info ===');
+    console.log('Attempting login with username:', username);
+    console.log('Password provided:', password ? 'Yes' : 'No');
+    
     connection = await pool.getConnection();
     
     // 管理者認証情報を取得
@@ -33,8 +37,20 @@ const adminLogin = async (username, password) => {
       LEFT JOIN companies c ON ua.company_id = c.id
       WHERE ac.username = ? 
         AND ua.status = 1
-        AND ua.role >= 9
+        AND ua.role >= 4
     `, [username]);
+    
+    console.log('Found admin rows:', adminRows.length);
+    if (adminRows.length > 0) {
+      console.log('Admin data:', {
+        user_id: adminRows[0].user_id,
+        username: adminRows[0].username,
+        user_name: adminRows[0].user_name,
+        role: adminRows[0].role,
+        status: adminRows[0].status,
+        has_password: adminRows[0].password_hash ? 'Yes' : 'No'
+      });
+    }
 
     if (adminRows.length === 0) {
       return {
@@ -47,8 +63,15 @@ const adminLogin = async (username, password) => {
     const admin = adminRows[0];
 
     // パスワードの検証
+    console.log('Password verification:');
+    console.log('Input password:', password);
+    console.log('Stored hash exists:', admin.password_hash ? 'Yes' : 'No');
+    
     const isPasswordValid = await bcrypt.compare(password, admin.password_hash);
+    console.log('Password valid:', isPasswordValid);
+    
     if (!isPasswordValid) {
+      console.log('Password verification failed');
       return {
         success: false,
         statusCode: 401,

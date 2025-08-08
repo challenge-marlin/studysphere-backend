@@ -516,7 +516,7 @@ const createUser = async (userData) => {
         ) VALUES (?, ?, ?)`,
         [
           userId,
-          userData.name, // ユーザー名をログインIDとして使用
+          userData.username || userData.name, // usernameが指定されていればそれを、なければnameを使用
           hashedPassword
         ]
       );

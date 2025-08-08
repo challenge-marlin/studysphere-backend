@@ -98,34 +98,55 @@ mysql -u root -p < db/add-phone-to-satellites.sql
 
 Dockerボリュームやキャッシュが蓄積された場合は、以下のスクリプトでクリーンアップできます：
 
-### 安全なクリーンアップ（データ保持）
-```bash
-# PowerShell
-.\cleanup-docker-safe.ps1
+### 自動クリーンアップ（推奨）
+`start-all.bat`を実行すると、起動時に自動的に以下のクリーンアップが実行されます：
+- Dangling images（`<none>`タグ）の削除
+- 未使用のネットワークの削除
+- 停止中コンテナの削除
+- ビルドキャッシュの削除
+- **データベースボリュームは保持**（既存データを保護）
 
-# バッチファイル
-cleanup-docker.bat
+### 手動クリーンアップ
+
+#### 安全なクリーンアップ（StudySphere関連のみ）
+```bash
+# Windows (バッチファイル)
+cleanup-docker-safe.bat
+
+# Windows (PowerShell)
+.\cleanup-docker-safe.ps1
 ```
 
-### 完全クリーンアップ（データ削除）
+#### 包括的なクリーンアップ（全未使用リソース）
 ```bash
-# PowerShell
+# Windows (バッチファイル)
+cleanup-docker.bat
+
+# Windows (PowerShell)
 .\cleanup-docker.ps1
 ```
 
-### 手動クリーンアップ
+#### 完全クリーンアップ（DBデータも含む）
 ```bash
-# ビルドキャッシュのみ削除
-docker builder prune -f
+# Windows (バッチファイル)
+cleanup-docker-full.bat
 
-# 未使用のイメージを削除
-docker image prune -f
-
-# 未使用のボリュームを削除
-docker volume prune -f
-
-# システム全体のクリーンアップ
-docker system prune -f
+# Windows (PowerShell)
+.\cleanup-docker-full.ps1
 ```
 
-**注意**: `cleanup-docker.ps1`は全てのデータを削除するため、重要なデータがある場合は`cleanup-docker-safe.ps1`を使用してください。
+**注意**: 包括的なクリーンアップは他のDockerプロジェクトにも影響する可能性があります。
+**警告**: 完全クリーンアップは**全てのStudySphereデータを削除**します。実行前に必ずバックアップを取ってください。
+
+### クリーンアップ対象
+- **Dangling Images**: `<none>`タグのイメージ
+- **未使用ボリューム**: どのコンテナからも参照されていないボリューム
+- **未使用ネットワーク**: どのコンテナからも参照されていないネットワーク
+- **停止中コンテナ**: 終了したコンテナ
+- **ビルドキャッシュ**: Docker buildのキャッシュ
+
+### クリーンアップ後の再起動
+クリーンアップ後は、以下のコマンドで環境を再起動してください：
+```bash
+start-all.bat
+```

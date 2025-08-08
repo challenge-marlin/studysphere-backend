@@ -529,16 +529,26 @@ const updateLesson = async (req, res) => {
       userId: req.user?.id || null
     });
 
+    // 更新されたレッスン情報を取得
+    const [updatedRows] = await connection.execute(`
+      SELECT l.*, c.title as course_title
+      FROM lessons l
+      JOIN courses c ON l.course_id = c.id
+      WHERE l.id = ? AND l.status != 'deleted'
+    `, [id]);
+
+    const updatedLesson = updatedRows[0];
+
     res.json({
       success: true,
       message: 'レッスンが正常に更新されました',
       data: { 
         id, 
-        title, 
-        s3_key: s3Key,
-        file_type: fileType,
-        file_size: fileSize,
-        youtube_url: youtube_url
+        title: updatedLesson.title, 
+        s3_key: updatedLesson.s3_key,
+        file_type: updatedLesson.file_type,
+        file_size: updatedLesson.file_size,
+        youtube_url: updatedLesson.youtube_url
       }
     });
   } catch (error) {
