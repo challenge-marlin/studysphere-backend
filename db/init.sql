@@ -47,6 +47,7 @@ CREATE TABLE `satellites` (
     `max_users` INT NOT NULL DEFAULT 10 COMMENT '利用者（ロール1）の上限登録人数',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT 'ステータス（1=稼働中、0=停止中）',
     `manager_ids` JSON DEFAULT NULL COMMENT '管理者（ロール5）のユーザーID配列',
+    `disabled_course_ids` JSON DEFAULT NULL COMMENT '無効化されているコースIDの配列（未設定=全コース有効）',
     `token_issued_at` DATETIME NOT NULL COMMENT 'トークン発行日',
     `token_expiry_at` DATETIME NOT NULL COMMENT 'トークン有効期限',
     `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',

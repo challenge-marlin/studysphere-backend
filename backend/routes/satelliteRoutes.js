@@ -15,6 +15,8 @@ const {
   regenerateToken,
   setSatelliteManagers,
   addSatelliteManager,
+  getSatelliteDisabledCourses,
+  setSatelliteDisabledCourses,
 } = require('../scripts/satelliteController');
 const {
   getSatelliteInstructors,
@@ -232,6 +234,21 @@ router.put('/:id/add-manager', async (req, res) => {
     data: result.data,
     ...(result.error && { error: result.error }),
   });
+});
+
+// 無効化コース一覧取得
+router.get('/:id/disabled-courses', async (req, res) => {
+  const satelliteId = parseInt(req.params.id);
+  const result = await getSatelliteDisabledCourses(satelliteId);
+  res.status(result.success ? 200 : (result.statusCode || 400)).json(result);
+});
+
+// 無効化コース一覧更新（置換）
+router.put('/:id/disabled-courses', async (req, res) => {
+  const satelliteId = parseInt(req.params.id);
+  const { disabled_course_ids } = req.body;
+  const result = await setSatelliteDisabledCourses(satelliteId, disabled_course_ids || []);
+  res.status(result.success ? 200 : (result.statusCode || 400)).json(result);
 });
 
 module.exports = router;

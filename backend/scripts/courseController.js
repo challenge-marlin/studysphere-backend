@@ -1,27 +1,48 @@
 const { customLogger } = require('../utils/logger');
 const { pool } = require('../utils/database');
-const { recordOperationLog } = require('./operationLogController');
+const { recordOperationLogDirect } = require('./operationLogController');
 
-// コース一覧取得
+// コース一覧取得（オプション: ?satelliteId=123 指定で当該拠点の無効コースを除外）
 const getCourses = async (req, res) => {
   const connection = await pool.getConnection();
+  const satelliteId = req.query.satelliteId ? parseInt(req.query.satelliteId) : null;
   
   try {
-    const [rows] = await connection.execute(`
+    let disabledCourseIds = [];
+    if (satelliteId) {
+      const [satRows] = await connection.execute('SELECT disabled_course_ids FROM satellites WHERE id = ?', [satelliteId]);
+      if (satRows.length > 0 && satRows[0].disabled_course_ids) {
+        try {
+          disabledCourseIds = Array.isArray(satRows[0].disabled_course_ids)
+            ? satRows[0].disabled_course_ids
+            : JSON.parse(satRows[0].disabled_course_ids);
+        } catch (e) {
+          disabledCourseIds = [];
+        }
+      }
+    }
+
+    const baseSql = `
       SELECT 
-        c.*,
+        c.*, 
         COUNT(CASE WHEN l.status != 'deleted' THEN 1 END) as lesson_count,
         COUNT(CASE WHEN l.status = 'active' THEN 1 END) as active_lessons
       FROM courses c
       LEFT JOIN lessons l ON c.id = l.course_id
       WHERE c.status != 'deleted'
+      ${disabledCourseIds.length > 0 ? `AND c.id NOT IN (${disabledCourseIds.map(() => '?').join(',')})` : ''}
       GROUP BY c.id
       ORDER BY c.order_index ASC, c.created_at DESC
-    `);
+    `;
+
+    const params = disabledCourseIds.length > 0 ? disabledCourseIds : [];
+    const [rows] = await connection.execute(baseSql, params);
 
     customLogger.info('Courses retrieved successfully', {
       count: rows.length,
-      userId: req.user?.id
+      userId: req.user?.user_id,
+      satelliteId,
+      disabledCourseCount: disabledCourseIds.length
     });
 
     res.json({
@@ -31,7 +52,8 @@ const getCourses = async (req, res) => {
   } catch (error) {
     customLogger.error('Failed to retrieve courses', {
       error: error.message,
-      userId: req.user?.id
+      userId: req.user?.user_id,
+      satelliteId
     });
     
     res.status(500).json({
@@ -75,7 +97,7 @@ const getCourseById = async (req, res) => {
     customLogger.info('Course retrieved successfully', {
       courseId: id,
       lessonCount: lessonRows.length,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
 
     res.json({
@@ -86,7 +108,7 @@ const getCourseById = async (req, res) => {
     customLogger.error('Failed to retrieve course', {
       error: error.message,
       courseId: id,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
     
     res.status(500).json({
@@ -108,14 +130,14 @@ const createCourse = async (req, res) => {
     const [result] = await connection.execute(`
       INSERT INTO courses (title, description, category, order_index, created_by)
       VALUES (?, ?, ?, ?, ?)
-    `, [title, description, category, order_index || 0, req.user?.id || 1]);
+    `, [title, description, category, order_index || 0, req.user?.user_id || 1]);
 
     const courseId = result.insertId;
 
     // 操作ログ記録（認証なしの場合はスキップ）
-    if (req.user?.id) {
-      await recordOperationLog({
-        userId: req.user.id,
+    if (req.user?.user_id) {
+      await recordOperationLogDirect({
+        userId: req.user.user_id,
         action: 'create_course',
         targetType: 'course',
         targetId: courseId,
@@ -126,7 +148,7 @@ const createCourse = async (req, res) => {
     customLogger.info('Course created successfully', {
       courseId: courseId,
       title: title,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
 
     res.status(201).json({
@@ -138,7 +160,7 @@ const createCourse = async (req, res) => {
     customLogger.error('Failed to create course', {
       error: error.message,
       title: title,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
     
     res.status(500).json({
@@ -174,11 +196,11 @@ const updateCourse = async (req, res) => {
       UPDATE courses 
       SET title = ?, description = ?, category = ?, order_index = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [title, description, category, order_index, status, req.user?.id, id]);
+    `, [title, description, category, order_index, status, req.user?.user_id, id]);
 
     // 操作ログ記録
-    await recordOperationLog({
-      userId: req.user?.id,
+    await recordOperationLogDirect({
+      userId: req.user?.user_id,
       action: 'update_course',
       targetType: 'course',
       targetId: id,
@@ -188,7 +210,7 @@ const updateCourse = async (req, res) => {
     customLogger.info('Course updated successfully', {
       courseId: id,
       title: title,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
 
     res.json({
@@ -200,7 +222,7 @@ const updateCourse = async (req, res) => {
     customLogger.error('Failed to update course', {
       error: error.message,
       courseId: id,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
     
     res.status(500).json({
@@ -235,17 +257,17 @@ const deleteCourse = async (req, res) => {
     await connection.execute(`
       UPDATE lessons SET status = 'deleted', updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE course_id = ?
-    `, [req.user?.id, id]);
+    `, [req.user?.user_id, id]);
 
     // コースを論理削除
     await connection.execute(`
       UPDATE courses SET status = 'deleted', updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [req.user?.id, id]);
+    `, [req.user?.user_id, id]);
 
     // 操作ログ記録
-    await recordOperationLog({
-      userId: req.user?.id,
+    await recordOperationLogDirect({
+      userId: req.user?.user_id,
       action: 'delete_course',
       targetType: 'course',
       targetId: id,
@@ -255,7 +277,7 @@ const deleteCourse = async (req, res) => {
     customLogger.info('Course deleted successfully', {
       courseId: id,
       title: existingRows[0].title,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
 
     res.json({
@@ -266,7 +288,7 @@ const deleteCourse = async (req, res) => {
     customLogger.error('Failed to delete course', {
       error: error.message,
       courseId: id,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
     
     res.status(500).json({
@@ -291,14 +313,14 @@ const updateCourseOrder = async (req, res) => {
       await connection.execute(`
         UPDATE courses SET order_index = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `, [course.order_index, req.user?.id, course.id]);
+      `, [course.order_index, req.user?.user_id, course.id]);
     }
 
     await connection.commit();
 
     // 操作ログ記録
-    await recordOperationLog({
-      userId: req.user?.id,
+    await recordOperationLogDirect({
+      userId: req.user?.user_id,
       action: 'update_course_order',
       targetType: 'course',
       details: { courseOrders }
@@ -306,7 +328,7 @@ const updateCourseOrder = async (req, res) => {
 
     customLogger.info('Course order updated successfully', {
       courseCount: courseOrders.length,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
 
     res.json({
@@ -318,7 +340,7 @@ const updateCourseOrder = async (req, res) => {
     
     customLogger.error('Failed to update course order', {
       error: error.message,
-      userId: req.user?.id
+      userId: req.user?.user_id
     });
     
     res.status(500).json({

@@ -4,7 +4,7 @@ const { executeQuery } = require('../utils/database');
 // 操作ログを記録する（直接オブジェクトを受け取る版）
 const recordOperationLogDirect = async (logData) => {
   try {
-    const { userId, action, targetType, targetId, details } = logData;
+    const { userId, action, targetType, targetId, details, ipAddress: providedIp } = logData;
     
     if (!userId || !action) {
       customLogger.warn('操作ログ記録に必要な情報が不足しています', {
@@ -16,8 +16,8 @@ const recordOperationLogDirect = async (logData) => {
       return { success: false, error: '必須項目が不足しています' };
     }
 
-    // ユーザー情報を取得
-    const userQuery = `SELECT id, name FROM users WHERE id = ?`;
+    // ユーザー情報を取得（user_accounts から）
+    const userQuery = `SELECT id, name FROM user_accounts WHERE id = ?`;
     const userResult = await executeQuery(userQuery, [userId]);
     
     let adminId = userId;
@@ -33,7 +33,7 @@ const recordOperationLogDirect = async (logData) => {
     `;
     
     const detailsStr = details ? JSON.stringify(details) : null;
-    const ipAddress = 'N/A'; // 直接呼び出しの場合はIPアドレスを取得できない
+    const ipAddress = providedIp || 'N/A';
     
     const result = await executeQuery(query, [adminId, adminName, action, detailsStr, ipAddress]);
     if (!result.success) {
@@ -62,21 +62,36 @@ const recordOperationLogDirect = async (logData) => {
 // 操作ログを記録する
 const recordOperationLog = async (req, res) => {
   try {
-    const { adminId, adminName, action, details, ipAddress } = req.body;
-    
-    if (!adminId || !adminName || !action) {
-      return res.status(400).json({
-        success: false,
-        message: '必須項目が不足しています'
-      });
-    }
+    const { adminId, adminName, action, details, ipAddress } = req.body || {};
+
+    // 受信内容をデバッグ（最小限）
+    customLogger.info('操作ログPOST受信', {
+      hasAdminId: !!adminId,
+      hasAdminName: !!adminName,
+      hasAction: !!action
+    });
+
+    // action が空でも保存する（サーバ側で既定値を当てる）
+
+    // 不足項目の補完（トークン情報があれば使用）
+    const safeAdminId = adminId ?? req.user?.user_id ?? null;
+    const safeAdminName = adminName ?? req.user?.username ?? 'Unknown User';
+    const finalAction = (typeof action === 'string' && action.trim()) ? action.trim() : 'unknown_action';
 
     const query = `
       INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)
       VALUES (?, ?, ?, ?, ?, NOW())
     `;
-    
-    const result = await executeQuery(query, [adminId, adminName, action, details, ipAddress]);
+
+    // details は TEXT なので、オブジェクトが来た場合は文字列化
+    const detailsString = typeof details === 'object' && details !== null
+      ? JSON.stringify(details)
+      : (details ?? null);
+
+    // IP は未指定なら接続元IPを使用
+    const safeIp = (ipAddress && ipAddress !== 'N/A') ? ipAddress : (req.ip || 'N/A');
+
+    const result = await executeQuery(query, [safeAdminId, safeAdminName, finalAction, detailsString, safeIp]);
     if (!result.success) {
       throw new Error(result.error || '操作ログの記録に失敗しました');
     }
@@ -84,9 +99,9 @@ const recordOperationLog = async (req, res) => {
     customLogger.info('操作ログを記録', {
       adminId,
       adminName,
-      action,
-      details,
-      ipAddress
+      action: finalAction,
+      details: detailsString,
+      ipAddress: safeIp
     });
     
     res.json({
@@ -111,18 +126,25 @@ const recordOperationLog = async (req, res) => {
 // 操作ログを取得する
 const getOperationLogs = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 100, 
-      adminName, 
-      action, 
-      startDate, 
+    const {
+      page = 1,
+      limit = 100,
+      adminName,
+      action,
+      startDate,
       endDate,
       sortBy = 'created_at',
       sortOrder = 'DESC'
     } = req.query;
-    
-    const offset = (page - 1) * limit;
+
+    // 数値系・ソート系の安全化
+    const safeLimit = Math.max(1, Math.min(1000, parseInt(limit, 10) || 100));
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeOffset = (safePage - 1) * safeLimit;
+
+    const allowedSortBy = ['id', 'admin_id', 'admin_name', 'action', 'created_at'];
+    const safeSortBy = allowedSortBy.includes(sortBy) ? sortBy : 'created_at';
+    const safeSortOrder = (String(sortOrder || 'DESC').toUpperCase() === 'ASC') ? 'ASC' : 'DESC';
     let whereConditions = [];
     let params = [];
     
@@ -169,11 +191,11 @@ const getOperationLogs = async (req, res) => {
         created_at
       FROM operation_logs 
       ${whereClause}
-      ORDER BY ${sortBy} ${sortOrder}
-      LIMIT ? OFFSET ?
+      ORDER BY ${safeSortBy} ${safeSortOrder}
+      LIMIT ${safeLimit} OFFSET ${safeOffset}
     `;
-    
-    const logsResult = await executeQuery(query, [...params, parseInt(limit), offset]);
+
+    const logsResult = await executeQuery(query, params);
     if (!logsResult.success) {
       throw new Error(logsResult.error || 'ログデータの取得に失敗しました');
     }
@@ -476,11 +498,60 @@ const clearOperationLogs = async (req, res) => {
   }
 };
 
+// 重複ログをクリーンアップする（同一ユーザー・同一アクション・同一タイトル・±2秒の重複）
+const cleanupDuplicateOperationLogs = async (req, res) => {
+  try {
+    const { timeWindowSeconds = 2 } = req.query;
+    const window = Math.max(1, parseInt(timeWindowSeconds, 10) || 2);
+
+    // 重複候補を検出（最新1件を残し、前のものを削除）
+    const selectQuery = `
+      SELECT o1.id
+      FROM operation_logs o1
+      JOIN operation_logs o2
+        ON o1.admin_id = o2.admin_id
+       AND o1.action = o2.action
+       AND ABS(TIMESTAMPDIFF(SECOND, o1.created_at, o2.created_at)) <= ?
+       AND (
+            -- details JSON文字列から title を比較（片方でも一致すれば重複と見なす簡易ルール）
+            (JSON_EXTRACT(o1.details, '$.title') IS NOT NULL AND JSON_EXTRACT(o1.details, '$.title') = JSON_EXTRACT(o2.details, '$.title'))
+            OR (o1.details = o2.details)
+       )
+       AND o1.id < o2.id  -- 先の（古い）方を削除対象
+    `;
+
+    const { executeQuery } = require('../utils/database');
+    const duplicates = await executeQuery(selectQuery, [window]);
+    if (!duplicates.success) {
+      throw new Error(duplicates.error || '重複検出に失敗しました');
+    }
+
+    const ids = duplicates.data.map(r => r.id);
+    let deletedCount = 0;
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      const deleteQuery = `DELETE FROM operation_logs WHERE id IN (${placeholders})`;
+      const del = await executeQuery(deleteQuery, ids);
+      if (!del.success) {
+        throw new Error(del.error || '重複削除に失敗しました');
+      }
+      deletedCount = del.data.affectedRows || 0;
+    }
+
+    customLogger.info('重複操作ログのクリーンアップ', { deletedCount, windowSeconds: window });
+    res.json({ success: true, message: `${deletedCount}件の重複ログを削除しました`, data: { deletedCount } });
+  } catch (error) {
+    customLogger.error('重複操作ログクリーンアップエラー', { error: error.message });
+    res.status(500).json({ success: false, message: '重複ログのクリーンアップに失敗しました', error: error.message });
+  }
+};
+
 module.exports = {
   recordOperationLogDirect,
   recordOperationLog,
   getOperationLogs,
   getOperationLogStats,
   exportOperationLogs,
-  clearOperationLogs
+  clearOperationLogs,
+  cleanupDuplicateOperationLogs
 }; 

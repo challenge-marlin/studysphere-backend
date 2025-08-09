@@ -60,7 +60,7 @@ const getLessons = async (req, res) => {
     customLogger.info('Lessons retrieved successfully', {
       count: rows.length,
       courseId: courseId,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     res.json({
@@ -71,7 +71,7 @@ const getLessons = async (req, res) => {
     customLogger.error('Failed to retrieve lessons', {
       error: error.message,
       courseId: courseId,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     res.status(500).json({
@@ -123,7 +123,7 @@ const getLessonById = async (req, res) => {
     customLogger.info('Lesson retrieved successfully', {
       lessonId: id,
       courseId: lesson.course_id,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     res.json({
@@ -134,7 +134,7 @@ const getLessonById = async (req, res) => {
     customLogger.error('Failed to retrieve lesson', {
       error: error.message,
       lessonId: id,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     res.status(500).json({
@@ -250,7 +250,7 @@ const createLesson = async (req, res) => {
       fileType,
       fileSize,
       youtube_url || null,
-      req.user?.id || null
+      req.user?.user_id || null
     ];
 
     // レッスンをデータベースに保存
@@ -267,17 +267,18 @@ const createLesson = async (req, res) => {
     // 操作ログ記録
     try {
       await recordOperationLogDirect({
-        userId: req.user?.id || null,
+        userId: req.user?.user_id || null,
         action: 'create_lesson',
         targetType: 'lesson',
         targetId: lessonId,
-        details: { title, courseId: course_id, hasFile: true }
+        details: { title, courseId: course_id, courseTitle: courseTitle, hasFile: true },
+        ipAddress: req.ip
       });
     } catch (logError) {
       customLogger.warn('操作ログ記録に失敗しましたが、レッスン作成は続行します', {
         error: logError.message,
         lessonId: lessonId,
-        userId: req.user?.id || null
+        userId: req.user?.user_id || null
       });
     }
 
@@ -286,7 +287,7 @@ const createLesson = async (req, res) => {
       title: title,
       courseId: course_id,
       hasFile: true,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     res.status(201).json({
@@ -307,7 +308,7 @@ const createLesson = async (req, res) => {
       error: error.message,
       title: req.body.title,
       courseId: req.body.course_id,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     // S3アップロードエラーの場合は特別なメッセージを返す
@@ -345,7 +346,7 @@ const updateLesson = async (req, res) => {
         size: req.file.size,
         mimetype: req.file.mimetype
       } : null,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     // レッスン存在確認
@@ -365,7 +366,7 @@ const updateLesson = async (req, res) => {
     }
 
     const existingLesson = existingRows[0];
-    const { title, description, duration, order_index, has_assignment, status, youtube_url, fileName: originalFileName } = req.body;
+    const { title, description, duration, order_index, has_assignment, status, youtube_url, fileName: originalFileName, update_file, remove_file } = req.body;
     
     // 変更されたフィールドのみを更新するための処理
     const updateFields = [];
@@ -416,8 +417,11 @@ const updateLesson = async (req, res) => {
       updateValues.push(youtube_url);
     }
     
-    // ファイルの更新（新しいファイルがアップロードされた場合のみ）
-    if (req.file) {
+    // ファイル更新フラグ処理
+    const shouldUpdateFile = update_file === 'true' || update_file === true;
+    const shouldRemoveFile = remove_file === 'true' || remove_file === true;
+
+    if (shouldUpdateFile && req.file) {
       // 古いファイルを削除
       if (existingLesson.s3_key) {
         try {
@@ -466,6 +470,32 @@ const updateLesson = async (req, res) => {
         });
         // S3アップロードが失敗してもレッスン更新は続行
       }
+    } else if (shouldUpdateFile && !req.file && shouldRemoveFile) {
+      // ファイル削除のみ（新規ファイルなし）
+      if (existingLesson.s3_key) {
+        try {
+          await s3Utils.deleteFile(existingLesson.s3_key);
+          updateFields.push('s3_key = ?');
+          updateFields.push('file_type = ?');
+          updateFields.push('file_size = ?');
+          updateValues.push(null);
+          updateValues.push(null);
+          updateValues.push(null);
+        } catch (deleteError) {
+          customLogger.warn('Failed to delete file during remove request', {
+            error: deleteError.message,
+            s3Key: existingLesson.s3_key
+          });
+        }
+      } else {
+        // もともと無い場合もDBを明示的にクリア
+        updateFields.push('s3_key = ?');
+        updateFields.push('file_type = ?');
+        updateFields.push('file_size = ?');
+        updateValues.push(null);
+        updateValues.push(null);
+        updateValues.push(null);
+      }
     }
 
     // YouTube動画処理
@@ -483,7 +513,7 @@ const updateLesson = async (req, res) => {
     if (updateFields.length > 0) {
       updateFields.push('updated_by = ?');
       updateFields.push('updated_at = CURRENT_TIMESTAMP');
-      updateValues.push(req.user?.id || null);
+      updateValues.push(req.user?.user_id || null);
       updateValues.push(id);
 
       customLogger.info('Updating lesson fields', {
@@ -508,17 +538,18 @@ const updateLesson = async (req, res) => {
     // 操作ログ記録
     try {
       await recordOperationLogDirect({
-        userId: req.user?.id || null,
+        userId: req.user?.user_id || null,
         action: 'update_lesson',
         targetType: 'lesson',
         targetId: id,
-        details: { title, hasFile: !!req.file }
+        details: { title: title || existingLesson.title, hasFile: !!req.file, courseTitle: existingLesson.course_title },
+        ipAddress: req.ip
       });
     } catch (logError) {
       customLogger.warn('操作ログ記録に失敗しましたが、レッスン更新は続行します', {
         error: logError.message,
         lessonId: id,
-        userId: req.user?.id || null
+          userId: req.user?.user_id || null
       });
     }
 
@@ -526,7 +557,7 @@ const updateLesson = async (req, res) => {
       lessonId: id,
       title: title,
       hasFile: !!req.file,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     // 更新されたレッスン情報を取得
@@ -556,7 +587,7 @@ const updateLesson = async (req, res) => {
       error: error.message,
       stack: error.stack,
       lessonId: id,
-      userId: req.user?.id || null,
+      userId: req.user?.user_id || null,
       body: req.body
     });
     
@@ -617,12 +648,12 @@ const deleteLesson = async (req, res) => {
     await connection.execute(`
       UPDATE lessons SET status = 'deleted', updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [req.user?.id || null, id]);
+    `, [req.user?.user_id || null, id]);
 
     // 操作ログ記録
     try {
       await recordOperationLogDirect({
-        userId: req.user?.id || null,
+        userId: req.user?.user_id || null,
         action: 'delete_lesson',
         targetType: 'lesson',
         targetId: id,
@@ -630,7 +661,8 @@ const deleteLesson = async (req, res) => {
           title: lesson.title,
           courseTitle: lesson.course_title,
           hasS3File: !!lesson.s3_key
-        }
+        },
+        ipAddress: req.ip
       });
     } catch (logError) {
       customLogger.warn('操作ログ記録に失敗しましたが、レッスン削除は続行します', {
@@ -644,7 +676,7 @@ const deleteLesson = async (req, res) => {
       lessonId: id,
       title: lesson.title,
       courseTitle: lesson.course_title,
-      userId: req.user?.id || null,
+      userId: req.user?.user_id || null,
       hasS3File: !!lesson.s3_key
     });
 
@@ -661,7 +693,7 @@ const deleteLesson = async (req, res) => {
     customLogger.error('Failed to delete lesson', {
       error: error.message,
       lessonId: id,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     res.status(500).json({
@@ -686,7 +718,7 @@ const updateLessonOrder = async (req, res) => {
       await connection.execute(`
         UPDATE lessons SET order_index = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `, [lesson.order_index, req.user?.id || null, lesson.id]);
+      `, [lesson.order_index, req.user?.user_id || null, lesson.id]);
     }
 
     await connection.commit();
@@ -694,7 +726,7 @@ const updateLessonOrder = async (req, res) => {
     // 操作ログ記録
     try {
       await recordOperationLogDirect({
-        userId: req.user?.id || null,
+        userId: req.user?.user_id || null,
         action: 'update_lesson_order',
         targetType: 'lesson',
         details: { lessonOrders }
@@ -702,13 +734,13 @@ const updateLessonOrder = async (req, res) => {
     } catch (logError) {
       customLogger.warn('操作ログ記録に失敗しましたが、レッスン順序更新は続行します', {
         error: logError.message,
-        userId: req.user?.id || null
+        userId: req.user?.user_id || null
       });
     }
 
     customLogger.info('Lesson order updated successfully', {
       lessonCount: lessonOrders.length,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
 
     res.json({
@@ -720,7 +752,7 @@ const updateLessonOrder = async (req, res) => {
     
     customLogger.error('Failed to update lesson order', {
       error: error.message,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     res.status(500).json({
@@ -783,13 +815,13 @@ const downloadLessonFile = async (req, res) => {
     customLogger.info('Lesson file downloaded successfully', {
       lessonId: id,
       fileName: fileName,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
   } catch (error) {
     customLogger.error('Failed to download lesson file', {
       error: error.message,
       lessonId: id,
-      userId: req.user?.id || null
+      userId: req.user?.user_id || null
     });
     
     res.status(500).json({
@@ -858,13 +890,13 @@ const downloadLessonFile = async (req, res) => {
         lessonId: id,
         folderName: downloadResult.fileName,
         fileCount: downloadResult.fileCount,
-        userId: req.user?.id || null
+      userId: req.user?.user_id || null
       });
     } catch (error) {
       customLogger.error('Failed to download lesson folder', {
         error: error.message,
         lessonId: id,
-        userId: req.user?.id || null
+      userId: req.user?.user_id || null
       });
       
       res.status(500).json({
@@ -937,7 +969,7 @@ const downloadLessonFile = async (req, res) => {
       customLogger.info('Lesson files retrieved successfully', {
         lessonId: id,
         fileCount: files.length,
-        userId: req.user?.id || null
+      userId: req.user?.user_id || null
       });
 
       res.json({
@@ -955,7 +987,7 @@ const downloadLessonFile = async (req, res) => {
       customLogger.error('Failed to retrieve lesson files', {
         error: error.message,
         lessonId: id,
-        userId: req.user?.id || null
+      userId: req.user?.user_id || null
       });
       
       res.status(500).json({

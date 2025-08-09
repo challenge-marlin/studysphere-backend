@@ -13,6 +13,6 @@ wait_for_db() {
 # データベース接続を待機
 wait_for_db
 
-# アプリケーションを起動
-echo "Starting application..."
-node index.js
+# アプリケーションを起動（ホットリロード）
+echo "Starting application with nodemon (hot reload enabled)..."
+exec npm run dev

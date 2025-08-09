@@ -8569,3 +8569,142 @@
   "error": "Table 'curriculum-portal.operation_logs' doesn't exist",
   "user": "anonymous"
 }
+2025-08-09 11:03:56 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "30ms",
+  "threadId": 10
+}
+2025-08-09 11:03:56 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-09 11:03:56 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "63ms",
+  "threadId": 13
+}
+2025-08-09 11:03:56 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-09 11:04:10 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT id, name FROM users WHERE id = ?",
+  "params": [
+    4
+  ],
+  "error": "Table 'curriculum-portal.users' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "6ms",
+  "threadId": 13
+}
+2025-08-09 11:04:12 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      SELECT \n        id,\n        admin_id,\n        admin_name,\n        action,\n        details,\n        ip_address,\n        created_at\n      FROM operation_logs \n      \n      ORDER BY created_at DESC\n      LIMIT ? OFFSET ?\n    ",
+  "params": [
+    100,
+    0
+  ],
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "code": "ER_WRONG_ARGUMENTS",
+  "duration": "14ms",
+  "threadId": 10
+}
+2025-08-09 11:04:12 [ERROR]: 操作ログ取得エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect arguments to mysqld_stmt_execute",
+  "user": "anonymous"
+}
+2025-08-09 11:09:17 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "SELECT id, name FROM users WHERE id = ?",
+  "params": [
+    4
+  ],
+  "error": "Table 'curriculum-portal.users' doesn't exist",
+  "code": "ER_NO_SUCH_TABLE",
+  "duration": "17ms",
+  "threadId": 32
+}
+2025-08-09 11:16:12 [ERROR]: Application Error Expected property name or '}' in JSON at position 1 {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Expected property name or '}' in JSON at position 1\n    at JSON.parse (<anonymous>)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:92:19)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)\n    at endReadableNT (node:internal/streams/readable:1698:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/operation-logs",
+  "ip": "172.18.0.1",
+  "userAgent": "curl/8.0.1",
+  "requestId": "req_1754705772183_em9gh4hvr"
+}
+2025-08-09 11:16:12 [ERROR]: Application Error Expected property name or '}' in JSON at position 1 {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Expected property name or '}' in JSON at position 1\n    at JSON.parse (<anonymous>)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:92:19)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)\n    at endReadableNT (node:internal/streams/readable:1698:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/operation-logs",
+  "ip": "172.18.0.1",
+  "userAgent": "curl/8.0.1",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-09 11:43:15 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot read properties of undefined (reading 'json')",
+  "user": "anonymous"
+}
+2025-08-09 11:43:15 [ERROR]: Failed to create course {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot read properties of undefined (reading 'status')",
+  "title": "SNS運用の基礎・画像生成編集",
+  "userId": 4
+}
+2025-08-09 11:46:41 [ERROR]: Application Error Expected property name or '}' in JSON at position 1 {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Expected property name or '}' in JSON at position 1\n    at JSON.parse (<anonymous>)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:92:19)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)\n    at endReadableNT (node:internal/streams/readable:1698:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/operation-logs/cleanup-duplicates",
+  "ip": "172.18.0.1",
+  "userAgent": "curl/8.0.1",
+  "requestId": "req_1754707601266_qs91d674p"
+}
+2025-08-09 11:46:41 [ERROR]: Application Error Expected property name or '}' in JSON at position 1 {
+  "service": "curriculum-portal-backend",
+  "stack": "SyntaxError: Expected property name or '}' in JSON at position 1\n    at JSON.parse (<anonymous>)\n    at parse (/app/node_modules/body-parser/lib/types/json.js:92:19)\n    at /app/node_modules/body-parser/lib/read.js:128:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:206:9)\n    at invokeCallback (/app/node_modules/raw-body/index.js:238:16)\n    at done (/app/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/app/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:524:28)\n    at IncomingMessage.emit (node:domain:489:12)\n    at endReadableNT (node:internal/streams/readable:1698:12)",
+  "name": "SyntaxError",
+  "method": "POST",
+  "url": "/api/operation-logs/cleanup-duplicates",
+  "ip": "172.18.0.1",
+  "userAgent": "curl/8.0.1",
+  "body": {},
+  "query": {},
+  "params": {}
+}
+2025-08-09 11:48:15 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot read properties of undefined (reading 'json')",
+  "user": "anonymous"
+}
+2025-08-09 11:48:15 [ERROR]: Failed to create course {
+  "service": "curriculum-portal-backend",
+  "error": "Cannot read properties of undefined (reading 'status')",
+  "title": "LP制作（HTML・CSS）",
+  "userId": 4
+}

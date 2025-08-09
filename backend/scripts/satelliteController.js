@@ -23,6 +23,7 @@ const getSatellites = async () => {
         s.max_users,
         s.status,
         s.manager_ids,
+        s.disabled_course_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -76,6 +77,7 @@ const getSatelliteById = async (id) => {
         s.max_users,
         s.status,
         s.manager_ids,
+        s.disabled_course_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -154,6 +156,7 @@ const getSatellitesByIds = async (ids) => {
         s.max_users,
         s.status,
         s.manager_ids,
+        s.disabled_course_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -288,7 +291,7 @@ const createSatellite = async (satelliteData) => {
  * 拠点情報を更新
  */
 const updateSatellite = async (id, satelliteData) => {
-  const { name, address, phone, office_type_id, contract_type, max_users, status, token_expiry_at } = satelliteData;
+  const { name, address, phone, office_type_id, contract_type, max_users, status, token_expiry_at, disabled_course_ids } = satelliteData;
   let connection;
   
   try {
@@ -360,6 +363,29 @@ const updateSatellite = async (id, satelliteData) => {
       updateFields.push('status = ?');
       updateValues.push(status);
     }
+    if (disabled_course_ids !== undefined) {
+      let jsonValue = null;
+      try {
+        if (disabled_course_ids === null) {
+          jsonValue = null;
+        } else if (Array.isArray(disabled_course_ids)) {
+          jsonValue = JSON.stringify(disabled_course_ids);
+        } else if (typeof disabled_course_ids === 'string') {
+          // 既にJSON文字列が渡ってきた場合
+          jsonValue = disabled_course_ids;
+        } else {
+          jsonValue = JSON.stringify([]);
+        }
+      } catch (e) {
+        return {
+          success: false,
+          message: 'disabled_course_ids の形式が不正です',
+          error: e.message
+        };
+      }
+      updateFields.push('disabled_course_ids = ?');
+      updateValues.push(jsonValue);
+    }
     if (token_expiry_at !== undefined) {
       // 日本時間として保存するため、UTCに変換
       const japanDate = new Date(token_expiry_at);
@@ -408,6 +434,7 @@ const updateSatellite = async (id, satelliteData) => {
         s.max_users,
         s.status,
         s.manager_ids,
+        s.disabled_course_ids,
         s.created_at,
         s.updated_at,
         c.name as company_name,
@@ -437,6 +464,56 @@ const updateSatellite = async (id, satelliteData) => {
       } catch (releaseError) {
         console.error('接続の解放に失敗:', releaseError);
       }
+    }
+  }
+};
+
+// 無効化コースID一覧を取得
+const getSatelliteDisabledCourses = async (id) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute('SELECT disabled_course_ids FROM satellites WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return { success: false, message: '拠点が見つかりません', statusCode: 404 };
+    }
+    let ids = [];
+    if (rows[0].disabled_course_ids) {
+      try {
+        ids = Array.isArray(rows[0].disabled_course_ids)
+          ? rows[0].disabled_course_ids
+          : JSON.parse(rows[0].disabled_course_ids);
+      } catch (e) {
+        ids = [];
+      }
+    }
+    return { success: true, data: ids };
+  } catch (error) {
+    return { success: false, message: '無効コースの取得に失敗しました', error: error.message };
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch {}
+    }
+  }
+};
+
+// 無効化コースID一覧を設定
+const setSatelliteDisabledCourses = async (id, courseIds) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [exists] = await connection.execute('SELECT id FROM satellites WHERE id = ?', [id]);
+    if (exists.length === 0) {
+      return { success: false, message: '拠点が見つかりません', statusCode: 404 };
+    }
+    const jsonValue = JSON.stringify(Array.isArray(courseIds) ? courseIds : []);
+    await connection.execute('UPDATE satellites SET disabled_course_ids = ?, updated_at = NOW() WHERE id = ?', [jsonValue, id]);
+    return { success: true, message: '無効コース設定を更新しました', data: { disabled_course_ids: JSON.parse(jsonValue) } };
+  } catch (error) {
+    return { success: false, message: '無効コース設定の更新に失敗しました', error: error.message };
+  } finally {
+    if (connection) {
+      try { connection.release(); } catch {}
     }
   }
 };
@@ -695,5 +772,7 @@ module.exports = {
   deleteSatellite,
   regenerateToken,
   setSatelliteManagers,
-  addSatelliteManager
+  addSatelliteManager,
+  getSatelliteDisabledCourses,
+  setSatelliteDisabledCourses
 }; 
