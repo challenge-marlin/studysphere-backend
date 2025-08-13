@@ -88,8 +88,28 @@ const recordOperationLog = async (req, res) => {
       ? JSON.stringify(details)
       : (details ?? null);
 
-    // IP は未指定なら接続元IPを使用
-    const safeIp = (ipAddress && ipAddress !== 'N/A') ? ipAddress : (req.ip || 'N/A');
+    // IPアドレス取得の改善
+    let safeIp = 'N/A';
+    
+    // 1. フロントエンドから送信されたIPアドレスを優先
+    if (ipAddress && ipAddress !== 'N/A' && ipAddress.trim() !== '') {
+      safeIp = ipAddress.trim();
+    } else {
+      // 2. プロキシ経由の場合はX-Forwarded-Forヘッダーを確認
+      const forwardedFor = req.headers['x-forwarded-for'];
+      if (forwardedFor) {
+        // カンマ区切りの場合は最初のIPを使用
+        safeIp = forwardedFor.split(',')[0].trim();
+      } else {
+        // 3. 直接接続の場合はreq.ipを使用
+        safeIp = req.ip || req.connection?.remoteAddress || 'N/A';
+      }
+    }
+
+    // IPv6のローカルアドレスをIPv4に変換
+    if (safeIp === '::1' || safeIp === '::ffff:127.0.0.1') {
+      safeIp = '127.0.0.1';
+    }
 
     const result = await executeQuery(query, [safeAdminId, safeAdminName, finalAction, detailsString, safeIp]);
     if (!result.success) {
@@ -546,6 +566,43 @@ const cleanupDuplicateOperationLogs = async (req, res) => {
   }
 };
 
+// クライアントのIPアドレスを取得する
+const getClientIP = async (req, res) => {
+  try {
+    let clientIP = 'N/A';
+    
+    // 1. プロキシ経由の場合はX-Forwarded-Forヘッダーを確認
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      // カンマ区切りの場合は最初のIPを使用
+      clientIP = forwardedFor.split(',')[0].trim();
+    } else {
+      // 2. 直接接続の場合はreq.ipを使用
+      clientIP = req.ip || req.connection?.remoteAddress || 'N/A';
+    }
+
+    // IPv6のローカルアドレスをIPv4に変換
+    if (clientIP === '::1' || clientIP === '::ffff:127.0.0.1') {
+      clientIP = '127.0.0.1';
+    }
+
+    customLogger.info('クライアントIP取得', { clientIP, headers: req.headers });
+    
+    res.json({
+      success: true,
+      message: 'クライアントIPを取得しました',
+      data: { ip: clientIP }
+    });
+  } catch (error) {
+    customLogger.error('クライアントIP取得エラー', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'クライアントIPの取得に失敗しました',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   recordOperationLogDirect,
   recordOperationLog,
@@ -553,5 +610,6 @@ module.exports = {
   getOperationLogStats,
   exportOperationLogs,
   clearOperationLogs,
-  cleanupDuplicateOperationLogs
+  cleanupDuplicateOperationLogs,
+  getClientIP
 }; 

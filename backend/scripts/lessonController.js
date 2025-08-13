@@ -120,6 +120,16 @@ const getLessonById = async (req, res) => {
       }
     }
 
+    // 関連する動画を取得
+    const [videoRows] = await connection.execute(`
+      SELECT id, title, description, youtube_url, order_index, duration, thumbnail_url
+      FROM lesson_videos
+      WHERE lesson_id = ? AND status != 'deleted'
+      ORDER BY order_index ASC, created_at ASC
+    `, [id]);
+
+    lesson.videos = videoRows;
+
     customLogger.info('Lesson retrieved successfully', {
       lessonId: id,
       courseId: lesson.course_id,
@@ -152,7 +162,21 @@ const createLesson = async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
-    const { title, description, duration, order_index, has_assignment, course_id, youtube_url, fileName: originalFileName } = req.body;
+    const { title, description, duration, order_index, has_assignment, course_id, fileName: originalFileName, videos: videosJson } = req.body;
+    
+    // 動画データのJSON解析
+    let videos = [];
+    if (videosJson) {
+      try {
+        videos = JSON.parse(videosJson);
+      } catch (parseError) {
+        customLogger.warn('Failed to parse videos JSON', {
+          error: parseError.message,
+          videosJson: videosJson
+        });
+        videos = [];
+      }
+    }
     
     // 必須パラメータの検証
     if (!title || !course_id) {
@@ -227,17 +251,6 @@ const createLesson = async (req, res) => {
       fileType: fileType
     });
 
-    // YouTube動画処理
-    if (youtube_url) {
-      // YouTube URLの基本的な検証
-      if (!youtube_url.includes('youtube.com/watch?v=') && !youtube_url.includes('youtu.be/')) {
-        return res.status(400).json({
-          success: false,
-          message: '有効なYouTube URLではありません'
-        });
-      }
-    }
-
     // データベース挿入用の値を準備（undefined値を適切な値に変換）
     const insertValues = [
       course_id,
@@ -249,7 +262,6 @@ const createLesson = async (req, res) => {
       s3Key,
       fileType,
       fileSize,
-      youtube_url || null,
       req.user?.user_id || null
     ];
 
@@ -257,12 +269,64 @@ const createLesson = async (req, res) => {
     const [result] = await connection.execute(`
       INSERT INTO lessons (
         course_id, title, description, duration, order_index, 
-        has_assignment, s3_key, file_type, file_size, youtube_url, created_by
+        has_assignment, s3_key, file_type, file_size, created_by
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, insertValues);
 
     const lessonId = result.insertId;
+
+    // 複数動画の処理
+    if (videos && Array.isArray(videos) && videos.length > 0) {
+      try {
+        // 既存の動画を削除（論理削除）
+        await connection.execute(`
+          UPDATE lesson_videos SET status = 'deleted' WHERE lesson_id = ?
+        `, [lessonId]);
+
+        // 新しい動画を一括挿入
+        for (let i = 0; i < videos.length; i++) {
+          const video = videos[i];
+          
+          // 必須フィールドの検証
+          if (!video.title || !video.youtube_url) {
+            throw new Error(`動画${i + 1}: タイトルとYouTube URLは必須です`);
+          }
+
+          // YouTube URLの基本的な検証
+          if (!video.youtube_url.includes('youtube.com/watch?v=') && !video.youtube_url.includes('youtu.be/')) {
+            throw new Error(`動画${i + 1}: 有効なYouTube URLではありません`);
+          }
+
+          await connection.execute(`
+            INSERT INTO lesson_videos (
+              lesson_id, title, description, youtube_url, order_index, duration, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [
+            lessonId,
+            video.title,
+            video.description || null,
+            video.youtube_url,
+            video.order_index || i,
+            video.duration || null,
+            req.user?.user_id || null
+          ]);
+        }
+
+        customLogger.info('Lesson videos created successfully', {
+          lessonId: lessonId,
+          videoCount: videos.length,
+          userId: req.user?.user_id || null
+        });
+      } catch (videoError) {
+        customLogger.error('Failed to create lesson videos', {
+          error: videoError.message,
+          lessonId: lessonId,
+          userId: req.user?.user_id || null
+        });
+        // 動画作成が失敗してもレッスン作成は続行
+      }
+    }
 
     // 操作ログ記録
     try {
@@ -271,7 +335,14 @@ const createLesson = async (req, res) => {
         action: 'create_lesson',
         targetType: 'lesson',
         targetId: lessonId,
-        details: { title, courseId: course_id, courseTitle: courseTitle, hasFile: true },
+        details: { 
+          title, 
+          courseId: course_id, 
+          courseTitle: courseTitle, 
+          hasFile: true,
+          hasVideos: videos && videos.length > 0,
+          videoCount: videos ? videos.length : 0
+        },
         ipAddress: req.ip
       });
     } catch (logError) {
@@ -287,6 +358,8 @@ const createLesson = async (req, res) => {
       title: title,
       courseId: course_id,
       hasFile: true,
+      hasVideos: videos && videos.length > 0,
+      videoCount: videos ? videos.length : 0,
       userId: req.user?.user_id || null
     });
 
@@ -300,7 +373,7 @@ const createLesson = async (req, res) => {
         s3_key: s3Key,
         file_type: fileType,
         file_size: fileSize,
-        youtube_url: youtube_url
+        videos: videos || []
       }
     });
   } catch (error) {
@@ -366,7 +439,33 @@ const updateLesson = async (req, res) => {
     }
 
     const existingLesson = existingRows[0];
-    const { title, description, duration, order_index, has_assignment, status, youtube_url, fileName: originalFileName, update_file, remove_file } = req.body;
+    const { title, description, duration, order_index, has_assignment, status, fileName: originalFileName, update_file, remove_file, videos: videosJson } = req.body;
+    
+    // 動画データのJSON解析
+    let videos = undefined;
+    if (videosJson !== undefined) {
+      try {
+        videos = JSON.parse(videosJson);
+        customLogger.info('Videos JSON parsed successfully', {
+          lessonId: id,
+          videosJson: videosJson,
+          parsedVideos: videos,
+          videoCount: videos ? videos.length : 0
+        });
+      } catch (parseError) {
+        customLogger.warn('Failed to parse videos JSON', {
+          error: parseError.message,
+          videosJson: videosJson,
+          lessonId: id
+        });
+        videos = [];
+      }
+    } else {
+      customLogger.info('No videos data in request', {
+        lessonId: id,
+        videosJson: videosJson
+      });
+    }
     
     // 変更されたフィールドのみを更新するための処理
     const updateFields = [];
@@ -411,11 +510,7 @@ const updateLesson = async (req, res) => {
       updateValues.push(status);
     }
     
-    // YouTube URLの更新
-    if (youtube_url !== undefined && youtube_url !== existingLesson.youtube_url) {
-      updateFields.push('youtube_url = ?');
-      updateValues.push(youtube_url);
-    }
+    // YouTube URLの更新は複数動画管理に移行したため削除
     
     // ファイル更新フラグ処理
     const shouldUpdateFile = update_file === 'true' || update_file === true;
@@ -498,16 +593,7 @@ const updateLesson = async (req, res) => {
       }
     }
 
-    // YouTube動画処理
-    if (youtube_url) {
-      // YouTube URLの基本的な検証
-      if (!youtube_url.includes('youtube.com/watch?v=') && !youtube_url.includes('youtu.be/')) {
-        return res.status(400).json({
-          success: false,
-          message: '有効なYouTube URLではありません'
-        });
-      }
-    }
+    // YouTube動画処理は複数動画管理に移行したため削除
 
     // 更新するフィールドがある場合のみ更新を実行
     if (updateFields.length > 0) {
@@ -535,6 +621,93 @@ const updateLesson = async (req, res) => {
       });
     }
 
+    // 複数動画の処理
+    if (videos !== undefined) {
+      customLogger.info('Processing videos for lesson update', {
+        lessonId: id,
+        videos: videos,
+        videoCount: videos ? videos.length : 0,
+        isArray: Array.isArray(videos)
+      });
+      
+      try {
+        // 既存の動画を削除（論理削除）
+        await connection.execute(`
+          UPDATE lesson_videos SET status = 'deleted' WHERE lesson_id = ?
+        `, [id]);
+
+        // 新しい動画を一括挿入（videosが空配列の場合は動画を削除するだけ）
+        if (videos && Array.isArray(videos) && videos.length > 0) {
+          customLogger.info('Inserting new videos', {
+            lessonId: id,
+            videoCount: videos.length
+          });
+          
+          for (let i = 0; i < videos.length; i++) {
+            const video = videos[i];
+            
+            customLogger.info('Processing video', {
+              lessonId: id,
+              videoIndex: i,
+              video: video
+            });
+            
+            // 必須フィールドの検証
+            if (!video.title || !video.youtube_url) {
+              throw new Error(`動画${i + 1}: タイトルとYouTube URLは必須です`);
+            }
+
+            // YouTube URLの基本的な検証
+            if (!video.youtube_url.includes('youtube.com/watch?v=') && !video.youtube_url.includes('youtu.be/')) {
+              throw new Error(`動画${i + 1}: 有効なYouTube URLではありません`);
+            }
+
+            await connection.execute(`
+              INSERT INTO lesson_videos (
+                lesson_id, title, description, youtube_url, order_index, duration, created_by
+              ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, [
+              id,
+              video.title,
+              video.description || null,
+              video.youtube_url,
+              video.order_index || i,
+              video.duration || null,
+              req.user?.user_id || null
+            ]);
+            
+            customLogger.info('Video inserted successfully', {
+              lessonId: id,
+              videoIndex: i,
+              videoTitle: video.title
+            });
+          }
+
+          customLogger.info('Lesson videos updated successfully', {
+            lessonId: id,
+            videoCount: videos.length,
+            userId: req.user?.user_id || null
+          });
+        } else {
+          customLogger.info('All lesson videos removed', {
+            lessonId: id,
+            userId: req.user?.user_id || null
+          });
+        }
+      } catch (videoError) {
+        customLogger.error('Failed to update lesson videos', {
+          error: videoError.message,
+          lessonId: id,
+          userId: req.user?.user_id || null
+        });
+        // 動画更新が失敗してもレッスン更新は続行
+      }
+    } else {
+      customLogger.info('No videos processing required', {
+        lessonId: id
+      });
+    }
+
     // 操作ログ記録
     try {
       await recordOperationLogDirect({
@@ -542,7 +715,13 @@ const updateLesson = async (req, res) => {
         action: 'update_lesson',
         targetType: 'lesson',
         targetId: id,
-        details: { title: title || existingLesson.title, hasFile: !!req.file, courseTitle: existingLesson.course_title },
+        details: { 
+          title: title || existingLesson.title, 
+          hasFile: !!req.file, 
+          courseTitle: existingLesson.course_title,
+          hasVideos: videos !== undefined,
+          videoCount: videos ? videos.length : 0
+        },
         ipAddress: req.ip
       });
     } catch (logError) {
@@ -557,6 +736,8 @@ const updateLesson = async (req, res) => {
       lessonId: id,
       title: title,
       hasFile: !!req.file,
+      hasVideos: videos !== undefined,
+      videoCount: videos ? videos.length : 0,
       userId: req.user?.user_id || null
     });
 
@@ -570,6 +751,14 @@ const updateLesson = async (req, res) => {
 
     const updatedLesson = updatedRows[0];
 
+    // 関連する動画を取得
+    const [videoRows] = await connection.execute(`
+      SELECT id, title, description, youtube_url, order_index, duration, thumbnail_url
+      FROM lesson_videos
+      WHERE lesson_id = ? AND status != 'deleted'
+      ORDER BY order_index ASC, created_at ASC
+    `, [id]);
+
     res.json({
       success: true,
       message: 'レッスンが正常に更新されました',
@@ -579,7 +768,7 @@ const updateLesson = async (req, res) => {
         s3_key: updatedLesson.s3_key,
         file_type: updatedLesson.file_type,
         file_size: updatedLesson.file_size,
-        youtube_url: updatedLesson.youtube_url
+        videos: videoRows
       }
     });
   } catch (error) {
@@ -942,12 +1131,34 @@ const downloadLessonFile = async (req, res) => {
       const folderPrefix = lesson.s3_key.substring(0, lesson.s3_key.lastIndexOf('/'));
       
       // S3からフォルダ内のファイル一覧を取得
-      const listResult = await s3Utils.listFiles(folderPrefix);
+      let listResult;
+      try {
+        listResult = await s3Utils.listFiles(folderPrefix);
+      } catch (s3Error) {
+        customLogger.error('S3ファイル一覧取得エラー:', {
+          error: s3Error.message,
+          lessonId: id,
+          folderPrefix: folderPrefix
+        });
+        
+        // S3エラーの場合は空のファイルリストを返す
+        return res.json({
+          success: true,
+          data: []
+        });
+      }
 
       if (!listResult.success) {
-        return res.status(500).json({
-          success: false,
-          message: 'ファイル一覧の取得に失敗しました'
+        customLogger.warn('S3ファイル一覧取得失敗:', {
+          lessonId: id,
+          folderPrefix: folderPrefix,
+          error: listResult.message
+        });
+        
+        // S3エラーの場合は空のファイルリストを返す
+        return res.json({
+          success: true,
+          data: []
         });
       }
 
@@ -956,10 +1167,12 @@ const downloadLessonFile = async (req, res) => {
         const fileName = file.Key.split('/').pop();
         const fileSize = file.Size;
         const lastModified = file.LastModified;
+        const fileExtension = fileName.split('.').pop().toLowerCase();
         
         return {
           key: file.Key,
-          name: fileName,
+          file_name: fileName,
+          file_type: fileExtension,
           size: fileSize,
           lastModified: lastModified,
           sizeFormatted: formatFileSize(fileSize)
@@ -974,14 +1187,7 @@ const downloadLessonFile = async (req, res) => {
 
       res.json({
         success: true,
-        data: {
-          lesson: {
-            id: id,
-            title: lesson.title,
-            courseTitle: lesson.course_title
-          },
-          files: files
-        }
+        data: files
       });
     } catch (error) {
       customLogger.error('Failed to retrieve lesson files', {

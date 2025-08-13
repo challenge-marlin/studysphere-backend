@@ -8708,3 +8708,265 @@
   "title": "LP制作（HTML・CSS）",
   "userId": 4
 }
+2025-08-09 12:36:53 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-12 09:52:45 [ERROR]: Failed to update course {
+  "service": "curriculum-portal-backend",
+  "error": "Bind parameters must not contain undefined. To pass SQL NULL specify JS null",
+  "courseId": "2",
+  "userId": 4
+}
+2025-08-12 10:55:02 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログイン",
+    "指導員「佐藤指導員」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "21ms",
+  "threadId": 192
+}
+2025-08-12 10:55:02 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-12 10:56:11 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログアウト",
+    "指導員「佐藤指導員」がログアウトしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "6ms",
+  "threadId": 192
+}
+2025-08-12 10:56:11 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-12 11:30:15 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログイン",
+    "指導員「佐藤指導員」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "16ms",
+  "threadId": 195
+}
+2025-08-12 11:30:15 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-12 11:31:30 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログアウト",
+    "指導員「佐藤指導員」がログアウトしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "13ms",
+  "threadId": 195
+}
+2025-08-12 11:31:30 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-12 13:24:24 [ERROR]: Failed to retrieve lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.lesson_videos' doesn't exist",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-12 14:04:07 [ERROR]: Failed to retrieve lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.lesson_videos' doesn't exist",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-12 14:06:43 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-12 15:30:14 [ERROR]: Failed to update lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'status' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-12 15:30:14 [ERROR]: Failed to update lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'thumbnail_url' in 'field list'",
+  "stack": "Error: Unknown column 'thumbnail_url' in 'field list'\n    at PromisePoolConnection.execute (/app/node_modules/mysql2/lib/promise/connection.js:47:22)\n    at updateLesson (/app/scripts/lessonController.js:715:42)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+  "lessonId": "1",
+  "userId": 4,
+  "body": {
+    "title": "Windows 11 の基本操作とソフトウェアの活用",
+    "description": "コンピュータの基本操作と主要ソフトウェアの使用方法を学ぶ",
+    "duration": "120分",
+    "order_index": "0",
+    "has_assignment": "false",
+    "course_id": "1",
+    "videos": "[{\"title\":\"第1回　Windows11の基本操作とソフトウェアの活用\",\"description\":\"\",\"youtube_url\":\"https://www.youtube.com/watch?v=j4yNkF1w6L8\",\"order_index\":0,\"duration\":\"66分32秒\"}]",
+    "update_file": "false",
+    "remove_file": "false"
+  }
+}
+2025-08-12 15:30:25 [ERROR]: Failed to update lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'status' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-12 15:30:25 [ERROR]: Failed to update lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'thumbnail_url' in 'field list'",
+  "stack": "Error: Unknown column 'thumbnail_url' in 'field list'\n    at PromisePoolConnection.execute (/app/node_modules/mysql2/lib/promise/connection.js:47:22)\n    at updateLesson (/app/scripts/lessonController.js:715:42)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+  "lessonId": "1",
+  "userId": 4,
+  "body": {
+    "title": "Windows 11 の基本操作とソフトウェアの活用",
+    "description": "コンピュータの基本操作と主要ソフトウェアの使用方法を学ぶ",
+    "duration": "120分",
+    "order_index": "0",
+    "has_assignment": "false",
+    "course_id": "1",
+    "videos": "[{\"title\":\"第1回　Windows11の基本操作とソフトウェアの活用\",\"description\":\"\",\"youtube_url\":\"https://www.youtube.com/watch?v=j4yNkF1w6L8\",\"order_index\":0,\"duration\":\"66分32秒\"}]",
+    "update_file": "false",
+    "remove_file": "false"
+  }
+}
+2025-08-12 15:34:48 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 10:31:21 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 10:38:46 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 10:39:13 [ERROR]: Failed to retrieve text video links {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'lv.thumbnail_url' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-13 10:42:51 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 10:45:27 [ERROR]: Failed to update lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'status' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-13 10:45:27 [ERROR]: Failed to update lesson {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'status' in 'where clause'",
+  "stack": "Error: Unknown column 'status' in 'where clause'\n    at PromisePoolConnection.execute (/app/node_modules/mysql2/lib/promise/connection.js:47:22)\n    at updateLesson (/app/scripts/lessonController.js:715:42)\n    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+  "lessonId": "1",
+  "userId": 4,
+  "body": {
+    "title": "Windows 11 の基本操作とソフトウェアの活用",
+    "description": "コンピュータの基本操作と主要ソフトウェアの使用方法を学ぶ",
+    "duration": "120分",
+    "order_index": "0",
+    "has_assignment": "false",
+    "course_id": "1",
+    "videos": "[{\"title\":\"第1回　Windows11の基本操作とソフトウェアの活用\",\"description\":\"\",\"youtube_url\":\"https://www.youtube.com/watch?v=j4yNkF1w6L8\",\"order_index\":0,\"duration\":\"66分32秒\"}]",
+    "update_file": "false",
+    "remove_file": "false"
+  }
+}
+2025-08-13 10:47:02 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 10:47:41 [ERROR]: Failed to update lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'created_by' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-13 10:51:54 [ERROR]: Failed to update lesson videos {
+  "service": "curriculum-portal-backend",
+  "error": "Unknown column 'created_by' in 'field list'",
+  "lessonId": "1",
+  "userId": 4
+}
+2025-08-13 10:59:23 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 11:17:31 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:17:32 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:17:48 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:17:57 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:18:06 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:18:17 [ERROR]: Failed to retrieve curriculum paths {
+  "service": "curriculum-portal-backend",
+  "error": "Table 'curriculum-portal.curriculum_paths' doesn't exist",
+  "userId": 4
+}
+2025-08-13 11:19:23 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 11:29:39 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-13 11:37:38 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}

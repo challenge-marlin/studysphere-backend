@@ -154,6 +154,9 @@ const logRoutes = require('./routes/logRoutes');
 const operationLogRoutes = require('./routes/operationLogRoutes');
 const courseRoutes = require('./routes/courseRoutes');
 const lessonRoutes = require('./routes/lessonRoutes');
+const lessonVideoRoutes = require('./routes/lessonVideoRoutes');
+const lessonTextVideoLinkRoutes = require('./routes/lessonTextVideoLinkRoutes');
+const curriculumPathRoutes = require('./routes/curriculumPathRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 
@@ -232,6 +235,9 @@ app.use('/api/logs', logRoutes);
 app.use('/api/operation-logs', operationLogRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/lessons', lessonRoutes);
+app.use('/api/lesson-videos', lessonVideoRoutes);
+app.use('/api/lesson-text-video-links', lessonTextVideoLinkRoutes);
+app.use('/api/curriculum-paths', curriculumPathRoutes);
 app.use('/api', authRoutes);
 app.use('/api/test', testRoutes);
 
@@ -309,105 +315,7 @@ app.get('/memory/report', (req, res) => {
   }
 });
 
-// データベーステストエンドポイント
-app.get('/test-db', async (req, res) => {
-  try {
-    const { executeQuery } = require('./utils/database');
-    
-    // 1. 基本的な接続テスト
-    const connectionTest = await executeQuery('SELECT 1 as test');
-    
-    // 2. テーブル存在確認
-    const tableTest = await executeQuery(`
-      SELECT COUNT(*) as count 
-      FROM information_schema.tables 
-      WHERE table_schema = 'curriculum-portal' 
-      AND table_name = 'companies'
-    `);
-    
-    // 3. シンプルなクエリテスト
-    const simpleQuery = await executeQuery('SELECT COUNT(*) as count FROM companies');
-    
-    // 4. 全データ取得テスト
-    const allData = await executeQuery('SELECT * FROM companies LIMIT 5');
-    
-    res.json({
-      success: true,
-      connectionTest,
-      tableTest,
-      simpleQuery,
-      allData
-    });
-  } catch (error) {
-    console.error('データベーステストエラー:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: error.stack
-    });
-  }
-});
 
-// 管理者アカウント復元エンドポイント
-app.post('/restore-admin', async (req, res) => {
-  try {
-    const { executeQuery } = require('./utils/database');
-    
-    // 既存の管理者アカウントを削除
-    await executeQuery("DELETE FROM admin_credentials WHERE username = 'admin001'");
-    await executeQuery("DELETE FROM user_accounts WHERE name = 'admin001'");
-    
-    // 管理者ユーザーアカウントを作成（マスターユーザー：ロール10）
-    const userResult = await executeQuery(`
-      INSERT INTO user_accounts (name, role, status, login_code, company_id) 
-      VALUES ('admin001', 10, 1, 'CGA8-CH0R-QVEC', NULL)
-    `);
-    
-    if (!userResult.success) {
-      throw new Error('管理者ユーザー作成失敗: ' + userResult.error);
-    }
-    
-    // 管理者認証情報を作成
-    const authResult = await executeQuery(`
-      INSERT INTO admin_credentials (user_id, username, password_hash) 
-      SELECT ua.id, 'admin001', '$2b$12$T7RyPTpZU1ZKivUyOgDNSu4PWByqEP7.GdhrQQ2ltwy3LmfaURLlO'
-      FROM user_accounts ua 
-      WHERE ua.name = 'admin001'
-    `);
-    
-    if (!authResult.success) {
-      throw new Error('管理者認証情報作成失敗: ' + authResult.error);
-    }
-    
-    // 確認用クエリ
-    const confirmResult = await executeQuery(`
-      SELECT 
-        ua.id,
-        ua.name,
-        ua.role,
-        ua.status,
-        ua.login_code,
-        ac.username,
-        ac.created_at
-      FROM user_accounts ua
-      LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
-      WHERE ua.role = 9
-    `);
-    
-    res.json({
-      success: true,
-      message: '管理者アカウントが正常に復元されました',
-      data: confirmResult.data
-    });
-  } catch (error) {
-    console.error('管理者アカウント復元エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者アカウントの復元に失敗しました',
-      error: error.message
-    });
-  }
-});
 
 // 認証系エンドポイントは routes/authRoutes.js に移動
 

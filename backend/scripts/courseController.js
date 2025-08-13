@@ -192,11 +192,19 @@ const updateCourse = async (req, res) => {
       });
     }
 
+    // 既存のコース情報を取得して、undefinedの場合は既存値を保持
+    const existingCourse = existingRows[0];
+    const updateTitle = title !== undefined ? title : existingCourse.title;
+    const updateDescription = description !== undefined ? description : existingCourse.description;
+    const updateCategory = category !== undefined ? category : existingCourse.category;
+    const updateOrderIndex = order_index !== undefined ? order_index : existingCourse.order_index;
+    const updateStatus = status !== undefined ? status : existingCourse.status;
+
     const [result] = await connection.execute(`
       UPDATE courses 
       SET title = ?, description = ?, category = ?, order_index = ?, status = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [title, description, category, order_index, status, req.user?.user_id, id]);
+    `, [updateTitle, updateDescription, updateCategory, updateOrderIndex, updateStatus, req.user?.user_id, id]);
 
     // 操作ログ記録
     await recordOperationLogDirect({
@@ -204,19 +212,19 @@ const updateCourse = async (req, res) => {
       action: 'update_course',
       targetType: 'course',
       targetId: id,
-      details: { title, category, status }
+      details: { title: updateTitle, category: updateCategory, status: updateStatus }
     });
 
     customLogger.info('Course updated successfully', {
       courseId: id,
-      title: title,
+      title: updateTitle,
       userId: req.user?.user_id
     });
 
     res.json({
       success: true,
       message: 'コースが正常に更新されました',
-      data: { id, title, description, category, status }
+      data: { id, title: updateTitle, description: updateDescription, category: updateCategory, status: updateStatus }
     });
   } catch (error) {
     customLogger.error('Failed to update course', {

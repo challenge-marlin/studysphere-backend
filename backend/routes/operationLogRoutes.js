@@ -6,6 +6,7 @@ const {
   exportOperationLogs,
   clearOperationLogs,
   cleanupDuplicateOperationLogs,
+  getClientIP,
 } = require('../scripts/operationLogController');
 
 const router = express.Router();
@@ -16,6 +17,7 @@ router.get('/stats', getOperationLogStats);
 router.get('/export', exportOperationLogs);
 router.delete('/', clearOperationLogs);
 router.post('/cleanup-duplicates', cleanupDuplicateOperationLogs);
+router.get('/client-ip', getClientIP);
 
 module.exports = router;
 

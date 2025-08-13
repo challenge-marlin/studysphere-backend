@@ -117,16 +117,6 @@ CREATE TABLE `refresh_tokens` (
     UNIQUE KEY `unique_refresh_token` (`token`)
 ) COMMENT = 'リフレッシュトークン管理テーブル';
 
--- カリキュラム動画テーブル
-CREATE TABLE `curriculum_videos` (
-    `id` INT AUTO_INCREMENT PRIMARY KEY,
-    `curriculum_name` VARCHAR(100) NOT NULL COMMENT 'カリキュラム名（S3のフォルダ名）',
-    `session_number` INT NOT NULL COMMENT '回数（S3の「第◯回」フォルダ）',
-    `youtube_url` VARCHAR(255) NOT NULL COMMENT 'YouTube URL',
-    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY `unique_curriculum` (`curriculum_name`, `session_number`)
-);
-
 -- テスト結果テーブル
 CREATE TABLE `test_results` (
     `id` INT AUTO_INCREMENT PRIMARY KEY,
@@ -331,7 +321,6 @@ CREATE TABLE IF NOT EXISTS lessons (
     s3_key VARCHAR(1024) COMMENT 'S3オブジェクトキー',
     file_type VARCHAR(50) COMMENT 'ファイルタイプ (pdf, md, docx, pptxなど)',
     file_size BIGINT COMMENT 'ファイルサイズ (バイト)',
-    youtube_url VARCHAR(500) COMMENT 'YouTube動画URL',
     status ENUM('active', 'inactive', 'draft', 'deleted') NOT NULL DEFAULT 'active' COMMENT 'ステータス',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -339,6 +328,80 @@ CREATE TABLE IF NOT EXISTS lessons (
     updated_by INT COMMENT '更新者ID',
     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン管理テーブル';
+
+-- レッスン動画テーブル（1対多対応）
+CREATE TABLE IF NOT EXISTS lesson_videos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    lesson_id INT NOT NULL COMMENT '関連レッスンID',
+    title VARCHAR(255) NOT NULL COMMENT '動画タイトル',
+    description TEXT COMMENT '動画説明',
+    youtube_url VARCHAR(500) NOT NULL COMMENT 'YouTube動画URL',
+    order_index INT NOT NULL DEFAULT 0 COMMENT '表示順序',
+    duration VARCHAR(50) COMMENT '動画の長さ',
+    thumbnail_url VARCHAR(500) COMMENT 'サムネイル画像URL',
+    status ENUM('active', 'inactive', 'deleted') NOT NULL DEFAULT 'active' COMMENT 'ステータス',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE,
+    INDEX idx_lesson_id (lesson_id),
+    INDEX idx_order (order_index),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン動画テーブル（1対多対応）';
+
+-- レッスンテキストと動画の紐づけテーブル
+CREATE TABLE IF NOT EXISTS lesson_text_video_links (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '紐づけID',
+    lesson_id INT NOT NULL COMMENT '関連レッスンID',
+    text_file_key VARCHAR(1024) NOT NULL COMMENT 'テキストファイルのS3キー',
+    video_id INT NOT NULL COMMENT '関連動画ID',
+    link_order INT NOT NULL DEFAULT 0 COMMENT '紐づけ順序',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE,
+    FOREIGN KEY (video_id) REFERENCES lesson_videos(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_text_video_link (lesson_id, text_file_key, video_id),
+    INDEX idx_lesson_id (lesson_id),
+    INDEX idx_video_id (video_id),
+    INDEX idx_link_order (link_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスンテキストと動画の紐づけテーブル';
+
+-- カリキュラムパステーブル
+CREATE TABLE IF NOT EXISTS curriculum_paths (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'カリキュラムパスID',
+    name VARCHAR(255) NOT NULL COMMENT 'パス名',
+    description TEXT COMMENT 'パス説明',
+    target_audience VARCHAR(255) COMMENT '対象者',
+    duration VARCHAR(100) COMMENT '期間（例：12ヶ月）',
+    status ENUM('active', 'inactive', 'draft') DEFAULT 'draft' COMMENT 'ステータス',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='カリキュラムパステーブル';
+
+-- カリキュラムパス-コース関連テーブル
+CREATE TABLE IF NOT EXISTS curriculum_path_courses (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '関連ID',
+    curriculum_path_id INT NOT NULL COMMENT 'カリキュラムパスID',
+    course_id INT NOT NULL COMMENT 'コースID',
+    order_index INT NOT NULL DEFAULT 0 COMMENT '表示順序',
+    is_required BOOLEAN NOT NULL DEFAULT TRUE COMMENT '必須コースかどうか',
+    estimated_duration VARCHAR(100) COMMENT '推定期間（例：3ヶ月）',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (curriculum_path_id) REFERENCES curriculum_paths(id) ON DELETE CASCADE,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_path_course (curriculum_path_id, course_id),
+    INDEX idx_path_id (curriculum_path_id),
+    INDEX idx_course_id (course_id),
+    INDEX idx_order (order_index)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='カリキュラムパス-コース関連テーブル';
 
 -- 操作ログテーブル
 CREATE TABLE IF NOT EXISTS `operation_logs` (
@@ -354,14 +417,10 @@ CREATE TABLE IF NOT EXISTS `operation_logs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作ログテーブル';
 
 -- 初期データの挿入
--- 管理者企業の作成
-INSERT INTO companies (id, name, address, phone) VALUES 
-(1, 'アドミニストレータ', 'システム管理者', '000-0000-0000')
-ON DUPLICATE KEY UPDATE name = name;
 
 -- 管理者ユーザーの作成
-INSERT INTO user_accounts (id, name, role, status, login_code, company_id) VALUES 
-(1, 'admin001', 10, 1, 'ADMN-0001-0001', 1)
+INSERT INTO user_accounts (id, name, role, status, login_code) VALUES 
+(1, 'admin001', 10, 1, 'ADMN-0001-0001')
 ON DUPLICATE KEY UPDATE name = name;
 
 -- 管理者認証情報の作成（パスワード: admin123）

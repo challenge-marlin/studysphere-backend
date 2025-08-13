@@ -258,11 +258,6 @@ const lessonValidation = [
   body('course_id')
     .isInt({ min: 1 })
     .withMessage('コースIDは正の整数で入力してください'),
-  body('youtube_url')
-    .optional()
-    .trim()
-    .isURL()
-    .withMessage('YouTube URLは有効なURL形式で入力してください'),
   body('status')
     .optional()
     .isIn(['active', 'inactive', 'draft'])

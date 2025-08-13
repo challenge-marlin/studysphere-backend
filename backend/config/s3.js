@@ -240,6 +240,18 @@ const s3Utils = {
   // フォルダ内のファイル一覧取得
   listFiles: async (prefix) => {
     try {
+      // S3設定が不完全な場合は空のリストを返す
+      if (!s3Config.accessKeyId || !s3Config.secretAccessKey || s3Config.accessKeyId === 'your_aws_access_key_id') {
+        customLogger.warn('S3設定が不完全なため、空のファイルリストを返します', {
+          prefix: prefix
+        });
+        return {
+          success: true,
+          files: [],
+          count: 0
+        };
+      }
+
       const params = {
         Bucket: s3Config.bucketName,
         Prefix: prefix
@@ -263,7 +275,14 @@ const s3Utils = {
         error: error.message,
         prefix: prefix
       });
-      throw error;
+      
+      // S3エラーの場合は空のリストを返す
+      return {
+        success: false,
+        files: [],
+        count: 0,
+        message: error.message
+      };
     }
   },
 
