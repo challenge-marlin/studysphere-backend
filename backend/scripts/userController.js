@@ -11,15 +11,22 @@ const getUsers = async () => {
     // ユーザー情報を取得（JSON形式のsatellite_idsを適切に処理）
     const [rows] = await connection.execute(`
       SELECT 
-        *,
+        ua.*,
         CASE 
-          WHEN satellite_ids IS NOT NULL AND satellite_ids != 'null' 
-          THEN JSON_UNQUOTE(satellite_ids)
+          WHEN ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' 
+          THEN JSON_UNQUOTE(ua.satellite_ids)
           ELSE NULL 
-        END as satellite_ids_processed
-      FROM user_accounts
+        END as satellite_ids_processed,
+        ac.username
+      FROM user_accounts ua
+      LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
     `);
+    
+    console.log('=== ユーザー一覧取得 ===');
     console.log('取得したユーザー数:', rows.length);
+    // ロール4以上のユーザーのusernameを確認
+    const adminUsers = rows.filter(row => row.role >= 4);
+    console.log('管理者・指導員ユーザー:', adminUsers.map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role })));
     
     // 拠点情報を取得
     const [satellites] = await connection.execute(`
@@ -457,10 +464,33 @@ const removeSatelliteFromUser = async (userId, satelliteId) => {
 const createUser = async (userData) => {
   let connection;
   try {
+    console.log('=== createUser Debug ===');
+    console.log('受信データ:', userData);
+    console.log('username:', userData.username);
+    console.log('role:', userData.role);
+    
     connection = await pool.getConnection();
     
     // トランザクション開始
     await connection.beginTransaction();
+    
+    // ロール4以上（指導員・管理者）の場合、usernameの一意性チェック
+    if (userData.role >= 4 && userData.username) {
+      console.log('username一意性チェック開始:', userData.username);
+      const [existingUsers] = await connection.execute(
+        'SELECT id FROM admin_credentials WHERE username = ?',
+        [userData.username]
+      );
+      
+      if (existingUsers.length > 0) {
+        console.log('username重複エラー:', userData.username);
+        return {
+          success: false,
+          message: '指定されたログインIDは既に使用されています'
+        };
+      }
+      console.log('username一意性チェックOK');
+    }
     
     // ログインコードの生成（指定されていない場合）
     // XXXX-XXXX-XXXX形式（英数大文字小文字交じり）
@@ -506,7 +536,26 @@ const createUser = async (userData) => {
 
     // ロール4以上（指導員・管理者）の場合は認証情報も作成
     if (userData.role >= 4) {
+      console.log('admin_credentials作成開始');
+      console.log('userId:', userId);
+      console.log('username:', userData.username);
+      
       const hashedPassword = await bcrypt.hash(userData.password || 'defaultPassword123', 10);
+      
+      // usernameが指定されていない場合はエラー
+      if (!userData.username) {
+        console.log('username未指定エラー');
+        return {
+          success: false,
+          message: 'ログインIDは必須です'
+        };
+      }
+      
+      console.log('admin_credentials INSERT実行:', {
+        user_id: userId,
+        username: userData.username,
+        password_hash: hashedPassword.substring(0, 20) + '...'
+      });
       
       await connection.execute(
         `INSERT INTO admin_credentials (
@@ -516,10 +565,19 @@ const createUser = async (userData) => {
         ) VALUES (?, ?, ?)`,
         [
           userId,
-          userData.username || userData.name, // usernameが指定されていればそれを、なければnameを使用
+          userData.username,
           hashedPassword
         ]
       );
+      
+      console.log('admin_credentials作成完了');
+      
+      // 保存確認のためのクエリ
+      const [savedCredentials] = await connection.execute(
+        'SELECT * FROM admin_credentials WHERE user_id = ?',
+        [userId]
+      );
+      console.log('保存確認:', savedCredentials);
     }
 
     // トランザクションコミット
@@ -563,6 +621,21 @@ const updateUser = async (userId, updateData) => {
   try {
     connection = await pool.getConnection();
     
+    // usernameの更新がある場合、一意性チェック
+    if (updateData.username) {
+      const [existingUsers] = await connection.execute(
+        'SELECT id FROM admin_credentials WHERE username = ? AND user_id != ?',
+        [updateData.username, userId]
+      );
+      
+      if (existingUsers.length > 0) {
+        return {
+          success: false,
+          message: '指定されたログインIDは既に使用されています'
+        };
+      }
+    }
+    
     // 更新可能なフィールドを構築
     const updateFields = [];
     const updateValues = [];
@@ -592,25 +665,38 @@ const updateUser = async (userId, updateData) => {
       updateValues.push(JSON.stringify(updateData.satellite_ids));
     }
     
-    if (updateFields.length === 0) {
-      return {
-        success: false,
-        message: '更新するフィールドが指定されていません'
-      };
+    // user_accountsテーブルの更新
+    if (updateFields.length > 0) {
+      updateValues.push(userId);
+      
+      const [result] = await connection.execute(
+        `UPDATE user_accounts SET ${updateFields.join(', ')} WHERE id = ?`,
+        updateValues
+      );
+
+      if (result.affectedRows === 0) {
+        return {
+          success: false,
+          message: '指定されたユーザーが見つかりません'
+        };
+      }
     }
     
-    updateValues.push(userId);
-    
-    const [result] = await connection.execute(
-      `UPDATE user_accounts SET ${updateFields.join(', ')} WHERE id = ?`,
-      updateValues
-    );
-
-    if (result.affectedRows === 0) {
-      return {
-        success: false,
-        message: '指定されたユーザーが見つかりません'
-      };
+    // admin_credentialsテーブルの更新（usernameがある場合）
+    if (updateData.username) {
+      // ユーザーがロール4以上かチェック
+      const [userRows] = await connection.execute(
+        'SELECT role FROM user_accounts WHERE id = ?',
+        [userId]
+      );
+      
+      if (userRows.length > 0 && userRows[0].role >= 4) {
+        // admin_credentialsテーブルを更新
+        await connection.execute(
+          'UPDATE admin_credentials SET username = ? WHERE user_id = ?',
+          [updateData.username, userId]
+        );
+      }
     }
 
     return {

@@ -8970,3 +8970,47 @@
   "service": "curriculum-portal-backend",
   "error": "Can't add new command when connection is in closed state"
 }
+2025-08-13 13:04:09 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログイン",
+    "指導員「佐藤指導員」がログインしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "6ms",
+  "threadId": 521
+}
+2025-08-13 13:04:09 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-13 13:17:19 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "instructor001",
+    "佐藤指導員",
+    "ログアウト",
+    "指導員「佐藤指導員」がログアウトしました",
+    "125.201.39.45"
+  ],
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "14ms",
+  "threadId": 571
+}
+2025-08-13 13:17:19 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'instructor001' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-13 14:22:17 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
