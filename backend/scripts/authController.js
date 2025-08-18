@@ -27,11 +27,13 @@ const adminLogin = async (username, password) => {
         ac.username,
         ac.password_hash,
         ua.name as user_name,
+        ua.email,
         ua.login_code,
         ua.role,
         ua.company_id,
         ua.satellite_ids,
         ua.status,
+        ua.password_reset_required,
         COALESCE(c.name, 'システム管理者') as company_name
       FROM admin_credentials ac
       JOIN user_accounts ua ON ac.user_id = ua.id
@@ -100,10 +102,12 @@ const adminLogin = async (username, password) => {
     const responseData = {
       user_id: admin.user_id,
       user_name: admin.user_name,
+      email: admin.email,
       login_code: admin.login_code,
       role: admin.role,
       company_id: admin.company_id,
       company_name: admin.company_name,
+      password_reset_required: admin.password_reset_required === 1,
       satellite_ids: (() => {
         try {
           if (!admin.satellite_ids) return [];
@@ -168,11 +172,13 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
         ac.username,
         ac.password_hash,
         ua.name as user_name,
+        ua.email,
         ua.login_code,
         ua.role,
         ua.company_id,
         ua.satellite_ids,
         ua.status,
+        ua.password_reset_required,
         COALESCE(c.name, 'システム管理者') as company_name
       FROM admin_credentials ac
       JOIN user_accounts ua ON ac.user_id = ua.id
@@ -245,6 +251,7 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
 
     // 拠点情報を取得
     let satelliteInfo = null;
+    console.log('拠点IDが指定されています:', satelliteId);
     if (satelliteId) {
       const [satelliteRows] = await connection.execute(`
         SELECT 
@@ -258,8 +265,10 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
         WHERE s.id = ? AND s.status = 1
       `, [satelliteId]);
       
+      console.log('拠点情報取得結果:', satelliteRows.length, '件');
       if (satelliteRows.length > 0) {
         satelliteInfo = satelliteRows[0];
+        console.log('取得した拠点情報:', satelliteInfo);
         // 拠点管理者かどうかを判定
         let managerIds = [];
         try {
@@ -272,15 +281,41 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
           managerIds = [];
         }
         
-        const isManager = managerIds.includes(admin.user_id);
+        console.log('拠点管理者判定詳細:', {
+          userId: admin.user_id,
+          satelliteId: satelliteId,
+          satelliteName: satelliteInfo.satellite_name,
+          managerIds: managerIds,
+          currentRole: admin.role,
+          managerIdsType: typeof managerIds,
+          managerIdsLength: managerIds.length
+        });
         
-        // 拠点管理者の場合はロールを5に変更
+        // 拠点管理者かどうかを判定（数値として比較）
+        const userIdNum = parseInt(admin.user_id);
+        const isManager = managerIds.some(id => {
+          const managerIdNum = parseInt(id);
+          const isMatch = managerIdNum === userIdNum;
+          console.log(`管理者ID比較: ${id} (${typeof id}) == ${admin.user_id} (${typeof admin.user_id}) = ${isMatch}`, {
+            managerIdNum,
+            userIdNum,
+            isMatch
+          });
+          return isMatch;
+        });
+        
+        console.log('拠点管理者判定結果:', {
+          isManager: isManager,
+          currentRole: admin.role,
+          willUpdate: isManager && admin.role === 4
+        });
+        
+        // 拠点管理者の場合はレスポンスでロール5を返す（DBは更新しない）
         if (isManager && admin.role === 4) {
-          await connection.execute(
-            'UPDATE user_accounts SET role = 5 WHERE id = ?',
-            [admin.user_id]
-          );
+          console.log(`拠点管理者としてレスポンスでロール5を返す: user_id=${admin.user_id}, satellite_id=${satelliteId}`);
+          // レスポンス用のロールを5に設定（DBは更新しない）
           admin.role = 5;
+          console.log('レスポンスロール設定: 4 → 5');
         }
       }
     }
@@ -305,12 +340,14 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
     const responseData = {
       user_id: admin.user_id,
       user_name: admin.user_name,
+      email: admin.email,
       login_code: admin.login_code,
       role: admin.role,
       company_id: satelliteInfo ? satelliteInfo.company_id : admin.company_id,
       company_name: satelliteInfo ? satelliteInfo.company_name : admin.company_name,
       satellite_id: satelliteId ? parseInt(satelliteId) : null,
       satellite_name: satelliteInfo ? satelliteInfo.satellite_name : null,
+      password_reset_required: admin.password_reset_required === 1,
       access_token: accessToken,
       refresh_token: refreshToken
     };
@@ -367,6 +404,7 @@ const refreshToken = async (refreshToken) => {
       SELECT 
         ua.id as user_id,
         ua.name as user_name,
+        ua.email,
         ua.login_code,
         ua.role,
         ua.company_id,
@@ -387,9 +425,53 @@ const refreshToken = async (refreshToken) => {
     const user = userRows[0];
     console.log('ユーザー情報取得完了:', { userId: user.user_id, userName: user.user_name });
 
+    // 拠点管理者判定: ユーザーが拠点管理者かどうかをチェック
+    let effectiveRole = user.role;
+    if (user.role === 4) {
+      // ユーザーの所属拠点を取得
+      const [satelliteRows] = await connection.execute(`
+        SELECT s.id, s.name, s.manager_ids
+        FROM satellites s
+        WHERE JSON_CONTAINS(s.id, ?) OR s.id IN (
+          SELECT JSON_UNQUOTE(JSON_EXTRACT(satellite_ids, '$[*]')) 
+          FROM user_accounts 
+          WHERE id = ?
+        )
+      `, [JSON.stringify(user.user_id), user.user_id]);
+
+      // 拠点管理者判定
+      for (const satellite of satelliteRows) {
+        let managerIds = [];
+        try {
+          if (satellite.manager_ids) {
+            const parsed = JSON.parse(satellite.manager_ids);
+            managerIds = Array.isArray(parsed) ? parsed : [];
+          }
+        } catch (error) {
+          console.error('manager_ids parse error:', error);
+          managerIds = [];
+        }
+
+        const userIdNum = parseInt(user.user_id);
+        const isManager = managerIds.some(managerId => {
+          const managerIdNum = parseInt(managerId);
+          return managerIdNum === userIdNum;
+        });
+
+        if (isManager) {
+          console.log(`拠点管理者としてロールを更新: user_id=${user.user_id}, role=${user.role} → 5`);
+          effectiveRole = 5;
+          break;
+        }
+      }
+    }
+
+    // 有効なロールでユーザーオブジェクトを更新
+    const userWithEffectiveRole = { ...user, role: effectiveRole };
+
     // 新しいトークンを生成
-    const newAccessToken = generateAccessToken(user);
-    const newRefreshToken = generateRefreshToken(user);
+    const newAccessToken = generateAccessToken(userWithEffectiveRole);
+    const newRefreshToken = generateRefreshToken(userWithEffectiveRole);
     console.log('新しいトークン生成完了');
 
     // 古いリフレッシュトークンを削除
@@ -557,7 +639,12 @@ const getUserCompaniesAndSatellites = async (username) => {
           managerIds = [];
         }
         
-        const isManager = managerIds.includes(user.id);
+        // 数値として比較
+        const userIdNum = parseInt(user.id);
+        const isManager = managerIds.some(managerId => {
+          const managerIdNum = parseInt(managerId);
+          return managerIdNum === userIdNum;
+        });
         
         companies.get(companyId).satellites.push({
           id: satellite.satellite_id,
@@ -606,7 +693,12 @@ const getUserCompaniesAndSatellites = async (username) => {
           managerIds = [];
         }
         
-        const isManager = managerIds.includes(user.id);
+        // 数値として比較
+        const userIdNum = parseInt(user.id);
+        const isManager = managerIds.some(managerId => {
+          const managerIdNum = parseInt(managerId);
+          return managerIdNum === userIdNum;
+        });
         
         companies.get(companyId).satellites.push({
           id: satellite.satellite_id,
@@ -754,6 +846,7 @@ const getUserCompanySatelliteInfo = async (userId) => {
               s.contract_type,
               s.max_users,
               s.status,
+              s.manager_ids,
               ot.type as office_type_name
             FROM satellites s
             LEFT JOIN office_types ot ON s.office_type_id = ot.id
@@ -761,10 +854,66 @@ const getUserCompanySatelliteInfo = async (userId) => {
             ORDER BY s.name
           `, satelliteIds);
           
-          satellites = satelliteRows;
+          // 拠点管理者の判定を追加
+          satellites = satelliteRows.map(satellite => {
+            let isManager = false;
+            try {
+              if (satellite.manager_ids) {
+                const managerIds = JSON.parse(satellite.manager_ids);
+                console.log(`拠点管理者判定詳細: ${satellite.name}`, {
+                  userId: user.id,
+                  userIdType: typeof user.id,
+                  managerIds: managerIds,
+                  managerIdsType: typeof managerIds,
+                  isArray: Array.isArray(managerIds)
+                });
+                
+                if (Array.isArray(managerIds)) {
+                  // 数値として比較（より確実な方法）
+                  const userIdNum = parseInt(user.id);
+                  isManager = managerIds.some(managerId => {
+                    const managerIdNum = parseInt(managerId);
+                    const isMatch = managerIdNum === userIdNum;
+                    
+                    console.log(`管理者ID比較: ${managerId} (${typeof managerId}) == ${user.id} (${typeof user.id})`, {
+                      managerIdNum,
+                      userIdNum,
+                      isMatch
+                    });
+                    
+                    return isMatch;
+                  });
+                }
+                
+                console.log(`拠点管理者判定結果: ${satellite.name}`, {
+                  userId: user.id,
+                  managerIds: managerIds,
+                  isManager: isManager
+                });
+              }
+            } catch (error) {
+              console.error('manager_ids parse error:', error);
+            }
+            
+            return {
+              ...satellite,
+              is_manager: isManager
+            };
+          });
         }
       } catch (error) {
         console.error('拠点情報の解析エラー:', error);
+      }
+    }
+    
+    // 拠点管理者判定: 現在の拠点で管理者かどうかをチェック
+    let effectiveRole = user.role;
+    if (satellites && satellites.length > 0) {
+      // 現在選択されている拠点で管理者かどうかを判定
+      const currentSatellite = satellites.find(s => s.is_manager === true);
+      if (currentSatellite && user.role === 4) {
+        console.log(`拠点管理者としてロールを更新: user_id=${user.id}, role=${user.role} → 5`);
+        effectiveRole = 5;
       }
     }
     
@@ -774,7 +923,7 @@ const getUserCompanySatelliteInfo = async (userId) => {
         user: {
           id: user.id,
           name: user.name,
-          role: user.role,
+          role: effectiveRole,
           company_id: user.company_id,
           company_name: user.company_name,
           company_address: user.company_address,
@@ -789,6 +938,85 @@ const getUserCompanySatelliteInfo = async (userId) => {
     return {
       success: false,
       message: 'ユーザー情報の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点管理者を設定する関数
+ */
+const setSatelliteManager = async (satelliteId, userId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [satelliteRows] = await connection.execute(
+      'SELECT id, name, manager_ids FROM satellites WHERE id = ?',
+      [satelliteId]
+    );
+
+    if (satelliteRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません'
+      };
+    }
+
+    const satellite = satelliteRows[0];
+    
+    // 現在の管理者IDを取得
+    let currentManagerIds = [];
+    if (satellite.manager_ids) {
+      try {
+        currentManagerIds = JSON.parse(satellite.manager_ids);
+      } catch (error) {
+        console.error('manager_ids parse error:', error);
+        currentManagerIds = [];
+      }
+    }
+
+    // 既に管理者として設定されているかチェック
+    if (currentManagerIds.includes(userId)) {
+      return {
+        success: true,
+        message: '既に管理者として設定されています',
+        data: { manager_ids: currentManagerIds }
+      };
+    }
+
+    // 新しい管理者IDを追加
+    currentManagerIds.push(userId);
+    const managerIdsJson = JSON.stringify(currentManagerIds);
+
+    await connection.execute(`
+      UPDATE satellites 
+      SET manager_ids = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [managerIdsJson, satelliteId]);
+
+    console.log(`拠点 ${satellite.name} (ID: ${satelliteId}) にユーザーID ${userId} を管理者として設定しました`);
+
+    return {
+      success: true,
+      message: '拠点管理者が正常に設定されました',
+      data: { manager_ids: currentManagerIds }
+    };
+    
+  } catch (error) {
+    console.error('拠点管理者設定エラー:', error);
+    return {
+      success: false,
+      message: '拠点管理者の設定に失敗しました',
       error: error.message
     };
   } finally {
@@ -844,6 +1072,120 @@ const createAdminAccount = async (userData) => {
   }
 };
 
+// マスターユーザー復旧機能
+const restoreMasterUser = async () => {
+  let connection;
+  try {
+    console.log('=== Master User Restoration Started ===');
+    
+    connection = await pool.getConnection();
+    
+    // マスターユーザー情報
+    const masterUserId = 'admin001';
+    const masterPassword = 'admin123';
+    const masterRole = 10;
+    const masterUserName = 'マスターユーザー';
+    
+    // パスワードのハッシュ化
+    const saltRounds = 12;
+    const passwordHash = await bcrypt.hash(masterPassword, saltRounds);
+    
+    // トランザクション開始
+    await connection.beginTransaction();
+    
+    try {
+      // 1. user_accountsテーブルにマスターユーザーが存在するかチェック
+      const [existingUserRows] = await connection.execute(`
+        SELECT id FROM user_accounts WHERE login_code = ?
+      `, [masterUserId]);
+      
+      let userId;
+      
+      if (existingUserRows.length === 0) {
+        // マスターユーザーが存在しない場合は作成
+        console.log('Creating master user in user_accounts table');
+        const [userResult] = await connection.execute(`
+          INSERT INTO user_accounts (login_code, name, role, status, created_at, updated_at)
+          VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [masterUserId, masterUserName, masterRole]);
+        
+        userId = userResult.insertId;
+        console.log('Master user created with ID:', userId);
+      } else {
+        // 既存のマスターユーザーを更新
+        userId = existingUserRows[0].id;
+        console.log('Updating existing master user with ID:', userId);
+        
+        await connection.execute(`
+          UPDATE user_accounts 
+          SET name = ?, role = ?, status = 1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `, [masterUserName, masterRole, userId]);
+      }
+      
+      // 2. admin_credentialsテーブルにマスターユーザーが存在するかチェック
+      const [existingCredRows] = await connection.execute(`
+        SELECT id FROM admin_credentials WHERE user_id = ?
+      `, [userId]);
+      
+      if (existingCredRows.length === 0) {
+        // 認証情報が存在しない場合は作成
+        console.log('Creating master user credentials');
+        await connection.execute(`
+          INSERT INTO admin_credentials (user_id, username, password_hash, created_at, updated_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [userId, masterUserId, passwordHash]);
+      } else {
+        // 既存の認証情報を更新
+        console.log('Updating existing master user credentials');
+        await connection.execute(`
+          UPDATE admin_credentials 
+          SET username = ?, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = ?
+        `, [masterUserId, passwordHash, userId]);
+      }
+      
+      // トランザクションコミット
+      await connection.commit();
+      
+      console.log('=== Master User Restoration Completed Successfully ===');
+      
+      return {
+        success: true,
+        message: 'マスターユーザーが正常に復旧されました',
+        data: {
+          user_id: masterUserId,
+          username: masterUserId,
+          password: masterPassword,
+          role: masterRole,
+          name: masterUserName
+        }
+      };
+      
+    } catch (error) {
+      // エラーが発生した場合はロールバック
+      await connection.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Master user restoration error:', error);
+    return {
+      success: false,
+      message: 'マスターユーザーの復旧に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   adminLogin,
   refreshToken,
@@ -851,5 +1193,7 @@ module.exports = {
   createAdminAccount,
   instructorLogin,
   getUserCompaniesAndSatellites,
-  getUserCompanySatelliteInfo
+  getUserCompanySatelliteInfo,
+  restoreMasterUser,
+  setSatelliteManager
 }; 

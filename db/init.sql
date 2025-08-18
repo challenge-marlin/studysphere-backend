@@ -72,10 +72,15 @@ CREATE TABLE `user_accounts` (
     `satellite_ids` JSON DEFAULT NULL COMMENT '所属拠点ID配列（複数拠点対応）',
     `is_remote_user` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '在宅支援対象（ロール1専用）',
     `recipient_number` VARCHAR(30) DEFAULT NULL COMMENT '受給者証番号',
+    `password_reset_required` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'パスワード変更要求フラグ（1=変更要求あり、0=変更要求なし）',
+    `instructor_id` INT DEFAULT NULL COMMENT '担当指導員ID（ロール1専用）',
     UNIQUE KEY `unique_login_code` (`login_code`),
     FOREIGN KEY (`company_id`) REFERENCES `companies`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`instructor_id`) REFERENCES `user_accounts`(`id`) ON DELETE SET NULL,
     INDEX `idx_satellite_ids` ((CAST(`satellite_ids` AS CHAR(100)))),
-    INDEX `idx_email` (`email`)
+    INDEX `idx_email` (`email`),
+    INDEX `idx_password_reset_required` (`password_reset_required`),
+    INDEX `idx_instructor_id` (`instructor_id`)
 ) COMMENT = 'ユーザー情報テーブル';
 
 -- 管理者認証テーブル（ロール4以上専用）

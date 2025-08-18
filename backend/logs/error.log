@@ -9014,3 +9014,51 @@
   "service": "curriculum-portal-backend",
   "error": "Can't add new command when connection is in closed state"
 }
+2025-08-13 15:36:15 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-18 12:55:20 [ERROR]: データベース接続プールの終了に失敗 {
+  "service": "curriculum-portal-backend",
+  "error": "Can't add new command when connection is in closed state"
+}
+2025-08-18 12:57:39 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "system",
+    "システム",
+    "ログアウト",
+    "不明「不明」がログアウトしました",
+    "172.18.0.1"
+  ],
+  "error": "Incorrect integer value: 'system' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "49ms",
+  "threadId": 29
+}
+2025-08-18 12:57:39 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'system' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}
+2025-08-18 13:04:14 [ERROR]: クエリ実行エラー {
+  "service": "curriculum-portal-backend",
+  "query": "\n      INSERT INTO operation_logs (admin_id, admin_name, action, details, ip_address, created_at)\n      VALUES (?, ?, ?, ?, ?, NOW())\n    ",
+  "params": [
+    "system",
+    "システム",
+    "ログアウト",
+    "不明「不明」がログアウトしました",
+    "172.18.0.1"
+  ],
+  "error": "Incorrect integer value: 'system' for column 'admin_id' at row 1",
+  "code": "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD",
+  "duration": "8ms",
+  "threadId": 55
+}
+2025-08-18 13:04:14 [ERROR]: 操作ログ記録エラー {
+  "service": "curriculum-portal-backend",
+  "error": "Incorrect integer value: 'system' for column 'admin_id' at row 1",
+  "user": "anonymous"
+}

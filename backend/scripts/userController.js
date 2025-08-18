@@ -300,8 +300,11 @@ const getSatelliteUsers = async (satelliteId) => {
         ua.status,
         ua.login_code,
         ua.is_remote_user,
-        ua.recipient_number
+        ua.recipient_number,
+        ua.instructor_id,
+        instructor.name as instructor_name
       FROM user_accounts ua
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
       WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
       ORDER BY ua.role DESC, ua.name
     `, [JSON.stringify(satelliteId)]);
@@ -665,6 +668,11 @@ const updateUser = async (userId, updateData) => {
       updateValues.push(JSON.stringify(updateData.satellite_ids));
     }
     
+    if (updateData.instructor_id !== undefined) {
+      updateFields.push('instructor_id = ?');
+      updateValues.push(updateData.instructor_id);
+    }
+    
     // user_accountsテーブルの更新
     if (updateFields.length > 0) {
       updateValues.push(userId);
@@ -807,41 +815,149 @@ const resetUserPassword = async (userId, resetData) => {
       };
     }
 
-    let hashedPassword;
-    if (resetData.tempPassword) {
-      // 一時パスワードを設定
-      hashedPassword = await bcrypt.hash(resetData.tempPassword, 10);
-    } else {
-      // デフォルトパスワードを設定
-      hashedPassword = await bcrypt.hash('defaultPassword123', 10);
-    }
-    
-    // admin_credentialsテーブルを更新
-    const [result] = await connection.execute(
-      'UPDATE admin_credentials SET password_hash = ? WHERE user_id = ?',
-      [hashedPassword, userId]
-    );
+    const user = userRows[0];
 
-    if (result.affectedRows === 0) {
-      // admin_credentialsにレコードがない場合は新規作成
-      await connection.execute(
-        'INSERT INTO admin_credentials (user_id, username, password_hash) VALUES (?, ?, ?)',
-        [userId, userRows[0].name, hashedPassword]
+    if (resetData.action === 'issue_temp_password') {
+      // 一時パスワード発行
+      const tempPassword = generateTempPassword();
+      const hashedPassword = await bcrypt.hash(tempPassword, 10);
+      
+      // admin_credentialsテーブルを更新
+      const [result] = await connection.execute(
+        'UPDATE admin_credentials SET password_hash = ?, updated_at = NOW() WHERE user_id = ?',
+        [hashedPassword, userId]
       );
-    }
 
-    return {
-      success: true,
-      message: 'パスワードが正常にリセットされました',
-      data: {
-        tempPassword: resetData.tempPassword || 'defaultPassword123'
+      if (result.affectedRows === 0) {
+        // admin_credentialsにレコードがない場合は新規作成
+        await connection.execute(
+          'INSERT INTO admin_credentials (user_id, username, password_hash, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
+          [userId, user.name, hashedPassword]
+        );
       }
-    };
+
+      // パスワード変更要求フラグを設定
+      await connection.execute(
+        'UPDATE user_accounts SET password_reset_required = 1 WHERE id = ?',
+        [userId]
+      );
+
+      return {
+        success: true,
+        message: '一時パスワードが発行されました。指導員は次回ログイン時に新しいパスワードを設定する必要があります。',
+        data: {
+          tempPassword: tempPassword
+        }
+      };
+    } else if (resetData.action === 'require_password_change') {
+      // パスワード変更要求
+      await connection.execute(
+        'UPDATE user_accounts SET password_reset_required = 1 WHERE id = ?',
+        [userId]
+      );
+
+      return {
+        success: true,
+        message: 'パスワード変更要求が送信されました。指導員は次回ログイン時にパスワードの変更が必要です。'
+      };
+    } else {
+      return {
+        success: false,
+        message: '無効なアクションです'
+      };
+    }
   } catch (error) {
     console.error('Error resetting user password:', error);
     return {
       success: false,
       message: 'パスワードのリセットに失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// 一時パスワード生成関数
+const generateTempPassword = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 12; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
+// 指導員のパスワード変更
+const changeInstructorPassword = async (userId, currentPassword, newPassword) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザーの存在確認
+    const [userRows] = await connection.execute(
+      'SELECT id, name FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: '指定されたユーザーが見つかりません'
+      };
+    }
+
+    // 現在のパスワードを確認
+    const [credentialRows] = await connection.execute(
+      'SELECT password_hash FROM admin_credentials WHERE user_id = ?',
+      [userId]
+    );
+
+    if (credentialRows.length === 0) {
+      return {
+        success: false,
+        message: '認証情報が見つかりません'
+      };
+    }
+
+    const isValidPassword = await bcrypt.compare(currentPassword, credentialRows[0].password_hash);
+    if (!isValidPassword) {
+      return {
+        success: false,
+        message: '現在のパスワードが正しくありません'
+      };
+    }
+
+    // 新しいパスワードをハッシュ化
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+    
+    // パスワードを更新
+    await connection.execute(
+      'UPDATE admin_credentials SET password_hash = ?, updated_at = NOW() WHERE user_id = ?',
+      [newPasswordHash, userId]
+    );
+
+    // パスワード変更要求フラグをクリア
+    await connection.execute(
+      'UPDATE user_accounts SET password_reset_required = 0 WHERE id = ?',
+      [userId]
+    );
+
+    return {
+      success: true,
+      message: 'パスワードが正常に変更されました'
+    };
+  } catch (error) {
+    console.error('Error changing instructor password:', error);
+    return {
+      success: false,
+      message: 'パスワードの変更に失敗しました',
       error: error.message
     };
   } finally {
@@ -867,5 +983,6 @@ module.exports = {
   createUser,
   updateUser,
   deleteUser,
-  resetUserPassword
+  resetUserPassword,
+  changeInstructorPassword
 }; 

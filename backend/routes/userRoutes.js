@@ -11,6 +11,7 @@ const {
   updateUser,
   deleteUser,
   resetUserPassword,
+  changeInstructorPassword,
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -70,6 +71,26 @@ router.post('/:userId/reset-password', async (req, res) => {
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     res.status(500).json({ success: false, message: 'パスワードリセットに失敗しました', error: error.message });
+  }
+});
+
+// 指導員のパスワード変更
+router.post('/:userId/change-password', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: '現在のパスワードと新しいパスワードは必須です'
+      });
+    }
+    
+    const result = await changeInstructorPassword(userId, currentPassword, newPassword);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'パスワード変更に失敗しました', error: error.message });
   }
 });
 

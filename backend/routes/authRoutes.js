@@ -1,6 +1,6 @@
 const express = require('express');
 const { loginValidation, handleValidationErrors } = require('../middleware/validation');
-const { adminLogin, instructorLogin, getUserCompaniesAndSatellites, getUserCompanySatelliteInfo, refreshToken, logout } = require('../scripts/authController');
+const { adminLogin, instructorLogin, getUserCompaniesAndSatellites, getUserCompanySatelliteInfo, refreshToken, logout, restoreMasterUser, setSatelliteManager } = require('../scripts/authController');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -71,6 +71,55 @@ router.post('/logout', async (req, res) => {
     message: result.message,
     ...(result.error && { error: result.error }),
   });
+});
+
+// マスターユーザー復旧エンドポイント
+router.post('/restore-master-user', async (req, res) => {
+  try {
+    const result = await restoreMasterUser();
+    res.status(result.success ? 200 : 500).json({
+      success: result.success,
+      message: result.message,
+      ...(result.data && { data: result.data }),
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error('Restore master user route error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'マスターユーザー復旧処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
+});
+
+// 拠点管理者設定エンドポイント
+router.post('/set-satellite-manager', async (req, res) => {
+  try {
+    const { satelliteId, userId } = req.body;
+    
+    if (!satelliteId || !userId) {
+      return res.status(400).json({
+        success: false,
+        message: '拠点IDとユーザーIDは必須です'
+      });
+    }
+    
+    const result = await setSatelliteManager(satelliteId, userId);
+    res.status(result.success ? 200 : 400).json({
+      success: result.success,
+      message: result.message,
+      ...(result.data && { data: result.data }),
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error('Set satellite manager route error:', error);
+    res.status(500).json({
+      success: false,
+      message: '拠点管理者設定処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

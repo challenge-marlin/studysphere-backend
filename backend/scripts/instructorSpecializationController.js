@@ -234,6 +234,8 @@ const getSatelliteInstructors = async (satelliteId) => {
   try {
     connection = await pool.getConnection();
     
+    console.log('拠点指導者一覧取得 - 拠点ID:', satelliteId);
+    
     // 拠点に所属する指導者（ロール4、5）を取得
     const [instructors] = await connection.execute(`
       SELECT 
@@ -243,14 +245,19 @@ const getSatelliteInstructors = async (satelliteId) => {
         ua.status,
         ua.login_code,
         ua.satellite_ids,
-        c.name as company_name
+        ua.email,
+        c.name as company_name,
+        ac.username
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id
+      LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
       WHERE ua.role >= 4 
         AND ua.role <= 5
-        AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))
+        AND JSON_CONTAINS(ua.satellite_ids, ?)
       ORDER BY ua.name
     `, [JSON.stringify(satelliteId)]);
+    
+    console.log('拠点指導者一覧取得結果:', instructors);
     
     // 各指導者の専門分野を取得
     const instructorsWithSpecializations = await Promise.all(
@@ -323,14 +330,27 @@ const getSatelliteStats = async (satelliteId) => {
     
     const satellite = satelliteRows[0];
     
+    console.log('拠点統計取得 - 拠点ID:', satelliteId);
+    console.log('拠点情報:', satellite);
+    
+    // デバッグ用：実際のデータを確認
+    const [debugRows] = await connection.execute(`
+      SELECT id, name, role, satellite_ids, status
+      FROM user_accounts
+      WHERE role >= 4 AND role <= 5
+    `);
+    console.log('デバッグ - 指導者データ:', debugRows);
+    
     // 現在の生徒数（ロール1）を取得
     const [studentRows] = await connection.execute(`
       SELECT COUNT(*) as count
       FROM user_accounts
       WHERE role = 1 
-        AND JSON_CONTAINS(satellite_ids, CAST(? AS JSON))
+        AND JSON_CONTAINS(satellite_ids, ?)
         AND status = 1
     `, [JSON.stringify(satelliteId)]);
+    
+    console.log('生徒数クエリ結果:', studentRows);
     
     // 指導者数（ロール4、5）を取得
     const [instructorRows] = await connection.execute(`
@@ -338,12 +358,17 @@ const getSatelliteStats = async (satelliteId) => {
       FROM user_accounts
       WHERE role >= 4 
         AND role <= 5
-        AND JSON_CONTAINS(satellite_ids, CAST(? AS JSON))
+        AND JSON_CONTAINS(satellite_ids, ?)
         AND status = 1
     `, [JSON.stringify(satelliteId)]);
     
+    console.log('指導者数クエリ結果:', instructorRows);
+    
     const currentStudents = studentRows[0].count;
     const instructorCount = instructorRows[0].count;
+    
+    console.log('計算結果 - 生徒数:', currentStudents, '指導者数:', instructorCount);
+    
     const capacityPercentage = satellite.max_users > 0 ? (currentStudents / satellite.max_users) * 100 : 0;
     
     return {
