@@ -82,6 +82,65 @@ const adminLogin = async (username, password) => {
       };
     }
 
+    // 拠点管理者判定: ロール4の場合は拠点管理者かどうかをチェック
+    let effectiveRole = admin.role;
+    if (admin.role === 4) {
+      // ユーザーの所属拠点を取得
+      const [userRows] = await connection.execute(`
+        SELECT satellite_ids
+        FROM user_accounts
+        WHERE id = ?
+      `, [admin.user_id]);
+
+      if (userRows.length > 0 && userRows[0].satellite_ids) {
+        let satelliteIds = [];
+        try {
+          satelliteIds = JSON.parse(userRows[0].satellite_ids);
+          if (!Array.isArray(satelliteIds)) {
+            satelliteIds = [];
+          }
+        } catch (error) {
+          console.error('satellite_ids parse error:', error);
+          satelliteIds = [];
+        }
+
+        if (satelliteIds.length > 0) {
+          const placeholders = satelliteIds.map(() => '?').join(',');
+          const [satelliteRows] = await connection.execute(`
+            SELECT s.id, s.name, s.manager_ids
+            FROM satellites s
+            WHERE s.id IN (${placeholders})
+          `, satelliteIds);
+
+          // 拠点管理者判定
+          for (const satellite of satelliteRows) {
+            let managerIds = [];
+            try {
+              if (satellite.manager_ids) {
+                const parsed = JSON.parse(satellite.manager_ids);
+                managerIds = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              console.error('manager_ids parse error:', error);
+              managerIds = [];
+            }
+
+            const userIdNum = parseInt(admin.user_id);
+            const isManager = managerIds.some(managerId => {
+              const managerIdNum = parseInt(managerId);
+              return managerIdNum === userIdNum;
+            });
+
+            if (isManager) {
+              console.log(`拠点管理者としてロールを更新: user_id=${admin.user_id}, role=${admin.role} → 5`);
+              effectiveRole = 5;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     // 最終ログイン日時を更新
     await connection.execute(
       'UPDATE admin_credentials SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -91,9 +150,12 @@ const adminLogin = async (username, password) => {
     // 既存のリフレッシュトークンを削除
     await deleteAllUserRefreshTokens(admin.user_id);
 
+    // 有効なロールでユーザーオブジェクトを更新
+    const adminWithEffectiveRole = { ...admin, role: effectiveRole };
+
     // トークン生成
-    const accessToken = generateAccessToken(admin);
-    const refreshToken = generateRefreshToken(admin);
+    const accessToken = generateAccessToken(adminWithEffectiveRole);
+    const refreshToken = generateRefreshToken(adminWithEffectiveRole);
 
     // リフレッシュトークンをデータベースに保存
     await saveRefreshToken(admin.user_id, refreshToken);
@@ -104,7 +166,7 @@ const adminLogin = async (username, password) => {
       user_name: admin.user_name,
       email: admin.email,
       login_code: admin.login_code,
-      role: admin.role,
+      role: effectiveRole, // 有効なロールを使用
       company_id: admin.company_id,
       company_name: admin.company_name,
       password_reset_required: admin.password_reset_required === 1,
@@ -112,12 +174,15 @@ const adminLogin = async (username, password) => {
         try {
           if (!admin.satellite_ids) return [];
           if (typeof admin.satellite_ids === 'string') {
-            return JSON.parse(admin.satellite_ids);
+            const parsed = JSON.parse(admin.satellite_ids);
+            // 1つの値でも配列として扱う
+            return Array.isArray(parsed) ? parsed : [parsed];
           }
           if (Array.isArray(admin.satellite_ids)) {
             return admin.satellite_ids;
           }
-          return [];
+          // 単一の値の場合も配列として扱う
+          return [admin.satellite_ids];
         } catch (error) {
           console.error('satellite_ids parse error:', error);
           return [];
@@ -216,36 +281,76 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
     }
 
     // 企業と拠点の権限チェック
+    console.log('=== 拠点権限チェックデバッグ ===');
+    console.log('admin.satellite_ids (raw):', admin.satellite_ids);
+    console.log('admin.satellite_ids type:', typeof admin.satellite_ids);
+    
     const satelliteIds = (() => {
       try {
-        if (!admin.satellite_ids) return [];
+        if (!admin.satellite_ids) {
+          console.log('satellite_ids is null or empty, returning empty array');
+          return [];
+        }
         if (typeof admin.satellite_ids === 'string') {
-          return JSON.parse(admin.satellite_ids);
+          console.log('Parsing satellite_ids as string...');
+          const parsed = JSON.parse(admin.satellite_ids);
+          console.log('JSON.parse result:', parsed);
+          console.log('Parsed type:', typeof parsed);
+          console.log('Is array:', Array.isArray(parsed));
+          // 1つの値でも配列として扱う
+          const result = Array.isArray(parsed) ? parsed : [parsed];
+          console.log('Final result:', result);
+          return result;
         }
         if (Array.isArray(admin.satellite_ids)) {
+          console.log('satellite_ids is already array:', admin.satellite_ids);
           return admin.satellite_ids;
         }
-        return [];
+        // 単一の値の場合も配列として扱う
+        console.log('satellite_ids is single value, wrapping in array:', [admin.satellite_ids]);
+        return [admin.satellite_ids];
       } catch (error) {
         console.error('satellite_ids parse error in instructorLogin:', error);
         return [];
       }
     })();
     
+    console.log('Final satelliteIds:', satelliteIds);
+    console.log('Final satelliteIds type:', typeof satelliteIds);
+    console.log('Final satelliteIds is array:', Array.isArray(satelliteIds));
+    
     // ロール9（システム管理者）の場合はすべての拠点にアクセス可能
     if (admin.role >= 9) {
       console.log('Role 9+ user, allowing access to all satellites');
     } else {
       // 指定された拠点にアクセス権限があるかチェック
-      // satelliteIdsは文字列の配列なので、文字列として比較
-      const satelliteIdStr = satelliteId.toString();
-      if (satelliteId && !satelliteIds.includes(satelliteIdStr)) {
-        console.log('Access denied - satelliteId:', satelliteIdStr, 'available satellites:', satelliteIds);
-        return {
-          success: false,
-          statusCode: 403,
-          message: '指定された拠点へのアクセス権限がありません'
-        };
+      console.log('=== 権限チェック詳細 ===');
+      console.log('Requested satelliteId:', satelliteId);
+      console.log('Requested satelliteId type:', typeof satelliteId);
+      console.log('Available satelliteIds:', satelliteIds);
+      console.log('Available satelliteIds type:', typeof satelliteIds);
+      
+      if (satelliteId) {
+        const satelliteIdStr = satelliteId.toString();
+        console.log('Converted satelliteIdStr:', satelliteIdStr);
+        console.log('Checking if', satelliteIdStr, 'is included in', satelliteIds);
+        
+        // 型を統一して比較（数値と文字列の両方に対応）
+        const hasAccess = satelliteIds.some(id => id.toString() === satelliteIdStr);
+        console.log('includes result:', hasAccess);
+        
+        if (!hasAccess) {
+          console.log('Access denied - satelliteId:', satelliteIdStr, 'available satellites:', satelliteIds);
+          return {
+            success: false,
+            statusCode: 403,
+            message: '指定された拠点へのアクセス権限がありません'
+          };
+        } else {
+          console.log('Access granted - satelliteId:', satelliteIdStr, 'found in available satellites');
+        }
+      } else {
+        console.log('No satelliteId provided, skipping permission check');
       }
     }
 
@@ -329,9 +434,23 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
     // 既存のリフレッシュトークンを削除
     await deleteAllUserRefreshTokens(admin.user_id);
 
+    // トークン生成用のデータを準備
+    const tokenData = {
+      user_id: admin.user_id,
+      user_name: admin.user_name,
+      role: admin.role,
+      company_id: satelliteInfo ? satelliteInfo.company_id : admin.company_id
+    };
+    
+    console.log('=== JWTトークン生成デバッグ ===');
+    console.log('admin.role (最終):', admin.role);
+    console.log('tokenData:', tokenData);
+    
     // トークン生成
-    const accessToken = generateAccessToken(admin);
-    const refreshToken = generateRefreshToken(admin);
+    const accessToken = generateAccessToken(tokenData);
+    const refreshToken = generateRefreshToken(tokenData);
+    
+    console.log('JWTトークン生成完了');
 
     // リフレッシュトークンをデータベースに保存
     await saveRefreshToken(admin.user_id, refreshToken);
@@ -429,39 +548,57 @@ const refreshToken = async (refreshToken) => {
     let effectiveRole = user.role;
     if (user.role === 4) {
       // ユーザーの所属拠点を取得
-      const [satelliteRows] = await connection.execute(`
-        SELECT s.id, s.name, s.manager_ids
-        FROM satellites s
-        WHERE JSON_CONTAINS(s.id, ?) OR s.id IN (
-          SELECT JSON_UNQUOTE(JSON_EXTRACT(satellite_ids, '$[*]')) 
-          FROM user_accounts 
-          WHERE id = ?
-        )
-      `, [JSON.stringify(user.user_id), user.user_id]);
+      const [userRows] = await connection.execute(`
+        SELECT satellite_ids
+        FROM user_accounts
+        WHERE id = ?
+      `, [user.user_id]);
 
-      // 拠点管理者判定
-      for (const satellite of satelliteRows) {
-        let managerIds = [];
+      if (userRows.length > 0 && userRows[0].satellite_ids) {
+        let satelliteIds = [];
         try {
-          if (satellite.manager_ids) {
-            const parsed = JSON.parse(satellite.manager_ids);
-            managerIds = Array.isArray(parsed) ? parsed : [];
+          satelliteIds = JSON.parse(userRows[0].satellite_ids);
+          if (!Array.isArray(satelliteIds)) {
+            satelliteIds = [];
           }
         } catch (error) {
-          console.error('manager_ids parse error:', error);
-          managerIds = [];
+          console.error('satellite_ids parse error:', error);
+          satelliteIds = [];
         }
 
-        const userIdNum = parseInt(user.user_id);
-        const isManager = managerIds.some(managerId => {
-          const managerIdNum = parseInt(managerId);
-          return managerIdNum === userIdNum;
-        });
+        if (satelliteIds.length > 0) {
+          const placeholders = satelliteIds.map(() => '?').join(',');
+          const [satelliteRows] = await connection.execute(`
+            SELECT s.id, s.name, s.manager_ids
+            FROM satellites s
+            WHERE s.id IN (${placeholders})
+          `, satelliteIds);
 
-        if (isManager) {
-          console.log(`拠点管理者としてロールを更新: user_id=${user.user_id}, role=${user.role} → 5`);
-          effectiveRole = 5;
-          break;
+          // 拠点管理者判定
+          for (const satellite of satelliteRows) {
+            let managerIds = [];
+            try {
+              if (satellite.manager_ids) {
+                const parsed = JSON.parse(satellite.manager_ids);
+                managerIds = Array.isArray(parsed) ? parsed : [];
+              }
+            } catch (error) {
+              console.error('manager_ids parse error:', error);
+              managerIds = [];
+            }
+
+            const userIdNum = parseInt(user.user_id);
+            const isManager = managerIds.some(managerId => {
+              const managerIdNum = parseInt(managerId);
+              return managerIdNum === userIdNum;
+            });
+
+            if (isManager) {
+              console.log(`拠点管理者としてロールを更新: user_id=${user.user_id}, role=${user.role} → 5`);
+              effectiveRole = 5;
+              break;
+            }
+          }
         }
       }
     }
@@ -897,7 +1034,8 @@ const getUserCompanySatelliteInfo = async (userId) => {
             
             return {
               ...satellite,
-              is_manager: isManager
+              is_manager: isManager,
+              manager_ids: satellite.manager_ids // デバッグ用にmanager_idsも含める
             };
           });
         }
@@ -906,16 +1044,8 @@ const getUserCompanySatelliteInfo = async (userId) => {
       }
     }
     
-    // 拠点管理者判定: 現在の拠点で管理者かどうかをチェック
+    // 拠点管理者判定: この関数では管理者判定を行わない（拠点変更時の再認証処理で行う）
     let effectiveRole = user.role;
-    if (satellites && satellites.length > 0) {
-      // 現在選択されている拠点で管理者かどうかを判定
-      const currentSatellite = satellites.find(s => s.is_manager === true);
-      if (currentSatellite && user.role === 4) {
-        console.log(`拠点管理者としてロールを更新: user_id=${user.id}, role=${user.role} → 5`);
-        effectiveRole = 5;
-      }
-    }
     
     return {
       success: true,
@@ -974,19 +1104,33 @@ const setSatelliteManager = async (satelliteId, userId) => {
 
     const satellite = satelliteRows[0];
     
+    console.log(`拠点管理者設定開始: ${satellite.name} (ID: ${satelliteId})`);
+    console.log(`設定対象ユーザーID: ${userId} (型: ${typeof userId})`);
+    console.log(`現在のmanager_ids: ${satellite.manager_ids} (型: ${typeof satellite.manager_ids})`);
+    
     // 現在の管理者IDを取得
     let currentManagerIds = [];
     if (satellite.manager_ids) {
       try {
-        currentManagerIds = JSON.parse(satellite.manager_ids);
+        const parsed = JSON.parse(satellite.manager_ids);
+        // 配列の場合はそのまま、数値の場合は配列に変換
+        currentManagerIds = Array.isArray(parsed) ? parsed : [parsed];
+        console.log(`パース後の管理者IDs: ${JSON.stringify(currentManagerIds)} (型: ${typeof currentManagerIds})`);
       } catch (error) {
         console.error('manager_ids parse error:', error);
         currentManagerIds = [];
       }
     }
 
+    // IDの型を統一（数値として比較）
+    const userIdNum = Number(userId);
+    const currentManagerIdsNum = currentManagerIds.map(id => Number(id));
+    
+    console.log(`型統一後の比較: ユーザーID=${userIdNum}, 現在の管理者IDs=${JSON.stringify(currentManagerIdsNum)}`);
+
     // 既に管理者として設定されているかチェック
-    if (currentManagerIds.includes(userId)) {
+    if (currentManagerIdsNum.includes(userIdNum)) {
+      console.log(`ユーザーID ${userId} は既に管理者として設定されています`);
       return {
         success: true,
         message: '既に管理者として設定されています',
@@ -995,8 +1139,10 @@ const setSatelliteManager = async (satelliteId, userId) => {
     }
 
     // 新しい管理者IDを追加
-    currentManagerIds.push(userId);
+    currentManagerIds.push(userIdNum);
     const managerIdsJson = JSON.stringify(currentManagerIds);
+    
+    console.log(`更新後の管理者IDs: ${managerIdsJson}`);
 
     await connection.execute(`
       UPDATE satellites 
@@ -1186,6 +1332,167 @@ const restoreMasterUser = async () => {
   }
 };
 
+/**
+ * 拠点変更時の再認証処理
+ */
+const reauthenticateForSatellite = async (userId, satelliteId) => {
+  console.log('=== 拠点変更時再認証処理開始 ===');
+  console.log('ユーザーID:', userId);
+  console.log('拠点ID:', satelliteId);
+  
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザー情報を取得
+    const [userRows] = await connection.execute(`
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.role,
+        ua.company_id,
+        ua.satellite_ids,
+        c.name as company_name
+      FROM user_accounts ua
+      LEFT JOIN companies c ON ua.company_id = c.id
+      WHERE ua.id = ? AND ua.status = 1
+    `, [userId]);
+    
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: 'ユーザーが見つかりません'
+      };
+    }
+    
+    const user = userRows[0];
+    
+    // 指定された拠点の情報を取得
+    const [satelliteRows] = await connection.execute(`
+      SELECT 
+        s.id,
+        s.name as satellite_name,
+        s.manager_ids,
+        c.id as company_id,
+        c.name as company_name
+      FROM satellites s
+      JOIN companies c ON s.company_id = c.id
+      WHERE s.id = ? AND s.status = 1
+    `, [satelliteId]);
+    
+    if (satelliteRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません'
+      };
+    }
+    
+    const satellite = satelliteRows[0];
+    
+    // 拠点管理者判定
+    let effectiveRole = user.role;
+    console.log('拠点管理者判定開始:', {
+      userId: user.id,
+      userRole: user.role,
+      satelliteId: satellite.id,
+      satelliteName: satellite.satellite_name,
+      managerIds: satellite.manager_ids
+    });
+    
+    if (user.role === 4) {
+      let managerIds = [];
+      try {
+        if (satellite.manager_ids) {
+          const parsed = JSON.parse(satellite.manager_ids);
+          managerIds = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch (error) {
+        console.error('manager_ids parse error:', error);
+        managerIds = [];
+      }
+      
+      console.log('管理者ID解析結果:', {
+        originalManagerIds: satellite.manager_ids,
+        parsedManagerIds: managerIds,
+        isArray: Array.isArray(managerIds)
+      });
+      
+      const userIdNum = parseInt(user.id);
+      const isManager = managerIds.some(managerId => {
+        const managerIdNum = parseInt(managerId);
+        const isMatch = managerIdNum === userIdNum;
+        console.log(`管理者ID比較: ${managerId} (${typeof managerId}) == ${user.id} (${typeof user.id}) = ${isMatch}`);
+        return isMatch;
+      });
+      
+      console.log('拠点管理者判定結果:', {
+        userId: user.id,
+        userIdNum: userIdNum,
+        managerIds: managerIds,
+        isManager: isManager
+      });
+      
+      if (isManager) {
+        console.log(`拠点管理者としてロールを更新: user_id=${user.id}, role=${user.role} → 5`);
+        effectiveRole = 5;
+      }
+    }
+    
+    console.log('最終的なロール:', effectiveRole);
+    
+    // 新しいトークンを生成
+    const userWithEffectiveRole = { 
+      user_id: user.id,
+      user_name: user.name,
+      role: effectiveRole,
+      company_id: satellite.company_id
+    };
+    
+    const newAccessToken = generateAccessToken(userWithEffectiveRole);
+    const newRefreshToken = generateRefreshToken(userWithEffectiveRole);
+    
+    // 古いリフレッシュトークンを削除
+    await deleteAllUserRefreshTokens(user.id);
+    
+    // 新しいリフレッシュトークンを保存
+    await saveRefreshToken(user.id, newRefreshToken);
+    
+    return {
+      success: true,
+      message: '拠点変更時の再認証が完了しました',
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          role: effectiveRole,
+          company_id: satellite.company_id,
+          company_name: satellite.company_name,
+          satellite_id: satellite.id,
+          satellite_name: satellite.satellite_name
+        },
+        access_token: newAccessToken,
+        refresh_token: newRefreshToken
+      }
+    };
+    
+  } catch (error) {
+    console.error('拠点変更時再認証エラー:', error);
+    return {
+      success: false,
+      message: '拠点変更時の再認証に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   adminLogin,
   refreshToken,
@@ -1195,5 +1502,6 @@ module.exports = {
   getUserCompaniesAndSatellites,
   getUserCompanySatelliteInfo,
   restoreMasterUser,
-  setSatelliteManager
+  setSatelliteManager,
+  reauthenticateForSatellite
 }; 

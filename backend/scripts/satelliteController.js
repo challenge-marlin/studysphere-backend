@@ -69,6 +69,7 @@ const getSatelliteById = async (id) => {
         s.company_id,
         s.name,
         s.address,
+        s.phone,
         s.office_type_id,
         s.token,
         s.token_issued_at,
@@ -148,6 +149,7 @@ const getSatellitesByIds = async (ids) => {
         s.company_id,
         s.name,
         s.address,
+        s.phone,
         s.office_type_id,
         s.token,
         s.token_issued_at,
@@ -635,16 +637,16 @@ const regenerateToken = async (id, contract_type) => {
 };
 
 /**
- * 拠点管理者を設定
+ * 拠点管理者を設定（既存の管理者情報を保持）
  */
 const setSatelliteManagers = async (id, managerIds) => {
   let connection;
   try {
     connection = await pool.getConnection();
     
-    // 拠点の存在確認
+    // 拠点の存在確認と現在の管理者情報を取得
     const [existingRows] = await connection.execute(
-      'SELECT id FROM satellites WHERE id = ?',
+      'SELECT id, manager_ids FROM satellites WHERE id = ?',
       [id]
     );
 
@@ -656,8 +658,36 @@ const setSatelliteManagers = async (id, managerIds) => {
       };
     }
 
+    // 現在の管理者IDを取得
+    let currentManagerIds = [];
+    if (existingRows[0].manager_ids) {
+      try {
+        currentManagerIds = JSON.parse(existingRows[0].manager_ids);
+        if (!Array.isArray(currentManagerIds)) {
+          currentManagerIds = [currentManagerIds];
+        }
+      } catch (e) {
+        console.error('管理者IDのパースエラー:', e);
+        currentManagerIds = [];
+      }
+    }
+
+    console.log(`拠点ID ${id} の現在の管理者IDs:`, currentManagerIds);
+    console.log(`設定しようとしている管理者IDs:`, managerIds);
+    console.log(`現在の管理者IDsの型:`, typeof currentManagerIds);
+    console.log(`設定しようとしている管理者IDsの型:`, typeof managerIds);
+    console.log(`現在の管理者IDsが配列か:`, Array.isArray(currentManagerIds));
+    console.log(`設定しようとしている管理者IDsが配列か:`, Array.isArray(managerIds));
+
+    // 新しい管理者IDを既存のリストに追加（重複を避ける）
+    const updatedManagerIds = [...new Set([...currentManagerIds, ...managerIds])];
+    
+    console.log(`更新後の管理者IDs:`, updatedManagerIds);
+    console.log(`更新後の管理者IDsの型:`, typeof updatedManagerIds);
+    console.log(`更新後の管理者IDsが配列か:`, Array.isArray(updatedManagerIds));
+
     // 管理者IDの配列をJSON形式で保存
-    const managerIdsJson = JSON.stringify(managerIds);
+    const managerIdsJson = JSON.stringify(updatedManagerIds);
 
     await connection.execute(`
       UPDATE satellites 
@@ -668,7 +698,7 @@ const setSatelliteManagers = async (id, managerIds) => {
     return {
       success: true,
       message: '拠点管理者が正常に設定されました',
-      data: { manager_ids: managerIds }
+      data: { manager_ids: updatedManagerIds }
     };
   } catch (error) {
     console.error('拠点管理者設定エラー:', error);
@@ -715,6 +745,9 @@ const addSatelliteManager = async (id, managerId) => {
     if (existingRows[0].manager_ids) {
       try {
         currentManagerIds = JSON.parse(existingRows[0].manager_ids);
+        if (!Array.isArray(currentManagerIds)) {
+          currentManagerIds = [currentManagerIds];
+        }
       } catch (e) {
         console.error('管理者IDのパースエラー:', e);
         currentManagerIds = [];
@@ -763,6 +796,151 @@ const addSatelliteManager = async (id, managerId) => {
   }
 };
 
+/**
+ * 拠点管理者一覧を取得
+ */
+const getSatelliteManagers = async (id) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認と管理者情報を取得
+    const [existingRows] = await connection.execute(
+      'SELECT id, manager_ids FROM satellites WHERE id = ?',
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません',
+        statusCode: 404
+      };
+    }
+
+    // 管理者IDを取得
+    let managerIds = [];
+    if (existingRows[0].manager_ids) {
+      try {
+        const parsed = JSON.parse(existingRows[0].manager_ids);
+        // 配列の場合はそのまま、数値の場合は配列に変換
+        managerIds = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        console.error('管理者IDのパースエラー:', e);
+        managerIds = [];
+      }
+    }
+
+    console.log(`拠点ID ${id} の管理者IDs:`, managerIds);
+
+    return {
+      success: true,
+      data: { manager_ids: managerIds }
+    };
+  } catch (error) {
+    console.error('拠点管理者取得エラー:', error);
+    return {
+      success: false,
+      message: '拠点管理者の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点から管理者を削除
+ */
+const removeSatelliteManager = async (id, managerId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点の存在確認
+    const [existingRows] = await connection.execute(
+      'SELECT id, manager_ids FROM satellites WHERE id = ?',
+      [id]
+    );
+
+    if (existingRows.length === 0) {
+      return {
+        success: false,
+        message: '拠点が見つかりません',
+        statusCode: 404
+      };
+    }
+
+    // 現在の管理者IDを取得
+    let currentManagerIds = [];
+    if (existingRows[0].manager_ids) {
+      try {
+        const parsed = JSON.parse(existingRows[0].manager_ids);
+        // 配列の場合はそのまま、数値の場合は配列に変換
+        currentManagerIds = Array.isArray(parsed) ? parsed : [parsed];
+      } catch (e) {
+        console.error('管理者IDのパースエラー:', e);
+        currentManagerIds = [];
+      }
+    }
+
+    console.log(`拠点ID ${id} の現在の管理者IDs:`, currentManagerIds);
+    console.log(`削除しようとしている管理者ID:`, managerId);
+
+    // IDの型を統一（数値として比較）
+    const managerIdNum = Number(managerId);
+    const currentManagerIdsNum = currentManagerIds.map(id => Number(id));
+
+    // 管理者として設定されているかチェック
+    if (!currentManagerIdsNum.includes(managerIdNum)) {
+      return {
+        success: true,
+        message: '既に管理者権限が解除されています',
+        data: { manager_ids: currentManagerIds }
+      };
+    }
+
+    // 管理者IDを削除
+    const updatedManagerIds = currentManagerIdsNum.filter(id => id !== managerIdNum);
+    const managerIdsJson = JSON.stringify(updatedManagerIds);
+
+    console.log(`更新後の管理者IDs:`, updatedManagerIds);
+
+    await connection.execute(`
+      UPDATE satellites 
+      SET manager_ids = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [managerIdsJson, id]);
+
+    return {
+      success: true,
+      message: '拠点管理者が正常に削除されました',
+      data: { manager_ids: updatedManagerIds }
+    };
+  } catch (error) {
+    console.error('拠点管理者削除エラー:', error);
+    return {
+      success: false,
+      message: '拠点管理者の削除に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
 module.exports = {
   getSatellites,
   getSatelliteById,
@@ -771,8 +949,10 @@ module.exports = {
   updateSatellite,
   deleteSatellite,
   regenerateToken,
+  getSatelliteManagers,
   setSatelliteManagers,
   addSatelliteManager,
+  removeSatelliteManager,
   getSatelliteDisabledCourses,
   setSatelliteDisabledCourses
 }; 

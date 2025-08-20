@@ -15,6 +15,7 @@ const {
   regenerateToken,
   setSatelliteManagers,
   addSatelliteManager,
+  removeSatelliteManager,
   getSatelliteDisabledCourses,
   setSatelliteDisabledCourses,
 } = require('../scripts/satelliteController');
@@ -33,15 +34,12 @@ const router = express.Router();
 // 一覧
 router.get('/', async (req, res) => {
   const result = await getSatellites();
-  if (result.success) {
-    res.json(result.data);
-  } else {
-    res.status(400).json({
-      success: result.success,
-      message: result.message,
-      ...(result.error && { error: result.error }),
-    });
-  }
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error }),
+  });
 });
 
 // 複数ID（このルートを詳細ルートより前に定義）
@@ -200,7 +198,7 @@ router.post('/:id/managers', async (req, res) => {
 router.delete('/:id/managers/:managerId', async (req, res) => {
   const satelliteId = parseInt(req.params.id);
   const managerId = parseInt(req.params.managerId);
-  const result = await removeManagerFromSatellite(satelliteId, managerId);
+  const result = await removeSatelliteManager(satelliteId, managerId);
   res.status(result.success ? 200 : 400).json({
     success: result.success,
     message: result.message,

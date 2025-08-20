@@ -2,11 +2,23 @@ const winston = require('winston');
 const path = require('path');
 const fs = require('fs');
 
+// 日付ベースのログディレクトリを作成
+const getLogDir = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  
+  const logDir = path.join(__dirname, '../logs', String(year), month, day);
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  
+  return logDir;
+};
+
 // ログディレクトリの作成
-const logDir = path.join(__dirname, '../logs');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
+const logDir = getLogDir();
 
 // カスタムログフォーマット
 const logFormat = winston.format.combine(
@@ -129,7 +141,7 @@ const logger = winston.createLogger({
   transports: [
     // エラーログファイル
     new winston.transports.File({
-      filename: path.join(logDir, 'error.log'),
+      filename: path.join(getLogDir(), 'error.log'),
       level: 'error',
       maxsize: 5242880, // 5MB
       maxFiles: 5,
@@ -137,7 +149,7 @@ const logger = winston.createLogger({
     
     // 全ログファイル
     new winston.transports.File({
-      filename: path.join(logDir, 'combined.log'),
+      filename: path.join(getLogDir(), 'combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5,
     }),
@@ -145,7 +157,7 @@ const logger = winston.createLogger({
     // デバッグログファイル（開発環境のみ）
     ...(process.env.NODE_ENV === 'development' ? [
       new winston.transports.File({
-        filename: path.join(logDir, 'debug.log'),
+        filename: path.join(getLogDir(), 'debug.log'),
         level: 'debug',
         maxsize: 5242880, // 5MB
         maxFiles: 3,
@@ -166,7 +178,7 @@ if (process.env.NODE_ENV !== 'production') {
 const logRotation = {
   // 日次ローテーション
   daily: {
-    filename: path.join(logDir, 'daily-%DATE%.log'),
+    filename: path.join(getLogDir(), 'daily-%DATE%.log'),
     datePattern: 'YYYY-MM-DD',
     maxSize: '20m',
     maxFiles: '14d'
@@ -174,7 +186,7 @@ const logRotation = {
   
   // 週次ローテーション
   weekly: {
-    filename: path.join(logDir, 'weekly-%DATE%.log'),
+    filename: path.join(getLogDir(), 'weekly-%DATE%.log'),
     datePattern: 'YYYY-[W]WW',
     maxSize: '100m',
     maxFiles: '8w'
@@ -307,17 +319,60 @@ const customLogger = {
 // ログファイルのクリーンアップ関数
 const cleanupOldLogs = (daysToKeep = 30) => {
   try {
-    const files = fs.readdirSync(logDir);
+    const logsBaseDir = path.join(__dirname, '../logs');
+    if (!fs.existsSync(logsBaseDir)) {
+      return;
+    }
+    
+    const years = fs.readdirSync(logsBaseDir);
     const now = Date.now();
     const cutoff = now - (daysToKeep * 24 * 60 * 60 * 1000);
     
-    files.forEach(file => {
-      const filePath = path.join(logDir, file);
-      const stats = fs.statSync(filePath);
+    years.forEach(year => {
+      const yearPath = path.join(logsBaseDir, year);
+      if (!fs.statSync(yearPath).isDirectory()) return;
       
-      if (stats.mtime.getTime() < cutoff) {
-        fs.unlinkSync(filePath);
-        logger.info(`Deleted old log file: ${file}`);
+      const months = fs.readdirSync(yearPath);
+      months.forEach(month => {
+        const monthPath = path.join(yearPath, month);
+        if (!fs.statSync(monthPath).isDirectory()) return;
+        
+        const days = fs.readdirSync(monthPath);
+        days.forEach(day => {
+          const dayPath = path.join(monthPath, day);
+          if (!fs.statSync(dayPath).isDirectory()) return;
+          
+          const stats = fs.statSync(dayPath);
+          if (stats.mtime.getTime() < cutoff) {
+            // ディレクトリ内のファイルを削除
+            const files = fs.readdirSync(dayPath);
+            files.forEach(file => {
+              const filePath = path.join(dayPath, file);
+              fs.unlinkSync(filePath);
+            });
+            // 空のディレクトリを削除
+            fs.rmdirSync(dayPath);
+            logger.info(`Deleted old log directory: ${year}/${month}/${day}`);
+          }
+        });
+        
+        // 空の月ディレクトリを削除
+        try {
+          if (fs.readdirSync(monthPath).length === 0) {
+            fs.rmdirSync(monthPath);
+          }
+        } catch (e) {
+          // ディレクトリが既に削除されている場合
+        }
+      });
+      
+      // 空の年ディレクトリを削除
+      try {
+        if (fs.readdirSync(yearPath).length === 0) {
+          fs.rmdirSync(yearPath);
+        }
+      } catch (e) {
+        // ディレクトリが既に削除されている場合
       }
     });
   } catch (error) {
@@ -332,5 +387,6 @@ module.exports = {
   logger,
   customLogger,
   cleanupOldLogs,
+  getLogDir,
   logDir
 }; 

@@ -12,6 +12,9 @@ const {
   deleteUser,
   resetUserPassword,
   changeInstructorPassword,
+  issueTemporaryPassword,
+  verifyTemporaryPassword,
+  updateLoginCodes,
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -94,6 +97,36 @@ router.post('/:userId/change-password', async (req, res) => {
   }
 });
 
+// 一時パスワード発行
+router.post('/:userId/issue-temp-password', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await issueTemporaryPassword(userId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: '一時パスワード発行に失敗しました', error: error.message });
+  }
+});
+
+// 一時パスワード検証
+router.post('/verify-temp-password', async (req, res) => {
+  try {
+    const { loginCode, tempPassword } = req.body;
+    
+    if (!loginCode || !tempPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'ログインコードとパスワードは必須です'
+      });
+    }
+    
+    const result = await verifyTemporaryPassword(loginCode, tempPassword);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'パスワード検証に失敗しました', error: error.message });
+  }
+});
+
 // ユーザー更新
 router.put('/:userId', async (req, res) => {
   try {
@@ -151,6 +184,16 @@ router.delete('/:userId', async (req, res) => {
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     res.status(500).json({ success: false, message: 'ユーザーの削除に失敗しました', error: error.message });
+  }
+});
+
+// ログインコード更新
+router.post('/update-login-codes', async (req, res) => {
+  try {
+    const result = await updateLoginCodes();
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'ログインコードの更新に失敗しました', error: error.message });
   }
 });
 

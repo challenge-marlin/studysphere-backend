@@ -3,6 +3,8 @@ const {
   getInstructorSpecializations,
   setInstructorSpecializations,
   deleteInstructorSpecialization,
+  setInstructorAsManager,
+  removeInstructorAsManager,
 } = require('../scripts/instructorSpecializationController');
 
 const router = express.Router();
@@ -45,6 +47,66 @@ router.delete('/:userId/specializations/:specializationId', async (req, res) => 
     message: result.message,
     ...(result.error && { error: result.error }),
   });
+});
+
+// 指導員を拠点管理者に設定
+router.post('/:instructorId/set-manager/:satelliteId', async (req, res) => {
+  try {
+    const instructorId = parseInt(req.params.instructorId);
+    const satelliteId = parseInt(req.params.satelliteId);
+    
+    if (!instructorId || !satelliteId) {
+      return res.status(400).json({
+        success: false,
+        message: '指導員IDと拠点IDは必須です'
+      });
+    }
+    
+    const result = await setInstructorAsManager(satelliteId, instructorId);
+    res.status(result.success ? 200 : 400).json({
+      success: result.success,
+      message: result.message,
+      ...(result.data && { data: result.data }),
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error('Set instructor as manager route error:', error);
+    res.status(500).json({
+      success: false,
+      message: '指導員管理者設定処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
+});
+
+// 指導員の拠点管理者権限を解除
+router.post('/:instructorId/remove-manager/:satelliteId', async (req, res) => {
+  try {
+    const instructorId = parseInt(req.params.instructorId);
+    const satelliteId = parseInt(req.params.satelliteId);
+    
+    if (!instructorId || !satelliteId) {
+      return res.status(400).json({
+        success: false,
+        message: '指導員IDと拠点IDは必須です'
+      });
+    }
+    
+    const result = await removeInstructorAsManager(satelliteId, instructorId);
+    res.status(result.success ? 200 : 400).json({
+      success: result.success,
+      message: result.message,
+      ...(result.data && { data: result.data }),
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error('Remove instructor as manager route error:', error);
+    res.status(500).json({
+      success: false,
+      message: '指導員管理者解除処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

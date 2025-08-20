@@ -97,6 +97,21 @@ CREATE TABLE `admin_credentials` (
     INDEX `idx_username` (`username`)
 ) COMMENT = '管理者認証テーブル（ロール4以上専用）';
 
+-- 利用者一時パスワード管理テーブル（ロール1専用）
+CREATE TABLE `user_temp_passwords` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '一時パスワードID',
+    `user_id` INT NOT NULL COMMENT 'ユーザーID（user_accounts.id）',
+    `temp_password` VARCHAR(10) NOT NULL COMMENT '一時パスワード（XXXX-XXXX形式）',
+    `issued_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '発行日時',
+    `expires_at` DATETIME NOT NULL COMMENT '有効期限（日本時間23:59）',
+    `is_used` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '使用済みフラグ（1=使用済み、0=未使用）',
+    `used_at` DATETIME DEFAULT NULL COMMENT '使用日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_expires_at` (`expires_at`),
+    INDEX `idx_is_used` (`is_used`)
+) COMMENT = '利用者一時パスワード管理テーブル（ロール1専用）';
+
 -- カリキュラム進行状況テーブル
 CREATE TABLE `curriculum_progress` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '進行記録ID',

@@ -10,7 +10,7 @@ console.log('DB_NAME:', process.env.DB_NAME);
 console.log('DB_PORT:', process.env.DB_PORT);
 
 const dbConfig = {
-  host: process.env.DB_HOST || 'db',
+  host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'shinomoto926!',
   database: process.env.DB_NAME || 'curriculum-portal',

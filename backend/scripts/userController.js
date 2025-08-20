@@ -2,6 +2,49 @@ const { pool } = require('../utils/database');
 const bcrypt = require('bcryptjs');
 const { customLogger } = require('../utils/logger');
 
+// ログインコード生成関数
+const generateLoginCode = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const generatePart = () => {
+    let result = '';
+    for (let i = 0; i < 4; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+  return `${generatePart()}-${generatePart()}-${generatePart()}`;
+};
+
+// パスワード生成関数（XXXX-XXXX形式）
+const generateTemporaryPassword = () => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const generatePart = () => {
+    let result = '';
+    for (let i = 0; i < 4; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+  return `${generatePart()}-${generatePart()}`;
+};
+
+// 日本時間の今日の23:59を取得
+const getTodayEndTime = () => {
+  const now = new Date();
+  const japanTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
+  const endOfDay = new Date(japanTime);
+  endOfDay.setHours(23, 59, 59, 999);
+  return endOfDay;
+};
+
+// パスワード有効期限チェック
+const isPasswordValid = (expiryTime) => {
+  if (!expiryTime) return false;
+  const now = new Date();
+  const japanTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
+  return new Date(expiryTime) > japanTime;
+};
+
 // ユーザー一覧取得
 const getUsers = async () => {
   let connection;
@@ -17,9 +60,11 @@ const getUsers = async () => {
           THEN JSON_UNQUOTE(ua.satellite_ids)
           ELSE NULL 
         END as satellite_ids_processed,
-        ac.username
+        ac.username,
+        instructor.name as instructor_name
       FROM user_accounts ua
       LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
     `);
     
     console.log('=== ユーザー一覧取得 ===');
@@ -52,9 +97,54 @@ const getUsers = async () => {
     });
     console.log('拠点マップ:', satelliteMap);
     
+    // 進行度を計算する関数
+    const calculateProgress = async (userId) => {
+      try {
+        // カリキュラム進行状況を取得
+        const [progressRows] = await connection.execute(`
+          SELECT 
+            curriculum_name,
+            session_number,
+            chapter_number,
+            deliverable_confirmed,
+            test_passed
+          FROM curriculum_progress 
+          WHERE user_id = ?
+        `, [userId]);
+        
+        if (progressRows.length === 0) {
+          // カリキュラムが紐づいていない場合は0を返す
+          return 0;
+        }
+        
+        // 進行度を計算（完了した章の割合）
+        let totalChapters = 0;
+        let completedChapters = 0;
+        
+        progressRows.forEach(row => {
+          totalChapters++;
+          if (row.deliverable_confirmed && row.test_passed) {
+            completedChapters++;
+          }
+        });
+        
+        return totalChapters > 0 ? Math.round((completedChapters / totalChapters) * 100) : 0;
+      } catch (error) {
+        console.error('進行度計算エラー:', error);
+        return 0;
+      }
+    };
+    
     // ユーザー情報に拠点情報を追加
-    const processedRows = rows.map(row => {
+    const processedRows = await Promise.all(rows.map(async (row) => {
       const user = { ...row };
+      
+      // 進行度を計算（ロール1の利用者のみ）
+      if (user.role === 1) {
+        user.progress = await calculateProgress(user.id);
+      } else {
+        user.progress = 0; // 管理者・指導員は進行度なし
+      }
       
       // satellite_idsから拠点情報を取得
       let satelliteDetails = [];
@@ -99,7 +189,7 @@ const getUsers = async () => {
       
       user.satellite_details = satelliteDetails;
       return user;
-    });
+    }));
     
     return {
       success: true,
@@ -423,7 +513,8 @@ const removeSatelliteFromUser = async (userId, satelliteId) => {
     }
 
     // 既存の拠点配列を取得
-    const currentSatellites = userRows[0].satellite_ids ? JSON.parse(userRows[0].satellite_ids) : [];
+    const parsed = userRows[0].satellite_ids ? JSON.parse(userRows[0].satellite_ids) : [];
+    const currentSatellites = Array.isArray(parsed) ? parsed : [parsed];
     
     // 拠点配列から削除
     const updatedSatellites = currentSatellites.filter(id => id !== satelliteId);
@@ -497,21 +588,11 @@ const createUser = async (userData) => {
     
     // ログインコードの生成（指定されていない場合）
     // XXXX-XXXX-XXXX形式（英数大文字小文字交じり）
-    const generateLoginCode = () => {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-      const generatePart = () => {
-        let result = '';
-        for (let i = 0; i < 4; i++) {
-          result += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        return result;
-      };
-      return `${generatePart()}-${generatePart()}-${generatePart()}`;
-    };
     
 
     
-    const loginCode = userData.login_code || generateLoginCode();
+    // フロントエンドから送信されたログインコードを無視し、常に新しい形式で生成
+    const loginCode = generateLoginCode();
     
     // ユーザー作成
     const [result] = await connection.execute(
@@ -522,8 +603,9 @@ const createUser = async (userData) => {
         status, 
         login_code, 
         company_id, 
-        satellite_ids
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        satellite_ids,
+        instructor_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userData.name,
         userData.email || null,
@@ -531,7 +613,8 @@ const createUser = async (userData) => {
         userData.status || 1,
         loginCode,
         userData.company_id || 4,
-        JSON.stringify(userData.satellite_ids || [])
+        JSON.stringify(userData.satellite_ids || []),
+        userData.instructor_id || null
       ]
     );
 
@@ -581,6 +664,17 @@ const createUser = async (userData) => {
         [userId]
       );
       console.log('保存確認:', savedCredentials);
+    }
+
+    // 指導員の場合、専門分野を保存
+    if (userData.role === 4 && userData.department && userData.department.trim()) {
+      console.log('専門分野保存開始:', userData.department);
+      await connection.execute(
+        `INSERT INTO instructor_specializations (user_id, specialization)
+         VALUES (?, ?)`,
+        [userId, userData.department.trim()]
+      );
+      console.log('専門分野保存完了');
     }
 
     // トランザクションコミット
@@ -753,15 +847,85 @@ const deleteUser = async (userId) => {
 
     const user = userRows[0];
 
-    // ロール4以上（指導員・管理者）の場合は認証情報も削除
-    if (user.role >= 4) {
-      await connection.execute(
-        'DELETE FROM admin_credentials WHERE user_id = ?',
-        [userId]
-      );
+    // 削除前のチェック
+    // 1. このユーザーが他のユーザーの指導員として設定されていないかチェック
+    const [instructorCheck] = await connection.execute(
+      'SELECT COUNT(*) as count FROM user_accounts WHERE instructor_id = ?',
+      [userId]
+    );
+    
+    if (instructorCheck[0].count > 0) {
+      return {
+        success: false,
+        message: 'このユーザーは他の利用者の指導員として設定されているため削除できません。先に指導員設定を変更してください。'
+      };
     }
 
-    // ユーザーを削除
+    // 関連するデータを削除（外部キー制約があるため、順序が重要）
+    
+    // 1. リフレッシュトークンを削除（外部キー制約なし）
+    try {
+      await connection.execute(
+        'DELETE FROM refresh_tokens WHERE user_id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.log('refresh_tokensテーブルが存在しないか、削除に失敗:', error.message);
+    }
+    
+    // 2. 一時パスワードを削除（外部キー制約あり）
+    try {
+      await connection.execute(
+        'DELETE FROM user_temp_passwords WHERE user_id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.log('user_temp_passwordsテーブルが存在しないか、削除に失敗:', error.message);
+    }
+    
+    // 3. カリキュラム進行状況を削除（外部キー制約あり）
+    try {
+      await connection.execute(
+        'DELETE FROM curriculum_progress WHERE user_id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.log('curriculum_progressテーブルが存在しないか、削除に失敗:', error.message);
+    }
+    
+    // 4. テスト結果を削除（外部キー制約あり）
+    try {
+      await connection.execute(
+        'DELETE FROM test_results WHERE user_id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.log('test_resultsテーブルが存在しないか、削除に失敗:', error.message);
+    }
+    
+    // 5. GATB診断スコアを削除（外部キー制約あり）
+    try {
+      await connection.execute(
+        'DELETE FROM gatb_results WHERE user_id = ?',
+        [userId]
+      );
+    } catch (error) {
+      console.log('gatb_resultsテーブルが存在しないか、削除に失敗:', error.message);
+    }
+    
+    // 6. ロール4以上（指導員・管理者）の場合は認証情報も削除（外部キー制約あり）
+    if (user.role >= 4) {
+      try {
+        await connection.execute(
+          'DELETE FROM admin_credentials WHERE user_id = ?',
+          [userId]
+        );
+      } catch (error) {
+        console.log('admin_credentialsテーブルが存在しないか、削除に失敗:', error.message);
+      }
+    }
+
+    // 8. 最後にユーザーを削除
     await connection.execute(
       'DELETE FROM user_accounts WHERE id = ?',
       [userId]
@@ -819,7 +983,7 @@ const resetUserPassword = async (userId, resetData) => {
 
     if (resetData.action === 'issue_temp_password') {
       // 一時パスワード発行
-      const tempPassword = generateTempPassword();
+      const tempPassword = generateTemporaryPassword();
       const hashedPassword = await bcrypt.hash(tempPassword, 10);
       
       // admin_credentialsテーブルを更新
@@ -884,14 +1048,156 @@ const resetUserPassword = async (userId, resetData) => {
   }
 };
 
-// 一時パスワード生成関数
-const generateTempPassword = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < 12; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+// 一時パスワード発行
+const issueTemporaryPassword = async (userId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザーの存在確認
+    const [userRows] = await connection.execute(
+      'SELECT id, name, role, login_code FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: '指定されたユーザーが見つかりません'
+      };
+    }
+
+    const user = userRows[0];
+
+    // 利用者（ロール1）のみ対象
+    if (user.role !== 1) {
+      return {
+        success: false,
+        message: '利用者のみ一時パスワードを発行できます'
+      };
+    }
+
+    // 既存の一時パスワードを無効化
+    await connection.execute(
+      'UPDATE user_temp_passwords SET is_used = 1 WHERE user_id = ? AND is_used = 0',
+      [userId]
+    );
+    
+    // 新しい一時パスワードを生成
+    const tempPassword = generateTemporaryPassword();
+    const expiryTime = getTodayEndTime();
+    
+    // 新しい一時パスワードを登録
+    await connection.execute(
+      'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
+      [userId, tempPassword, expiryTime]
+    );
+
+    return {
+      success: true,
+      message: '一時パスワードが発行されました',
+      data: {
+        tempPassword,
+        expiresAt: expiryTime,
+        loginUrl: `http://localhost:3000/student-login?code=${user.login_code}`
+      }
+    };
+  } catch (error) {
+    console.error('Error issuing temporary password:', error);
+    return {
+      success: false,
+      message: '一時パスワードの発行に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
   }
-  return result;
+};
+
+// 一時パスワード検証
+const verifyTemporaryPassword = async (loginCode, tempPassword) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザーと一時パスワードの存在確認
+    const [rows] = await connection.execute(`
+      SELECT 
+        ua.id, 
+        ua.name, 
+        ua.role,
+        utp.temp_password,
+        utp.expires_at,
+        utp.is_used
+      FROM user_accounts ua
+      JOIN user_temp_passwords utp ON ua.id = utp.user_id
+      WHERE ua.login_code = ? AND utp.temp_password = ?
+      ORDER BY utp.issued_at DESC
+      LIMIT 1
+    `, [loginCode, tempPassword]);
+
+    if (rows.length === 0) {
+      return {
+        success: false,
+        message: 'ログインコードまたはパスワードが正しくありません'
+      };
+    }
+
+    const user = rows[0];
+
+    // 有効期限チェック
+    if (!isPasswordValid(user.expires_at)) {
+      return {
+        success: false,
+        message: 'パスワードの有効期限が切れています'
+      };
+    }
+
+    // 使用済みチェック
+    if (user.is_used) {
+      return {
+        success: false,
+        message: 'このパスワードは既に使用されています'
+      };
+    }
+
+    // パスワードを使用済みにマーク
+    await connection.execute(
+      'UPDATE user_temp_passwords SET is_used = 1, used_at = NOW() WHERE user_id = ? AND temp_password = ?',
+      [user.id, tempPassword]
+    );
+
+    return {
+      success: true,
+      message: 'ログインに成功しました',
+      data: {
+        userId: user.id,
+        userName: user.name,
+        role: user.role
+      }
+    };
+  } catch (error) {
+    console.error('Error verifying temporary password:', error);
+    return {
+      success: false,
+      message: 'パスワード検証に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
 };
 
 // 指導員のパスワード変更
@@ -971,6 +1277,81 @@ const changeInstructorPassword = async (userId, currentPassword, newPassword) =>
   }
 };
 
+// ログインコード更新
+const updateLoginCodes = async () => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    console.log('=== ログインコード更新開始 ===');
+    
+    // 古い形式のログインコードを持つユーザーを取得
+    const [users] = await connection.execute(`
+      SELECT id, name, login_code 
+      FROM user_accounts 
+      WHERE login_code LIKE 'token%' OR login_code NOT LIKE '%-%-%'
+    `);
+    
+    console.log(`更新対象ユーザー数: ${users.length}`);
+    
+    const updatedUsers = [];
+    
+    if (users.length > 0) {
+      // 各ユーザーのログインコードを更新
+      for (const user of users) {
+        const newLoginCode = generateLoginCode();
+        
+        console.log(`ユーザー ${user.name} (ID: ${user.id}) のログインコードを更新:`);
+        console.log(`  古い形式: ${user.login_code}`);
+        console.log(`  新しい形式: ${newLoginCode}`);
+        
+        await connection.execute(
+          'UPDATE user_accounts SET login_code = ? WHERE id = ?',
+          [newLoginCode, user.id]
+        );
+        
+        updatedUsers.push({
+          id: user.id,
+          name: user.name,
+          oldLoginCode: user.login_code,
+          newLoginCode: newLoginCode
+        });
+        
+        console.log(`  ✅ 更新完了`);
+      }
+    }
+    
+    console.log('=== ログインコード更新完了 ===');
+    
+    return {
+      success: true,
+      message: `${updatedUsers.length}件のログインコードを更新しました`,
+      data: {
+        updatedCount: updatedUsers.length,
+        updatedUsers: updatedUsers
+      }
+    };
+    
+  } catch (error) {
+    console.error('ログインコード更新エラー:', error);
+    return {
+      success: false,
+      message: 'ログインコードの更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
@@ -984,5 +1365,9 @@ module.exports = {
   updateUser,
   deleteUser,
   resetUserPassword,
-  changeInstructorPassword
+  changeInstructorPassword,
+  issueTemporaryPassword,
+  verifyTemporaryPassword,
+  updateLoginCodes,
+  generateLoginCode
 }; 

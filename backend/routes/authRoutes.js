@@ -1,6 +1,6 @@
 const express = require('express');
 const { loginValidation, handleValidationErrors } = require('../middleware/validation');
-const { adminLogin, instructorLogin, getUserCompaniesAndSatellites, getUserCompanySatelliteInfo, refreshToken, logout, restoreMasterUser, setSatelliteManager } = require('../scripts/authController');
+const { adminLogin, instructorLogin, getUserCompaniesAndSatellites, getUserCompanySatelliteInfo, refreshToken, logout, restoreMasterUser, setSatelliteManager, reauthenticateForSatellite } = require('../scripts/authController');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -120,6 +120,30 @@ router.post('/set-satellite-manager', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// 拠点変更時の再認証
+router.post('/reauthenticate-satellite', authenticateToken, async (req, res) => {
+  const { satelliteId, userId } = req.body;
+  const tokenUserId = req.user.user_id;
+  
+  if (!satelliteId) {
+    return res.status(400).json({
+      success: false,
+      message: '拠点IDは必須です'
+    });
+  }
+  
+  // userIdが提供されている場合はそれを使用、そうでなければトークンから取得
+  const targetUserId = userId || tokenUserId;
+  
+  const result = await reauthenticateForSatellite(targetUserId, satelliteId);
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error }),
+  });
 });
 
 module.exports = router;

@@ -56,7 +56,8 @@ const {
   removeManagerFromSatellite,
   regenerateToken,
   setSatelliteManagers,
-  addSatelliteManager
+  addSatelliteManager,
+  removeSatelliteManager
 } = require('./scripts/satelliteController');
 const {
   getCompanies,
@@ -84,7 +85,9 @@ const {
   setInstructorSpecializations,
   deleteInstructorSpecialization,
   getSatelliteInstructors,
-  getSatelliteStats
+  getSatelliteStats,
+  setInstructorAsManager,
+  removeInstructorAsManager
 } = require('./scripts/instructorSpecializationController');
 
 // ログ管理コントローラーのインポート
