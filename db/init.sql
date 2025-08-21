@@ -447,3 +447,83 @@ ON DUPLICATE KEY UPDATE name = name;
 INSERT INTO admin_credentials (user_id, username, password_hash) VALUES 
 (1, 'admin001', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O')
 ON DUPLICATE KEY UPDATE username = username;
+
+-- 利用者とコースの関連付けテーブル
+CREATE TABLE IF NOT EXISTS `user_courses` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '関連付けID',
+    `user_id` INT NOT NULL COMMENT '利用者ID',
+    `course_id` INT NOT NULL COMMENT 'コースID',
+    `curriculum_path_id` INT DEFAULT NULL COMMENT 'カリキュラムパスID（カリキュラムパス経由で追加された場合）',
+    `assigned_by` INT DEFAULT NULL COMMENT '割り当て担当者ID',
+    `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '割り当て日時',
+    `status` ENUM('active', 'completed', 'paused', 'cancelled') DEFAULT 'active' COMMENT '学習ステータス',
+    `start_date` DATE DEFAULT NULL COMMENT '学習開始日',
+    `completion_date` DATE DEFAULT NULL COMMENT '完了日',
+    `progress_percentage` DECIMAL(5,2) DEFAULT 0.00 COMMENT '進捗率（%）',
+    `notes` TEXT DEFAULT NULL COMMENT '備考',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`course_id`) REFERENCES `courses`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`curriculum_path_id`) REFERENCES `curriculum_paths`(`id`) ON DELETE SET NULL,
+    FOREIGN KEY (`assigned_by`) REFERENCES `user_accounts`(`id`) ON DELETE SET NULL,
+    UNIQUE KEY `unique_user_course` (`user_id`, `course_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_course_id` (`course_id`),
+    INDEX `idx_curriculum_path_id` (`curriculum_path_id`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_assigned_at` (`assigned_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='利用者とコースの関連付けテーブル';
+
+-- 利用者とカリキュラムパスの関連付けテーブル
+CREATE TABLE IF NOT EXISTS `user_curriculum_paths` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '関連付けID',
+    `user_id` INT NOT NULL COMMENT '利用者ID',
+    `curriculum_path_id` INT NOT NULL COMMENT 'カリキュラムパスID',
+    `assigned_by` INT DEFAULT NULL COMMENT '割り当て担当者ID',
+    `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '割り当て日時',
+    `status` ENUM('active', 'completed', 'paused', 'cancelled') DEFAULT 'active' COMMENT '学習ステータス',
+    `start_date` DATE DEFAULT NULL COMMENT '学習開始日',
+    `completion_date` DATE DEFAULT NULL COMMENT '完了日',
+    `progress_percentage` DECIMAL(5,2) DEFAULT 0.00 COMMENT '進捗率（%）',
+    `notes` TEXT DEFAULT NULL COMMENT '備考',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`curriculum_path_id`) REFERENCES `curriculum_paths`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`assigned_by`) REFERENCES `user_accounts`(`id`) ON DELETE SET NULL,
+    UNIQUE KEY `unique_user_curriculum_path` (`user_id`, `curriculum_path_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_curriculum_path_id` (`curriculum_path_id`),
+    INDEX `idx_status` (`status`),
+    INDEX `idx_assigned_at` (`assigned_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='利用者とカリキュラムパスの関連付けテーブル';
+
+-- アナウンスメッセージテーブル
+CREATE TABLE IF NOT EXISTS `announcements` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT 'アナウンスID',
+    `title` VARCHAR(255) NOT NULL COMMENT 'アナウンスタイトル',
+    `message` TEXT NOT NULL COMMENT 'アナウンスメッセージ',
+    `created_by` INT NOT NULL COMMENT '作成者ID',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`created_by`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    INDEX `idx_created_by` (`created_by`),
+    INDEX `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='アナウンスメッセージテーブル';
+
+-- 利用者アナウンス関連付けテーブル
+CREATE TABLE IF NOT EXISTS `user_announcements` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '関連付けID',
+    `user_id` INT NOT NULL COMMENT '利用者ID',
+    `announcement_id` INT NOT NULL COMMENT 'アナウンスID',
+    `is_read` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '既読フラグ',
+    `read_at` TIMESTAMP NULL DEFAULT NULL COMMENT '既読日時',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`announcement_id`) REFERENCES `announcements`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_user_announcement` (`user_id`, `announcement_id`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_announcement_id` (`announcement_id`),
+    INDEX `idx_is_read` (`is_read`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='利用者アナウンス関連付けテーブル';

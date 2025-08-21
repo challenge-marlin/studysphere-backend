@@ -389,6 +389,11 @@ const getSatelliteInstructors = async (satelliteId) => {
           ORDER BY created_at
         `, [instructor.id]);
         
+        // 専門分野を文字列として結合
+        const specializationText = specializations
+          .map(spec => spec.specialization)
+          .join(', ');
+        
         // 拠点管理者かどうかを判定（IDの型を統一）
         customLogger.debug(`=== 指導者 ${instructor.name} (ID: ${instructor.id}) の管理者判定開始 ===`);
         customLogger.debug('判定対象指導者:', {
@@ -437,6 +442,7 @@ const getSatelliteInstructors = async (satelliteId) => {
         return {
           ...instructor,
           specializations: specializations,
+          specialization: specializationText, // 専門分野を文字列として追加
           is_manager: isManager,
           // 拠点管理者の場合はロール5として返す
           role: isManager ? 5 : instructor.role

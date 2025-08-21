@@ -15,6 +15,15 @@ const {
   issueTemporaryPassword,
   verifyTemporaryPassword,
   updateLoginCodes,
+  getInstructorSpecializations,
+  addInstructorSpecialization,
+  updateInstructorSpecialization,
+  deleteInstructorSpecialization,
+  getSatelliteUserInstructorRelations,
+  getSatelliteAvailableInstructors,
+  updateUserInstructor,
+  bulkUpdateUserInstructors,
+  bulkRemoveUserInstructors
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -138,6 +147,68 @@ router.put('/:userId', async (req, res) => {
   }
 });
 
+// 指導員の専門分野一覧取得
+router.get('/:userId/specializations', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await getInstructorSpecializations(userId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: '専門分野の取得に失敗しました', error: error.message });
+  }
+});
+
+// 指導員の専門分野追加
+router.post('/:userId/specializations', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { specialization } = req.body;
+    
+    if (!specialization) {
+      return res.status(400).json({
+        success: false,
+        message: '専門分野の内容は必須です'
+      });
+    }
+    
+    const result = await addInstructorSpecialization(userId, specialization);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: '専門分野の追加に失敗しました', error: error.message });
+  }
+});
+
+// 指導員の専門分野更新
+router.put('/:userId/specializations/:specializationId', async (req, res) => {
+  try {
+    const specializationId = parseInt(req.params.specializationId);
+    const { specialization } = req.body;
+    
+    if (!specialization) {
+      return res.status(400).json({
+        success: false,
+        message: '専門分野の内容は必須です'
+      });
+    }
+    
+    const result = await updateInstructorSpecialization(specializationId, specialization);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: '専門分野の更新に失敗しました', error: error.message });
+  }
+});
+
+// 指導員の専門分野削除
+router.delete('/:userId/specializations/:specializationId', async (req, res) => {
+  try {
+    const specializationId = parseInt(req.params.specializationId);
+    const result = await deleteInstructorSpecialization(specializationId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, message: '専門分野の削除に失敗しました', error: error.message });
+  }
+});
+
 // 所属拠点一覧
 router.get('/:userId/satellites', async (req, res) => {
   const userId = parseInt(req.params.userId);
@@ -194,6 +265,92 @@ router.post('/update-login-codes', async (req, res) => {
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
     res.status(500).json({ success: false, message: 'ログインコードの更新に失敗しました', error: error.message });
+  }
+});
+
+// 拠点内の利用者と担当指導員の関係を取得
+router.get('/satellite/:satelliteId/instructor-relations', async (req, res) => {
+  try {
+    const satelliteId = parseInt(req.params.satelliteId);
+    const result = await getSatelliteUserInstructorRelations(satelliteId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '拠点利用者担当指導員関係の取得に失敗しました', 
+      error: error.message 
+    });
+  }
+});
+
+// 拠点内の利用可能な指導員一覧を取得
+router.get('/satellite/:satelliteId/available-instructors', async (req, res) => {
+  try {
+    const satelliteId = parseInt(req.params.satelliteId);
+    const result = await getSatelliteAvailableInstructors(satelliteId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '拠点利用可能指導員の取得に失敗しました', 
+      error: error.message 
+    });
+  }
+});
+
+// 個別利用者の担当指導員を変更
+router.put('/:userId/instructor', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { instructorId } = req.body;
+    
+    const result = await updateUserInstructor(userId, instructorId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '担当指導員の更新に失敗しました', 
+      error: error.message 
+    });
+  }
+});
+
+// 一括で利用者の担当指導員を変更
+router.put('/satellite/:satelliteId/bulk-instructor-assignment', async (req, res) => {
+  try {
+    const satelliteId = parseInt(req.params.satelliteId);
+    const { assignments } = req.body;
+    
+    if (!Array.isArray(assignments)) {
+      return res.status(400).json({
+        success: false,
+        message: 'assignmentsは配列である必要があります'
+      });
+    }
+    
+    const result = await bulkUpdateUserInstructors(satelliteId, assignments);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '一括担当指導員更新に失敗しました', 
+      error: error.message 
+    });
+  }
+});
+
+// 拠点内の全利用者の担当指導員を一括削除
+router.delete('/satellite/:satelliteId/instructors', async (req, res) => {
+  try {
+    const satelliteId = parseInt(req.params.satelliteId);
+    const result = await bulkRemoveUserInstructors(satelliteId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '一括担当指導員削除に失敗しました', 
+      error: error.message 
+    });
   }
 });
 

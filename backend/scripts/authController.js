@@ -938,9 +938,14 @@ const getUserCompanySatelliteInfo = async (userId) => {
           s.contract_type,
           s.max_users,
           s.status,
-          ot.type as office_type_name
+          s.manager_ids,
+          ot.type as office_type_name,
+          c.name as company_name,
+          c.address as company_address,
+          c.phone as company_phone
         FROM satellites s
         LEFT JOIN office_types ot ON s.office_type_id = ot.id
+        LEFT JOIN companies c ON s.company_id = c.id
         ORDER BY s.name
       `);
       
@@ -984,9 +989,13 @@ const getUserCompanySatelliteInfo = async (userId) => {
               s.max_users,
               s.status,
               s.manager_ids,
-              ot.type as office_type_name
+              ot.type as office_type_name,
+              c.name as company_name,
+              c.address as company_address,
+              c.phone as company_phone
             FROM satellites s
             LEFT JOIN office_types ot ON s.office_type_id = ot.id
+            LEFT JOIN companies c ON s.company_id = c.id
             WHERE s.id IN (${placeholders})
             ORDER BY s.name
           `, satelliteIds);

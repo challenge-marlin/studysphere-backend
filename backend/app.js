@@ -160,6 +160,10 @@ const lessonRoutes = require('./routes/lessonRoutes');
 const lessonVideoRoutes = require('./routes/lessonVideoRoutes');
 const lessonTextVideoLinkRoutes = require('./routes/lessonTextVideoLinkRoutes');
 const curriculumPathRoutes = require('./routes/curriculumPathRoutes');
+const userCourseRoutes = require('./routes/userCourseRoutes');
+const supportPlanRoutes = require('./routes/supportPlanRoutes');
+const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
+const announcementRoutes = require('./routes/announcementRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 
@@ -241,6 +245,10 @@ app.use('/api/lessons', lessonRoutes);
 app.use('/api/lesson-videos', lessonVideoRoutes);
 app.use('/api/lesson-text-video-links', lessonTextVideoLinkRoutes);
 app.use('/api/curriculum-paths', curriculumPathRoutes);
+app.use('/api/user-courses', userCourseRoutes);
+app.use('/api/support-plans', supportPlanRoutes);
+app.use('/api/temp-passwords', tempPasswordRoutes);
+app.use('/api/announcements', announcementRoutes);
 app.use('/api', authRoutes);
 app.use('/api/test', testRoutes);
 

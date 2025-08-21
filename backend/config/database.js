@@ -14,7 +14,7 @@ const dbConfig = {
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'shinomoto926!',
   database: process.env.DB_NAME || 'curriculum-portal',
-  port: process.env.DB_PORT || 3306,
+  port: process.env.DB_PORT || 3307,
   waitForConnections: true,
   connectionLimit: 10, // 接続数を適切に制限
   queueLimit: 5, // キュー制限を設定

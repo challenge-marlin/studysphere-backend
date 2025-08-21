@@ -9,6 +9,7 @@ const authenticateToken = (req, res, next) => {
     console.log('認証ミドルウェア: リクエスト受信', {
       url: req.url,
       method: req.method,
+      query: req.query,
       hasAuthHeader: !!authHeader,
       hasToken: !!token,
       tokenLength: token ? token.length : 0

@@ -7,8 +7,8 @@ const loginValidation = [
     .isLength({ min: 1, max: 50 })
     .withMessage('ユーザー名は1文字以上50文字以下で入力してください'),
   body('password')
-    .isLength({ min: 6 })
-    .withMessage('パスワードは6文字以上で入力してください')
+    .isLength({ min: 1 })
+    .withMessage('パスワードは1文字以上で入力してください')
 ];
 
 // 拠点情報作成用バリデーション

@@ -744,7 +744,7 @@ const updateUser = async (userId, updateData) => {
     
     if (updateData.email !== undefined) {
       updateFields.push('email = ?');
-      updateValues.push(updateData.email);
+      updateValues.push(updateData.email.trim() || null);
     }
     
     if (updateData.role !== undefined) {
@@ -798,6 +798,31 @@ const updateUser = async (userId, updateData) => {
           'UPDATE admin_credentials SET username = ? WHERE user_id = ?',
           [updateData.username, userId]
         );
+      }
+    }
+
+    // 専門分野の更新（指導員の場合）
+    if (updateData.specialization !== undefined) {
+      // 既存の専門分野を削除
+      await connection.execute(
+        'DELETE FROM instructor_specializations WHERE user_id = ?',
+        [userId]
+      );
+      
+      // 新しい専門分野を追加（空でない場合のみ）
+      if (updateData.specialization && updateData.specialization.trim()) {
+        // カンマ区切りで複数の専門分野を分割
+        const specializations = updateData.specialization
+          .split(',')
+          .map(spec => spec.trim())
+          .filter(spec => spec.length > 0);
+        
+        for (const specialization of specializations) {
+          await connection.execute(
+            'INSERT INTO instructor_specializations (user_id, specialization) VALUES (?, ?)',
+            [userId, specialization]
+          );
+        }
       }
     }
 
@@ -1350,7 +1375,448 @@ const updateLoginCodes = async () => {
   }
 };
 
+// 指導員の専門分野を取得
+const getInstructorSpecializations = async (userId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [rows] = await connection.execute(
+      'SELECT id, specialization, created_at, updated_at FROM instructor_specializations WHERE user_id = ? ORDER BY created_at DESC',
+      [userId]
+    );
 
+    return {
+      success: true,
+      data: rows
+    };
+  } catch (error) {
+    console.error('Error fetching instructor specializations:', error);
+    return {
+      success: false,
+      message: '専門分野の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// 指導員の専門分野を追加
+const addInstructorSpecialization = async (userId, specialization) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [result] = await connection.execute(
+      'INSERT INTO instructor_specializations (user_id, specialization) VALUES (?, ?)',
+      [userId, specialization]
+    );
+
+    return {
+      success: true,
+      message: '専門分野が追加されました',
+      data: {
+        id: result.insertId
+      }
+    };
+  } catch (error) {
+    console.error('Error adding instructor specialization:', error);
+    return {
+      success: false,
+      message: '専門分野の追加に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// 指導員の専門分野を更新
+const updateInstructorSpecialization = async (specializationId, specialization) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [result] = await connection.execute(
+      'UPDATE instructor_specializations SET specialization = ?, updated_at = NOW() WHERE id = ?',
+      [specialization, specializationId]
+    );
+
+    if (result.affectedRows === 0) {
+      return {
+        success: false,
+        message: '指定された専門分野が見つかりません'
+      };
+    }
+
+    return {
+      success: true,
+      message: '専門分野が更新されました'
+    };
+  } catch (error) {
+    console.error('Error updating instructor specialization:', error);
+    return {
+      success: false,
+      message: '専門分野の更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// 指導員の専門分野を削除
+const deleteInstructorSpecialization = async (specializationId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [result] = await connection.execute(
+      'DELETE FROM instructor_specializations WHERE id = ?',
+      [specializationId]
+    );
+
+    if (result.affectedRows === 0) {
+      return {
+        success: false,
+        message: '指定された専門分野が見つかりません'
+      };
+    }
+
+    return {
+      success: true,
+      message: '専門分野が削除されました'
+    };
+  } catch (error) {
+    console.error('Error deleting instructor specialization:', error);
+    return {
+      success: false,
+      message: '専門分野の削除に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点内の利用者と担当指導員の関係を取得
+ */
+const getSatelliteUserInstructorRelations = async (satelliteId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [rows] = await connection.execute(`
+      SELECT 
+        u.id as user_id,
+        u.name as user_name,
+        u.instructor_id,
+        i.name as instructor_name,
+        u.status as user_status
+      FROM user_accounts u
+      LEFT JOIN user_accounts i ON u.instructor_id = i.id
+      WHERE u.role = 1 
+        AND JSON_CONTAINS(u.satellite_ids, ?)
+        AND u.status = 1
+      ORDER BY u.name
+    `, [JSON.stringify(satelliteId)]);
+    
+    return {
+      success: true,
+      data: rows
+    };
+  } catch (error) {
+    console.error('拠点利用者担当指導員関係取得エラー:', error);
+    return {
+      success: false,
+      message: '拠点利用者担当指導員関係の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点内の指導員一覧を取得（担当指導員として選択可能）
+ */
+const getSatelliteAvailableInstructors = async (satelliteId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    const [rows] = await connection.execute(`
+      SELECT 
+        u.id,
+        u.name,
+        u.role,
+        u.status
+      FROM user_accounts u
+      WHERE (u.role = 4 OR u.role = 5)
+        AND JSON_CONTAINS(u.satellite_ids, ?)
+        AND u.status = 1
+      ORDER BY u.name
+    `, [JSON.stringify(satelliteId)]);
+    
+    return {
+      success: true,
+      data: rows
+    };
+  } catch (error) {
+    console.error('拠点利用可能指導員取得エラー:', error);
+    return {
+      success: false,
+      message: '拠点利用可能指導員の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 個別利用者の担当指導員を変更
+ */
+const updateUserInstructor = async (userId, instructorId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 利用者の存在確認
+    const [userRows] = await connection.execute(
+      'SELECT id, name, role FROM user_accounts WHERE id = ? AND role = 1',
+      [userId]
+    );
+    
+    if (userRows.length === 0) {
+      return {
+        success: false,
+        message: '指定された利用者が見つかりません'
+      };
+    }
+    
+    // 指導員の存在確認（instructorIdがnullの場合はスキップ）
+    if (instructorId !== null) {
+      const [instructorRows] = await connection.execute(
+        'SELECT id, name, role FROM user_accounts WHERE id = ? AND (role = 4 OR role = 5)',
+        [instructorId]
+      );
+      
+      if (instructorRows.length === 0) {
+        return {
+          success: false,
+          message: '指定された指導員が見つかりません'
+        };
+      }
+    }
+    
+    // 担当指導員を更新
+    await connection.execute(
+      'UPDATE user_accounts SET instructor_id = ? WHERE id = ?',
+      [instructorId, userId]
+    );
+    
+    return {
+      success: true,
+      message: '担当指導員を更新しました'
+    };
+  } catch (error) {
+    console.error('担当指導員更新エラー:', error);
+    return {
+      success: false,
+      message: '担当指導員の更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 一括で利用者の担当指導員を変更
+ */
+const bulkUpdateUserInstructors = async (satelliteId, assignments) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // トランザクション開始
+    await connection.beginTransaction();
+    
+    // 拠点内の利用者一覧を取得
+    const [userRows] = await connection.execute(`
+      SELECT id, name FROM user_accounts 
+      WHERE role = 1 
+        AND JSON_CONTAINS(satellite_ids, ?)
+        AND status = 1
+    `, [JSON.stringify(satelliteId)]);
+    
+    const validUserIds = userRows.map(row => row.id);
+    
+    // 利用可能な指導員一覧を取得
+    const [instructorRows] = await connection.execute(`
+      SELECT id, name FROM user_accounts 
+      WHERE (role = 4 OR role = 5)
+        AND JSON_CONTAINS(satellite_ids, ?)
+        AND status = 1
+    `, [JSON.stringify(satelliteId)]);
+    
+    const validInstructorIds = instructorRows.map(row => row.id);
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
+    // 各割り当てを処理
+    for (const assignment of assignments) {
+      try {
+        // 利用者IDの妥当性チェック
+        if (!validUserIds.includes(assignment.userId)) {
+          errors.push(`利用者ID ${assignment.userId} が見つかりません`);
+          errorCount++;
+          continue;
+        }
+        
+        // 指導員IDの妥当性チェック（nullの場合はスキップ）
+        if (assignment.instructorId !== null && !validInstructorIds.includes(assignment.instructorId)) {
+          errors.push(`指導員ID ${assignment.instructorId} が見つかりません`);
+          errorCount++;
+          continue;
+        }
+        
+        // 担当指導員を更新
+        await connection.execute(
+          'UPDATE user_accounts SET instructor_id = ? WHERE id = ?',
+          [assignment.instructorId, assignment.userId]
+        );
+        
+        successCount++;
+      } catch (error) {
+        errors.push(`利用者ID ${assignment.userId} の更新に失敗: ${error.message}`);
+        errorCount++;
+      }
+    }
+    
+    // トランザクションをコミット
+    await connection.commit();
+    
+    return {
+      success: true,
+      message: `一括更新が完了しました（成功: ${successCount}件、失敗: ${errorCount}件）`,
+      data: {
+        successCount,
+        errorCount,
+        errors: errors.length > 0 ? errors : undefined
+      }
+    };
+  } catch (error) {
+    // トランザクションをロールバック
+    if (connection) {
+      await connection.rollback();
+    }
+    
+    console.error('一括担当指導員更新エラー:', error);
+    return {
+      success: false,
+      message: '一括担当指導員更新に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
+ * 拠点内の全利用者の担当指導員を一括削除
+ */
+const bulkRemoveUserInstructors = async (satelliteId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点内の利用者の担当指導員を一括削除
+    const [result] = await connection.execute(`
+      UPDATE user_accounts 
+      SET instructor_id = NULL 
+      WHERE role = 1 
+        AND JSON_CONTAINS(satellite_ids, ?)
+        AND status = 1
+    `, [JSON.stringify(satelliteId)]);
+    
+    return {
+      success: true,
+      message: `${result.affectedRows}件の利用者の担当指導員を削除しました`,
+      data: {
+        affectedRows: result.affectedRows
+      }
+    };
+  } catch (error) {
+    console.error('一括担当指導員削除エラー:', error);
+    return {
+      success: false,
+      message: '一括担当指導員削除に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
 
 module.exports = {
   getUsers,
@@ -1369,5 +1835,14 @@ module.exports = {
   issueTemporaryPassword,
   verifyTemporaryPassword,
   updateLoginCodes,
-  generateLoginCode
+  generateLoginCode,
+  getInstructorSpecializations,
+  addInstructorSpecialization,
+  updateInstructorSpecialization,
+  deleteInstructorSpecialization,
+  getSatelliteUserInstructorRelations,
+  getSatelliteAvailableInstructors,
+  updateUserInstructor,
+  bulkUpdateUserInstructors,
+  bulkRemoveUserInstructors
 }; 
