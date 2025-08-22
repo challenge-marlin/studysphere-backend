@@ -1,4 +1,5 @@
 const express = require('express');
+const { authenticateToken } = require('../middleware/auth');
 const {
   getUsers,
   getTopUsersByCompany,
@@ -23,7 +24,12 @@ const {
   getSatelliteAvailableInstructors,
   updateUserInstructor,
   bulkUpdateUserInstructors,
-  bulkRemoveUserInstructors
+  bulkRemoveUserInstructors,
+  getSatelliteUsersForHomeSupport,
+  getSatelliteHomeSupportUsers,
+  bulkUpdateHomeSupportFlag,
+  removeHomeSupportFlag,
+  getSatelliteInstructorsForHomeSupport
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -353,6 +359,22 @@ router.delete('/satellite/:satelliteId/instructors', async (req, res) => {
     });
   }
 });
+
+// 在宅支援関連のエンドポイント
+// 拠点内の通所利用者一覧を取得（在宅支援追加用）
+router.get('/satellite/:satelliteId/home-support-users', authenticateToken, getSatelliteUsersForHomeSupport);
+
+// 拠点内の在宅支援利用者一覧を取得
+router.get('/satellite/:satelliteId/home-support-users-list', authenticateToken, getSatelliteHomeSupportUsers);
+
+// 拠点内の指導員一覧を取得（在宅支援用）
+router.get('/satellite/:satelliteId/home-support-instructors', authenticateToken, getSatelliteInstructorsForHomeSupport);
+
+// 在宅支援フラグを一括更新
+router.post('/bulk-update-home-support', authenticateToken, bulkUpdateHomeSupportFlag);
+
+// 在宅支援解除（単一利用者）
+router.put('/:userId/remove-home-support', authenticateToken, removeHomeSupportFlag);
 
 module.exports = router;
 

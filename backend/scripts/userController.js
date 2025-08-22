@@ -1818,6 +1818,304 @@ const bulkRemoveUserInstructors = async (satelliteId) => {
   }
 };
 
+/**
+ * 拠点内の通所利用者一覧を取得（在宅支援追加用）
+ */
+const getSatelliteUsersForHomeSupport = async (req, res) => {
+  const { satelliteId } = req.params;
+  const { instructorIds } = req.query;
+  const connection = await pool.getConnection();
+  
+  try {
+    let query = `
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.login_code,
+        CASE WHEN ua.is_remote_user = 1 THEN true ELSE false END as is_remote_user,
+        ua.instructor_id,
+        instructor.name as instructor_name,
+        ua.company_id,
+        c.name as company_name
+      FROM user_accounts ua
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      LEFT JOIN companies c ON ua.company_id = c.id
+      WHERE ua.role = 1 
+        AND JSON_CONTAINS(ua.satellite_ids, ?)
+        AND ua.status = 1
+        AND ua.is_remote_user = 0
+    `;
+    
+    const params = [JSON.stringify(parseInt(satelliteId))];
+    
+    // 特定の指導員の利用者のみを取得する場合
+    if (instructorIds) {
+      const instructorIdArray = instructorIds.split(',').map(id => parseInt(id.trim()));
+      query += ` AND (ua.instructor_id IN (${instructorIdArray.map(() => '?').join(',')}) OR ua.instructor_id IS NULL)`;
+      params.push(...instructorIdArray);
+    }
+    
+    query += ` ORDER BY ua.instructor_id, ua.name`;
+    
+    const [rows] = await connection.execute(query, params);
+    
+    customLogger.info('Satellite users for home support retrieved successfully', {
+      satelliteId,
+      instructorIds,
+      count: rows.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    customLogger.error('Error fetching satellite users for home support:', error);
+    res.status(500).json({
+      success: false,
+      message: '拠点利用者の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 在宅支援フラグを一括更新
+ */
+const bulkUpdateHomeSupportFlag = async (req, res) => {
+  const { userIds, isRemoteUser } = req.body;
+  const connection = await pool.getConnection();
+  
+  try {
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '利用者IDの配列が必要です'
+      });
+    }
+    
+    const [result] = await connection.execute(`
+      UPDATE user_accounts 
+      SET is_remote_user = ?
+      WHERE id IN (${userIds.map(() => '?').join(',')})
+        AND role = 1
+    `, [isRemoteUser ? 1 : 0, ...userIds]);
+    
+    customLogger.info('Home support flag updated successfully', {
+      userIds,
+      isRemoteUser,
+      affectedRows: result.affectedRows,
+      updatedBy: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      message: `${result.affectedRows}名の利用者の在宅支援フラグを更新しました`,
+      data: {
+        affectedRows: result.affectedRows
+      }
+    });
+  } catch (error) {
+    customLogger.error('Error updating home support flag:', error);
+    res.status(500).json({
+      success: false,
+      message: '在宅支援フラグの更新に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 拠点内の在宅支援利用者一覧を取得
+ */
+const getSatelliteHomeSupportUsers = async (req, res) => {
+  const { satelliteId } = req.params;
+  const { instructorIds } = req.query;
+  const connection = await pool.getConnection();
+  
+  try {
+    let query = `
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.login_code,
+        CASE WHEN ua.is_remote_user = 1 THEN true ELSE false END as is_remote_user,
+        ua.instructor_id,
+        instructor.name as instructor_name,
+        ua.company_id,
+        c.name as company_name
+      FROM user_accounts ua
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      LEFT JOIN companies c ON ua.company_id = c.id
+      WHERE ua.role = 1 
+        AND JSON_CONTAINS(ua.satellite_ids, ?)
+        AND ua.status = 1
+        AND ua.is_remote_user = 1
+    `;
+    
+    const params = [JSON.stringify(parseInt(satelliteId))];
+    
+    // 特定の指導員の利用者のみを取得する場合
+    if (instructorIds) {
+      const instructorIdArray = instructorIds.split(',').map(id => parseInt(id.trim()));
+      query += ` AND (ua.instructor_id IN (${instructorIdArray.map(() => '?').join(',')}) OR ua.instructor_id IS NULL)`;
+      params.push(...instructorIdArray);
+    }
+    
+    query += ` ORDER BY ua.instructor_id, ua.name`;
+    
+    const [rows] = await connection.execute(query, params);
+    
+    customLogger.info('Satellite home support users retrieved successfully', {
+      satelliteId,
+      instructorIds,
+      count: rows.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    customLogger.error('Error fetching satellite home support users:', error);
+    res.status(500).json({
+      success: false,
+      message: '在宅支援利用者の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 在宅支援解除（単一利用者）
+ */
+const removeHomeSupportFlag = async (req, res) => {
+  const { userId } = req.params;
+  const connection = await pool.getConnection();
+  
+  try {
+    // 現在のタグを取得
+    const [currentUser] = await connection.execute(`
+      SELECT tags FROM user_accounts WHERE id = ? AND role = 1
+    `, [userId]);
+    
+    if (currentUser.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '指定された利用者が見つからないか、在宅支援対象ではありません'
+      });
+    }
+    
+    // 現在のタグを解析
+    let currentTags = [];
+    if (currentUser[0].tags) {
+      try {
+        currentTags = JSON.parse(currentUser[0].tags);
+      } catch (e) {
+        currentTags = [];
+      }
+    }
+    
+    // 「在宅支援」タグを削除
+    const updatedTags = currentTags.filter(tag => tag !== '在宅支援');
+    
+    // 在宅支援フラグを解除し、タグも更新
+    const [result] = await connection.execute(`
+      UPDATE user_accounts 
+      SET is_remote_user = 0, tags = ?
+      WHERE id = ? AND role = 1
+    `, [JSON.stringify(updatedTags), userId]);
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '指定された利用者が見つからないか、在宅支援対象ではありません'
+      });
+    }
+    
+    customLogger.info('Home support flag and tag removed successfully', {
+      userId,
+      affectedRows: result.affectedRows,
+      updatedTags,
+      updatedBy: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      message: '在宅支援を解除しました',
+      data: {
+        affectedRows: result.affectedRows,
+        updatedTags
+      }
+    });
+  } catch (error) {
+    customLogger.error('Error removing home support flag:', error);
+    res.status(500).json({
+      success: false,
+      message: '在宅支援解除に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 拠点内の指導員一覧を取得（在宅支援用）
+ */
+const getSatelliteInstructorsForHomeSupport = async (req, res) => {
+  const { satelliteId } = req.params;
+  const connection = await pool.getConnection();
+  
+  try {
+    const [rows] = await connection.execute(`
+      SELECT DISTINCT
+        ua.id,
+        ua.name,
+        ua.login_code,
+        COUNT(students.id) as student_count
+      FROM user_accounts ua
+      LEFT JOIN user_accounts students ON ua.id = students.instructor_id 
+        AND students.role = 1 
+        AND JSON_CONTAINS(students.satellite_ids, ?)
+        AND students.status = 1
+      WHERE ua.role = 4 
+        AND JSON_CONTAINS(ua.satellite_ids, ?)
+        AND ua.status = 1
+      GROUP BY ua.id, ua.name, ua.login_code
+      ORDER BY ua.name
+    `, [JSON.stringify(parseInt(satelliteId)), JSON.stringify(parseInt(satelliteId))]);
+    
+    customLogger.info('Satellite instructors for home support retrieved successfully', {
+      satelliteId,
+      count: rows.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    customLogger.error('Error fetching satellite instructors for home support:', error);
+    res.status(500).json({
+      success: false,
+      message: '拠点指導員の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
@@ -1844,5 +2142,10 @@ module.exports = {
   getSatelliteAvailableInstructors,
   updateUserInstructor,
   bulkUpdateUserInstructors,
-  bulkRemoveUserInstructors
+  bulkRemoveUserInstructors,
+  getSatelliteUsersForHomeSupport,
+  getSatelliteHomeSupportUsers,
+  bulkUpdateHomeSupportFlag,
+  removeHomeSupportFlag,
+  getSatelliteInstructorsForHomeSupport
 }; 
