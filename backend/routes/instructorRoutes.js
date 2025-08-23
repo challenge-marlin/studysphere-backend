@@ -9,7 +9,7 @@ const {
 
 const router = express.Router();
 
-// 指導者の専門分野一覧取得
+// 指導員の専門分野一覧取得
 router.get('/:userId/specializations', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const result = await getInstructorSpecializations(userId);
@@ -21,7 +21,7 @@ router.get('/:userId/specializations', async (req, res) => {
   });
 });
 
-// 指導者専門分野一括設定
+// 指導員専門分野一括設定
 router.post('/:userId/specializations', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const { specializations } = req.body;
@@ -37,7 +37,7 @@ router.post('/:userId/specializations', async (req, res) => {
   });
 });
 
-// 指導者専門分野削除
+// 指導員専門分野削除
 router.delete('/:userId/specializations/:specializationId', async (req, res) => {
   const userId = parseInt(req.params.userId);
   const specializationId = parseInt(req.params.specializationId);

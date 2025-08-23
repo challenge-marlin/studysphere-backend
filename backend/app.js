@@ -78,7 +78,7 @@ const {
   getAlerts
 } = require('./scripts/dashboardController');
 
-// 指導者専門分野管理コントローラーのインポート
+// 指導員専門分野管理コントローラーのインポート
 const {
   getInstructorSpecializations,
   addInstructorSpecialization,
@@ -166,16 +166,32 @@ const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
+const remoteSupportRoutes = require('./routes/remoteSupportRoutes');
 
 const app = express();
 
 // セキュリティミドルウェア
 app.use(helmet());
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
+  origin: function (origin, callback) {
+    // 開発環境ではすべてのオリジンを許可
+    if (process.env.NODE_ENV === 'development') {
+      callback(null, true);
+    } else {
+      // 本番環境では特定のオリジンのみ許可
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:5000',
+        process.env.FRONTEND_URL
+      ].filter(Boolean);
+      
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    }
+  },
   credentials: true
 }));
 
@@ -249,6 +265,7 @@ app.use('/api/user-courses', userCourseRoutes);
 app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/remote-support', remoteSupportRoutes);
 app.use('/api', authRoutes);
 app.use('/api/test', testRoutes);
 
@@ -489,9 +506,9 @@ app.delete('/api/admins/:adminId/permanent', async (req, res) => {
 
 // Users related association routes are moved to routes/userRoutes.js
 
-// 指導者専門分野関連エンドポイントは routes/instructorRoutes.js に移動
+// 指導員専門分野関連エンドポイントは routes/instructorRoutes.js に移動
 
-// 拠点内指導者一覧や拠点統計は routes/satelliteRoutes.js に移動
+// 拠点内指導員一覧や拠点統計は routes/satelliteRoutes.js に移動
 
 // ヘルスチェックエンドポイント
 app.get('/health', async (req, res) => {

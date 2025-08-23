@@ -146,7 +146,7 @@ router.get('/:id/users', async (req, res) => {
   }
 });
 
-// 拠点内指導者一覧取得（専門分野含む）
+// 拠点内指導員一覧取得（専門分野含む）
 router.get('/:satelliteId/instructors', async (req, res) => {
   const satelliteId = parseInt(req.params.satelliteId);
   const result = await getSatelliteInstructors(satelliteId);

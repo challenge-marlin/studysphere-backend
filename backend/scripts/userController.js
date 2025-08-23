@@ -1073,6 +1073,37 @@ const resetUserPassword = async (userId, resetData) => {
   }
 };
 
+// 支援アプリへの通知送信
+const notifySupportApp = async (loginCode, tempPassword, userName) => {
+  try {
+    // axiosを使用してHTTPリクエストを送信
+    const axios = require('axios');
+    
+    const response = await axios.post('http://localhost:5000/api/remote-support/notify-temp-password', {
+      loginCode,
+      tempPassword,
+      userName,
+      timestamp: new Date().toISOString()
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      timeout: 5000 // 5秒のタイムアウト
+    });
+
+    if (response.status === 200) {
+      console.log('支援アプリへの通知送信成功');
+      return true;
+    } else {
+      console.error('支援アプリへの通知送信失敗:', response.status);
+      return false;
+    }
+  } catch (error) {
+    console.error('支援アプリへの通知送信エラー:', error.message);
+    return false;
+  }
+};
+
 // 一時パスワード発行
 const issueTemporaryPassword = async (userId) => {
   let connection;
@@ -1118,13 +1149,27 @@ const issueTemporaryPassword = async (userId) => {
       [userId, tempPassword, expiryTime]
     );
 
+    // 支援アプリに通知を送信（非同期で実行）
+    notifySupportApp(user.login_code, tempPassword, user.name)
+      .then(success => {
+        if (success) {
+          console.log(`支援アプリへの通知送信完了: ${user.name}`);
+        } else {
+          console.warn(`支援アプリへの通知送信失敗: ${user.name}`);
+        }
+      })
+      .catch(error => {
+        console.error(`支援アプリへの通知送信エラー: ${user.name}`, error);
+      });
+
     return {
       success: true,
       message: '一時パスワードが発行されました',
       data: {
         tempPassword,
         expiresAt: expiryTime,
-        loginUrl: `http://localhost:3000/student-login?code=${user.login_code}`
+        loginUrl: `http://localhost:3000/student-login?code=${user.login_code}`,
+        userName: user.name
       }
     };
   } catch (error) {

@@ -254,6 +254,8 @@ class TempPasswordController {
             for (const user_id of user_ids) {
                 const tempPassword = this.generateTempPassword();
                 
+                customLogger.info(`Issuing temp password for user ${user_id}: ${tempPassword}, expires at: ${expiryDate}`);
+                
                 await pool.execute(
                     'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
                     [user_id, tempPassword, expiryDate]

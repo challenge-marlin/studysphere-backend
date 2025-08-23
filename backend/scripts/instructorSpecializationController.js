@@ -2,7 +2,7 @@ const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
 
 /**
- * 指導者の専門分野一覧を取得
+ * 指導員の専門分野一覧を取得
  */
 const getInstructorSpecializations = async (userId) => {
   let connection;
@@ -25,10 +25,10 @@ const getInstructorSpecializations = async (userId) => {
       data: rows
     };
   } catch (error) {
-    console.error('指導者専門分野取得エラー:', error);
+    console.error('指導員専門分野取得エラー:', error);
     return {
       success: false,
-      message: '指導者専門分野の取得に失敗しました',
+      message: '指導員専門分野の取得に失敗しました',
       error: error.message
     };
   } finally {
@@ -43,7 +43,7 @@ const getInstructorSpecializations = async (userId) => {
 };
 
 /**
- * 指導者専門分野を追加
+ * 指導員専門分野を追加
  */
 const addInstructorSpecialization = async (userId, specialization) => {
   let connection;
@@ -89,7 +89,7 @@ const addInstructorSpecialization = async (userId, specialization) => {
       data: rows[0]
     };
   } catch (error) {
-    console.error('指導者専門分野追加エラー:', error);
+    console.error('指導員専門分野追加エラー:', error);
     return {
       success: false,
       message: '専門分野の追加に失敗しました',
@@ -107,7 +107,7 @@ const addInstructorSpecialization = async (userId, specialization) => {
 };
 
 /**
- * 指導者専門分野を一括設定
+ * 指導員専門分野を一括設定
  */
 const setInstructorSpecializations = async (userId, specializations) => {
   let connection;
@@ -161,7 +161,7 @@ const setInstructorSpecializations = async (userId, specializations) => {
     if (connection) {
       await connection.rollback();
     }
-    console.error('指導者専門分野一括設定エラー:', error);
+    console.error('指導員専門分野一括設定エラー:', error);
     return {
       success: false,
       message: '専門分野の設定に失敗しました',
@@ -179,7 +179,7 @@ const setInstructorSpecializations = async (userId, specializations) => {
 };
 
 /**
- * 指導者専門分野を削除
+ * 指導員専門分野を削除
  */
 const deleteInstructorSpecialization = async (specializationId, userId) => {
   let connection;
@@ -210,7 +210,7 @@ const deleteInstructorSpecialization = async (specializationId, userId) => {
       message: '専門分野が正常に削除されました'
     };
   } catch (error) {
-    console.error('指導者専門分野削除エラー:', error);
+    console.error('指導員専門分野削除エラー:', error);
     return {
       success: false,
       message: '専門分野の削除に失敗しました',
@@ -228,16 +228,16 @@ const deleteInstructorSpecialization = async (specializationId, userId) => {
 };
 
 /**
- * 拠点内の指導者一覧を取得（専門分野含む）
+ * 拠点内の指導員一覧を取得（専門分野含む）
  */
 const getSatelliteInstructors = async (satelliteId) => {
   let connection;
   try {
     connection = await pool.getConnection();
     
-    customLogger.debug('拠点指導者一覧取得 - 拠点ID:', { satelliteId });
+    customLogger.debug('拠点指導員一覧取得 - 拠点ID:', { satelliteId });
     
-    // 拠点に所属する指導者（ロール4、5）を取得
+          // 拠点に所属する指導員（ロール4、5）を取得
     const [instructors] = await connection.execute(`
       SELECT 
         ua.id,
@@ -258,8 +258,8 @@ const getSatelliteInstructors = async (satelliteId) => {
       ORDER BY ua.id ASC
     `);
     
-    customLogger.debug('拠点指導者一覧取得結果:', { instructors });
-    customLogger.debug('取得された指導者の詳細:', { 
+          customLogger.debug('拠点指導員一覧取得結果:', { instructors });
+      customLogger.debug('取得された指導員の詳細:', { 
       instructors: instructors.map(instructor => ({
         id: instructor.id,
         name: instructor.name,
@@ -288,13 +288,13 @@ const getSatelliteInstructors = async (satelliteId) => {
                  Number(satelliteIds) === Number(satelliteId);
         }
       } catch (e) {
-        customLogger.debug(`指導者 ${instructor.name} のsatellite_idsパースエラー:`, { error: e.message });
+        customLogger.debug(`指導員 ${instructor.name} のsatellite_idsパースエラー:`, { error: e.message });
         return false;
       }
     });
     
-    customLogger.debug('フィルタリング後の指導者数:', { count: filteredInstructors.length });
-    customLogger.debug('フィルタリング後の指導者:', { filteredInstructors });
+          customLogger.debug('フィルタリング後の指導員数:', { count: filteredInstructors.length });
+      customLogger.debug('フィルタリング後の指導員:', { filteredInstructors });
     
     // 拠点の管理者情報を取得
     customLogger.debug('=== 拠点管理者情報取得開始 ===');
@@ -376,7 +376,7 @@ const getSatelliteInstructors = async (satelliteId) => {
     customLogger.debug('管理者IDsが配列か:', { isArray: Array.isArray(managerIds) });
     customLogger.debug('=== 拠点管理者情報取得完了 ===');
     
-    // 各指導者の専門分野を取得し、管理者判定も追加
+          // 各指導員の専門分野を取得し、管理者判定も追加
     const instructorsWithSpecializations = await Promise.all(
       filteredInstructors.map(async (instructor) => {
         const [specializations] = await connection.execute(`
@@ -395,8 +395,8 @@ const getSatelliteInstructors = async (satelliteId) => {
           .join(', ');
         
         // 拠点管理者かどうかを判定（IDの型を統一）
-        customLogger.debug(`=== 指導者 ${instructor.name} (ID: ${instructor.id}) の管理者判定開始 ===`);
-        customLogger.debug('判定対象指導者:', {
+        customLogger.debug(`=== 指導員 ${instructor.name} (ID: ${instructor.id}) の管理者判定開始 ===`);
+        customLogger.debug('判定対象指導員:', {
           id: instructor.id,
           id_type: typeof instructor.id,
           name: instructor.name,
@@ -430,14 +430,14 @@ const getSatelliteInstructors = async (satelliteId) => {
           customLogger.debug('管理者IDsが配列ではありません');
         }
         
-        customLogger.debug(`指導者 ${instructor.name} (ID: ${instructor.id}) の管理者判定結果:`, {
+        customLogger.debug(`指導員 ${instructor.name} (ID: ${instructor.id}) の管理者判定結果:`, {
           instructorId: instructor.id,
           managerIds: managerIds,
           isManager: isManager,
           managerIdsType: typeof managerIds,
           isArray: Array.isArray(managerIds)
         });
-        customLogger.debug(`=== 指導者 ${instructor.name} の管理者判定完了 ===`);
+        customLogger.debug(`=== 指導員 ${instructor.name} の管理者判定完了 ===`);
         
         return {
           ...instructor,
@@ -455,10 +455,10 @@ const getSatelliteInstructors = async (satelliteId) => {
       data: instructorsWithSpecializations
     };
   } catch (error) {
-    customLogger.error('拠点指導者一覧取得エラー:', { error: error.message });
+    customLogger.error('拠点指導員一覧取得エラー:', { error: error.message });
     return {
       success: false,
-      message: '拠点指導者一覧の取得に失敗しました',
+      message: '拠点指導員一覧の取得に失敗しました',
       error: error.message
     };
   } finally {
@@ -512,9 +512,9 @@ const getSatelliteStats = async (satelliteId) => {
       FROM user_accounts
       WHERE role >= 4 AND role <= 5
     `);
-    console.log('デバッグ - 指導者データ:', debugRows);
+    console.log('デバッグ - 指導員データ:', debugRows);
     
-    // 特定の拠点IDに関連する指導者を確認
+          // 特定の拠点IDに関連する指導員を確認
     const [debugSatelliteRows] = await connection.execute(`
       SELECT id, name, role, satellite_ids, status
       FROM user_accounts
@@ -523,9 +523,9 @@ const getSatelliteStats = async (satelliteId) => {
         AND satellite_ids != 'null'
         AND satellite_ids != '[]'
     `);
-    console.log('デバッグ - 拠点設定済み指導者データ:', debugSatelliteRows);
+          console.log('デバッグ - 拠点設定済み指導員データ:', debugSatelliteRows);
     debugSatelliteRows.forEach(row => {
-      console.log(`指導者 ${row.name} (ID: ${row.id}) のsatellite_ids:`, row.satellite_ids, '型:', typeof row.satellite_ids);
+              console.log(`指導員 ${row.name} (ID: ${row.id}) のsatellite_ids:`, row.satellite_ids, '型:', typeof row.satellite_ids);
     });
     
     // 現在の生徒数（ロール1）を取得
@@ -572,7 +572,7 @@ const getSatelliteStats = async (satelliteId) => {
     
     console.log('拠点管理者IDs（統計用）:', managerIds);
     
-    // 指導者数はJavaScript側で計算
+          // 指導員数はJavaScript側で計算
     const [allInstructorRows] = await connection.execute(`
       SELECT id, name, role, satellite_ids, status
       FROM user_accounts
@@ -602,7 +602,7 @@ const getSatelliteStats = async (satelliteId) => {
       }
     }).length;
     
-    console.log('計算結果 - 生徒数:', currentStudents, '指導者数:', instructorCount);
+          console.log('計算結果 - 生徒数:', currentStudents, '指導員数:', instructorCount);
     
     const capacityPercentage = satellite.max_users > 0 ? (currentStudents / satellite.max_users) * 100 : 0;
     
