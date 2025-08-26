@@ -1,0 +1,176 @@
+/**
+ * 日本時間での時刻処理を統一するためのユーティリティ関数
+ */
+
+/**
+ * 現在の日本時間を取得
+ * @returns {Date} 日本時間のDateオブジェクト
+ */
+const getCurrentJapanTime = () => {
+  const now = new Date();
+  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  return new Date(now.getTime() + (japanOffset * 60 * 1000));
+};
+
+/**
+ * 日本時間の今日の23:59:59を取得（UTC変換版）
+ * @returns {Date} 日本時間の今日の終了時刻（UTC変換済み）
+ */
+const getTodayEndTime = () => {
+  const now = new Date();
+  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  
+  // 日本時間の今日の23:59:59を計算
+  const japanNow = new Date(now.getTime() + (japanOffset * 60 * 1000));
+  const endOfDay = new Date(japanNow);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  // UTCに変換して返す（データベース保存用）
+  return new Date(endOfDay.getTime() - (japanOffset * 60 * 1000));
+};
+
+/**
+ * 日本時間の今日の23:59:59を取得（日本時間のまま）
+ * @returns {Date} 日本時間の今日の終了時刻（日本時間のまま）
+ */
+const getTodayEndTimeJapan = () => {
+  const now = new Date();
+  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  
+  // 日本時間の今日の23:59:59を計算
+  const japanNow = new Date(now.getTime() + (japanOffset * 60 * 1000));
+  const endOfDay = new Date(japanNow);
+  endOfDay.setHours(23, 59, 59, 999);
+  
+  // 日本時間のまま返す
+  return endOfDay;
+};
+
+/**
+ * 日本時間の今日の00:00:00を取得
+ * @returns {Date} 日本時間の今日の開始時刻
+ */
+const getTodayStartTime = () => {
+  const japanTime = getCurrentJapanTime();
+  // 日本時間の今日の00:00:00を直接設定
+  japanTime.setHours(0, 0, 0, 0);
+  return japanTime;
+};
+
+/**
+ * UTC時刻を日本時間に変換
+ * @param {Date|string} utcDate - UTC時刻
+ * @returns {Date} 日本時間のDateオブジェクト
+ */
+const convertUTCToJapanTime = (utcDate) => {
+  const date = new Date(utcDate);
+  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  return new Date(date.getTime() + (japanOffset * 60 * 1000));
+};
+
+/**
+ * 日本時間をUTCに変換
+ * @param {Date|string} japanDate - 日本時間
+ * @returns {Date} UTCのDateオブジェクト
+ */
+const convertJapanTimeToUTC = (japanDate) => {
+  const date = new Date(japanDate);
+  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  return new Date(date.getTime() - (japanOffset * 60 * 1000));
+};
+
+/**
+ * 有効期限チェック（日本時間基準）
+ * @param {Date|string} expiryTime - 有効期限
+ * @returns {boolean} 有効かどうか
+ */
+const isExpired = (expiryTime) => {
+  if (!expiryTime) return true;
+  const now = getCurrentJapanTime();
+  const expiryDate = new Date(expiryTime);
+  return expiryDate <= now;
+};
+
+/**
+ * 日本時間での日付文字列を取得
+ * @param {Date|string} date - 日付
+ * @param {Object} options - オプション
+ * @returns {string} 日本時間での日付文字列
+ */
+const formatJapanTime = (date, options = {}) => {
+  const defaultOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Tokyo'
+  };
+  
+  const dateObj = new Date(date);
+  return dateObj.toLocaleString('ja-JP', { ...defaultOptions, ...options });
+};
+
+/**
+ * 日本時間での日付のみ文字列を取得
+ * @param {Date|string} date - 日付
+ * @returns {string} 日本時間での日付文字列（YYYY-MM-DD）
+ */
+const formatJapanDate = (date) => {
+  const dateObj = new Date(date);
+  return dateObj.toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tokyo'
+  }).replace(/\//g, '-');
+};
+
+/**
+ * 日本時間での時刻のみ文字列を取得
+ * @param {Date|string} date - 日付
+ * @returns {string} 日本時間での時刻文字列（HH:MM:SS）
+ */
+const formatJapanTimeOnly = (date) => {
+  const dateObj = new Date(date);
+  return dateObj.toLocaleTimeString('ja-JP', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZone: 'Asia/Tokyo'
+  });
+};
+
+/**
+ * 指定された時間の日本時間での時刻を取得
+ * @param {string} timeString - 時間文字列（HH:MM形式）
+ * @returns {Date} 指定された時間の日本時間
+ */
+const getJapanTimeFromString = (timeString) => {
+  const [hours, minutes] = timeString.split(':').map(Number);
+  const japanTime = getCurrentJapanTime();
+  const targetTime = new Date(japanTime);
+  targetTime.setHours(hours, minutes, 59, 999);
+  
+  // 過去の時間の場合は翌日に設定
+  if (targetTime <= japanTime) {
+    targetTime.setDate(targetTime.getDate() + 1);
+  }
+  
+  return targetTime;
+};
+
+module.exports = {
+  getCurrentJapanTime,
+  getTodayEndTime,
+  getTodayEndTimeJapan,
+  getTodayStartTime,
+  convertUTCToJapanTime,
+  convertJapanTimeToUTC,
+  isExpired,
+  formatJapanTime,
+  formatJapanDate,
+  formatJapanTimeOnly,
+  getJapanTimeFromString
+};

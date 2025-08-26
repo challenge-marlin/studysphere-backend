@@ -1,6 +1,9 @@
 -- カリキュラムポータル データベース初期化SQL
 -- MySQL 8.0対応
 
+-- タイムゾーン設定（日本時間）
+SET time_zone = '+09:00';
+
 
 CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'shinomoto926!';
 ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'shinomoto926!';
@@ -112,6 +115,30 @@ CREATE TABLE `user_temp_passwords` (
     INDEX `idx_is_used` (`is_used`)
 ) COMMENT = '利用者一時パスワード管理テーブル（ロール1専用）';
 
+-- 一時パスワードの自動揮発用イベントスケジューラー
+-- 毎日午前0時10分（日本時間）に期限切れの一時パスワードを削除
+CREATE EVENT IF NOT EXISTS `cleanup_expired_temp_passwords`
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_TIMESTAMP + INTERVAL 10 MINUTE
+DO
+    DELETE FROM `user_temp_passwords` 
+    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00') 
+    AND `is_used` = 0;
+
+-- イベントスケジューラーを有効化
+SET GLOBAL event_scheduler = ON;
+
+CREATE TABLE `user_tags` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT 'タグID',
+    `user_id` INT NOT NULL COMMENT 'ユーザーID（user_accounts.id）',
+    `tag_name` VARCHAR(100) NOT NULL COMMENT 'タグ名',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    UNIQUE KEY `unique_user_tag` (`user_id`, `tag_name`),
+    INDEX `idx_user_id` (`user_id`),
+    INDEX `idx_tag_name` (`tag_name`)
+) COMMENT = 'ユーザータグ情報管理テーブル';
+
 -- カリキュラム進行状況テーブル
 CREATE TABLE `curriculum_progress` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '進行記録ID',
@@ -221,6 +248,7 @@ CREATE TABLE `remote_support_daily_records` (
     `task_content` TEXT COMMENT '作業・訓練内容',
     `support_content` TEXT COMMENT '支援内容（1日2回以上）',
     `advice` TEXT COMMENT '対象者の心身の状況・助言内容',
+    `instructor_comment` JSON DEFAULT NULL COMMENT '指導員コメント（JSON形式）',
     `recorder_name` VARCHAR(100) COMMENT '記録者名',
     `webcam_photos` JSON DEFAULT NULL COMMENT 'Webカメラ画像URL一覧（S3）',
     `screenshots` JSON DEFAULT NULL COMMENT 'スクリーンショットURL一覧（S3）',

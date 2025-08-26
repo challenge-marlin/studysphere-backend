@@ -29,7 +29,10 @@ const {
   getSatelliteHomeSupportUsers,
   bulkUpdateHomeSupportFlag,
   removeHomeSupportFlag,
-  getSatelliteInstructorsForHomeSupport
+  getSatelliteInstructorsForHomeSupport,
+  bulkAddUserTags,
+  removeUserTag,
+  getAllTags
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -375,6 +378,16 @@ router.post('/bulk-update-home-support', authenticateToken, bulkUpdateHomeSuppor
 
 // 在宅支援解除（単一利用者）
 router.put('/:userId/remove-home-support', authenticateToken, removeHomeSupportFlag);
+
+// タグ管理関連のエンドポイント
+// ユーザーのタグを一括追加
+router.post('/bulk-add-tags', authenticateToken, bulkAddUserTags);
+
+// ユーザーのタグを削除
+router.delete('/:userId/tags/:tagName', authenticateToken, removeUserTag);
+
+// 全タグ一覧を取得
+router.get('/tags/all', authenticateToken, getAllTags);
 
 module.exports = router;
 

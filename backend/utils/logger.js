@@ -1,6 +1,7 @@
 const winston = require('winston');
 const path = require('path');
 const fs = require('fs');
+const { formatJapanTime } = require('./dateUtils');
 
 // 日付ベースのログディレクトリを作成
 const getLogDir = () => {

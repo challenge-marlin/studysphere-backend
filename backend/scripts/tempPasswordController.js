@@ -1,12 +1,36 @@
 const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
+const { 
+  getCurrentJapanTime, 
+  getTodayEndTime, 
+  convertUTCToJapanTime, 
+  convertJapanTimeToUTC,
+  isExpired,
+  formatJapanTime,
+  getJapanTimeFromString
+} = require('../utils/dateUtils');
 
 class TempPasswordController {
     // 利用者一覧を取得（自分の担当利用者 + 一時パスワード未発行の担当なし利用者）
     static async getUsersForTempPassword(req, res) {
         try {
             const { user_id, role } = req.user;
-            const { selected_instructor_id } = req.query;
+            const { selected_instructor_id, selected_instructor_ids } = req.query;
+            
+            // 複数の指導員IDを処理
+            let selectedInstructorIds = [];
+            if (selected_instructor_ids) {
+                // 配列として送信された場合
+                if (Array.isArray(selected_instructor_ids)) {
+                    selectedInstructorIds = selected_instructor_ids;
+                } else {
+                    // 単一の値として送信された場合
+                    selectedInstructorIds = [selected_instructor_ids];
+                }
+            } else if (selected_instructor_id) {
+                // 後方互換性のため
+                selectedInstructorIds = [selected_instructor_id];
+            }
             
             // 指導員の場合、user_idをinstructor_idとして使用
             const instructor_id = role === 4 || role === 5 ? user_id : null;
@@ -41,7 +65,8 @@ class TempPasswordController {
                 const params = [];
 
                 // 別担当者を選択した場合、その指導員のパスワード未発行担当利用者も追加
-                if (selected_instructor_id) {
+                if (selectedInstructorIds.length > 0) {
+                    const placeholders = selectedInstructorIds.map(() => '?').join(',');
                     query += `
                         UNION
                         SELECT 
@@ -59,7 +84,7 @@ class TempPasswordController {
                         LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
                         WHERE ua.role = 1 
                         AND ua.status = 1
-                        AND ua.instructor_id = ?
+                        AND ua.instructor_id IN (${placeholders})
                         AND NOT EXISTS (
                             SELECT 1 FROM user_temp_passwords utp 
                             WHERE utp.user_id = ua.id 
@@ -67,7 +92,7 @@ class TempPasswordController {
                             AND utp.is_used = 0
                         )
                     `;
-                    params.push(selected_instructor_id);
+                    params.push(...selectedInstructorIds);
                 }
 
                 query += ' ORDER BY user_type, name';
@@ -135,7 +160,8 @@ class TempPasswordController {
             const params = [instructor_id, instructor_id];
 
             // 別担当者を選択した場合、その指導員のパスワード未発行担当利用者も追加
-            if (selected_instructor_id && selected_instructor_id !== instructor_id) {
+            if (selectedInstructorIds.length > 0) {
+                const placeholders = selectedInstructorIds.map(() => '?').join(',');
                 query += `
                     UNION
                     SELECT 
@@ -153,7 +179,7 @@ class TempPasswordController {
                     LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
                     WHERE ua.role = 1 
                     AND ua.status = 1
-                    AND ua.instructor_id = ?
+                    AND ua.instructor_id IN (${placeholders})
                     AND NOT EXISTS (
                         SELECT 1 FROM user_temp_passwords utp 
                         WHERE utp.user_id = ua.id 
@@ -161,7 +187,7 @@ class TempPasswordController {
                         AND utp.is_used = 0
                     )
                 `;
-                params.push(selected_instructor_id);
+                params.push(...selectedInstructorIds);
             }
 
             query += ' ORDER BY user_type, name';
@@ -198,6 +224,7 @@ class TempPasswordController {
             // 有効期限を計算
             const now = new Date();
             let expiryDate;
+            let japanEndTime;
             
             if (expiry_time) {
                 // HH:DD形式の時間を解析
@@ -227,9 +254,29 @@ class TempPasswordController {
                     });
                 }
             } else {
-                // デフォルトは今日の23:59
-                expiryDate = new Date(now);
-                expiryDate.setHours(23, 59, 59, 999);
+                // デフォルトは今日の23:59（日本時間）
+                const now = new Date();
+                const japanOffset = 9 * 60; // 日本時間はUTC+9
+                
+                // 現在の日本時間を取得
+                const japanNow = new Date(now.getTime() + (japanOffset * 60 * 1000));
+                
+                // 日本時間の今日の23:59:59を設定
+                japanEndTime = new Date(japanNow);
+                japanEndTime.setHours(23, 59, 59, 999);
+                
+                // データベース保存用にUTCに変換（日本時間から9時間引く）
+                expiryDate = new Date(japanEndTime.getTime() - (japanOffset * 60 * 1000));
+                
+                console.log('=== 一括発行デバッグ ===');
+                console.log('now (UTC):', now);
+                console.log('now.toISOString():', now.toISOString());
+                console.log('japanNow:', japanNow);
+                console.log('japanNow.toISOString():', japanNow.toISOString());
+                console.log('japanEndTime:', japanEndTime);
+                console.log('japanEndTime.toISOString():', japanEndTime.toISOString());
+                console.log('expiryDate (UTC):', expiryDate);
+                console.log('expiryDate.toISOString():', expiryDate.toISOString());
             }
 
             // アナウンスメッセージを作成（指定された場合）
@@ -261,10 +308,21 @@ class TempPasswordController {
                     [user_id, tempPassword, expiryDate]
                 );
 
+                // 日本時間の文字列を生成
+                const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZone: 'Asia/Tokyo'
+                });
+                
                 tempPasswords.push({
                     user_id,
                     temp_password: tempPassword,
-                    expires_at: expiryDate
+                    expires_at: japanTimeString
                 });
             }
 
@@ -279,12 +337,23 @@ class TempPasswordController {
                 ]
             );
 
+            // 日本時間の文字列を生成
+            const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: 'Asia/Tokyo'
+            });
+            
             res.json({
                 success: true,
                 message: `${user_ids.length}名の利用者に一時パスワードを発行しました`,
                 data: {
                     temp_passwords: tempPasswords,
-                    expiry_at: expiryDate,
+                    expiry_at: japanTimeString,
                     announcement_id: announcement_id
                 }
             });
@@ -316,6 +385,72 @@ class TempPasswordController {
         }
         
         return result;
+    }
+
+    // 一時パスワード状態確認
+    static async checkTempPasswordStatus(req, res) {
+        try {
+            const { login_code } = req.params;
+            
+            if (!login_code) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'ログインコードが必須です'
+                });
+            }
+
+            // ユーザーと一時パスワードの状態を確認
+            const [rows] = await pool.execute(`
+                SELECT 
+                    ua.id,
+                    ua.name,
+                    ua.role,
+                    utp.temp_password,
+                    utp.expires_at,
+                    utp.is_used,
+                    utp.issued_at
+                FROM user_accounts ua
+                LEFT JOIN user_temp_passwords utp ON ua.id = utp.user_id
+                WHERE ua.login_code = ?
+                AND utp.expires_at > NOW()
+                AND utp.is_used = 0
+                ORDER BY utp.issued_at DESC
+                LIMIT 1
+            `, [login_code]);
+
+            if (rows.length === 0) {
+                return res.json({
+                    success: true,
+                    data: {
+                        hasValidPassword: false,
+                        message: '有効な一時パスワードがありません'
+                    }
+                });
+            }
+
+            const tempPassword = rows[0];
+            
+            // 日本時間での有効期限チェック
+            const isValid = !isExpired(tempPassword.expires_at);
+
+            res.json({
+                success: true,
+                data: {
+                    hasValidPassword: isValid,
+                    tempPassword: isValid ? tempPassword.temp_password : null,
+                    expiresAt: tempPassword.expires_at,
+                    issuedAt: tempPassword.issued_at,
+                    message: isValid ? '有効な一時パスワードがあります' : '一時パスワードの有効期限が切れています'
+                }
+            });
+
+        } catch (error) {
+            customLogger.error('一時パスワード状態確認エラー:', error);
+            res.status(500).json({
+                success: false,
+                message: '一時パスワード状態の確認に失敗しました'
+            });
+        }
     }
 
     // 指導員一覧を取得

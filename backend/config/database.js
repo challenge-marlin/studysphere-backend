@@ -28,7 +28,9 @@ const dbConfig = {
   // 接続のアイドル時間制限
   idleTimeout: 60000, // アイドル接続の最大時間（60秒）
   // デバッグ設定（開発環境のみ）
-  debug: process.env.NODE_ENV === 'development' ? false : false
+  debug: process.env.NODE_ENV === 'development' ? false : false,
+  // タイムゾーン設定（日本時間）
+  timezone: '+09:00'
 };
 
 module.exports = dbConfig; 

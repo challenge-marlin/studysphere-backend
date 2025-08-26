@@ -1,6 +1,14 @@
 const { pool } = require('../utils/database');
 const bcrypt = require('bcryptjs');
 const { customLogger } = require('../utils/logger');
+const { 
+  getCurrentJapanTime, 
+  getTodayEndTime: getTodayEndTimeUtil, 
+  convertUTCToJapanTime, 
+  convertJapanTimeToUTC,
+  isExpired,
+  formatJapanTime 
+} = require('../utils/dateUtils');
 
 // ログインコード生成関数
 const generateLoginCode = () => {
@@ -28,21 +36,14 @@ const generateTemporaryPassword = () => {
   return `${generatePart()}-${generatePart()}`;
 };
 
-// 日本時間の今日の23:59を取得
+// 日本時間の今日の23:59を取得（後方互換性のため残す）
 const getTodayEndTime = () => {
-  const now = new Date();
-  const japanTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
-  const endOfDay = new Date(japanTime);
-  endOfDay.setHours(23, 59, 59, 999);
-  return endOfDay;
+  return getTodayEndTimeUtil();
 };
 
 // パスワード有効期限チェック
 const isPasswordValid = (expiryTime) => {
-  if (!expiryTime) return false;
-  const now = new Date();
-  const japanTime = new Date(now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
-  return new Date(expiryTime) > japanTime;
+  return !isExpired(expiryTime);
 };
 
 // ユーザー一覧取得
@@ -61,10 +62,26 @@ const getUsers = async () => {
           ELSE NULL 
         END as satellite_ids_processed,
         ac.username,
-        instructor.name as instructor_name
+        instructor.name as instructor_name,
+        utp.temp_password,
+        utp.expires_at,
+        utp.is_used,
+        GROUP_CONCAT(DISTINCT ut.tag_name) as tags_processed,
+        GROUP_CONCAT(DISTINCT 
+          CASE 
+            WHEN ua.is_remote_user = 1 THEN '在宅支援'
+            ELSE NULL 
+          END
+        ) as home_support_tags,
+        GROUP_CONCAT(DISTINCT c.title) as course_names
       FROM user_accounts ua
       LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
       LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+              LEFT JOIN user_temp_passwords utp ON ua.id = utp.user_id AND utp.is_used = 0
+      LEFT JOIN user_tags ut ON ua.id = ut.user_id
+      LEFT JOIN user_courses uc ON ua.id = uc.user_id
+      LEFT JOIN courses c ON uc.course_id = c.id
+      GROUP BY ua.id, ua.name, ua.email, ua.role, ua.status, ua.login_code, ua.company_id, ua.satellite_ids, ua.is_remote_user, ua.recipient_number, ua.password_reset_required, ua.instructor_id, ac.username, instructor.name, utp.temp_password, utp.expires_at, utp.is_used
     `);
     
     console.log('=== ユーザー一覧取得 ===');
@@ -188,6 +205,77 @@ const getUsers = async () => {
       }
       
       user.satellite_details = satelliteDetails;
+      
+      // タグ情報を処理
+      let allTags = [];
+      
+      // 通常のタグ
+      if (user.tags_processed) {
+        try {
+          const tags = user.tags_processed.split(',').map(tag => tag.trim()).filter(tag => tag);
+          allTags = [...allTags, ...tags];
+        } catch (e) {
+          console.error('タグの処理エラー:', e);
+          console.error('処理対象のtags_processed:', user.tags_processed);
+        }
+      }
+      
+      // 在宅支援タグ
+      if (user.home_support_tags) {
+        try {
+          const homeSupportTags = user.home_support_tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+          allTags = [...allTags, ...homeSupportTags];
+        } catch (e) {
+          console.error('在宅支援タグの処理エラー:', e);
+        }
+      }
+      
+      // 学習コースタグ
+      if (user.course_names) {
+        try {
+          const courseTags = user.course_names.split(',').map(course => course.trim()).filter(course => course);
+          allTags = [...allTags, ...courseTags];
+        } catch (e) {
+          console.error('学習コースタグの処理エラー:', e);
+        }
+      }
+      
+      // 重複を除去してタグを設定
+      user.tags = [...new Set(allTags)];
+      
+      // デバッグ用ログ
+      console.log(`ユーザー${user.id} (${user.name}) のタグ情報:`, {
+        tags_processed: user.tags_processed,
+        home_support_tags: user.home_support_tags,
+        course_names: user.course_names,
+        final_tags: user.tags,
+        is_remote_user: user.is_remote_user
+      });
+      
+      // 一時パスワードの有効期限を日本時間で返す
+      if (user.expires_at) {
+        // データベースに保存されている日本時間をそのまま使用
+        const originalTime = user.expires_at;
+        const dateObj = new Date(user.expires_at);
+        
+        // 日本時間として適切な形式で返す
+        user.expires_at = dateObj.toLocaleString('ja-JP', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+        
+        // デバッグ用ログ
+        console.log(`ユーザー${user.id}の一時パスワード有効期限変換:`, {
+          original_time: originalTime,
+          date_obj: dateObj,
+          final_string: user.expires_at
+        });
+      }
+      
       return user;
     }));
     
@@ -767,6 +855,8 @@ const updateUser = async (userId, updateData) => {
       updateValues.push(updateData.instructor_id);
     }
     
+
+    
     // user_accountsテーブルの更新
     if (updateFields.length > 0) {
       updateValues.push(userId);
@@ -822,6 +912,27 @@ const updateUser = async (userId, updateData) => {
             'INSERT INTO instructor_specializations (user_id, specialization) VALUES (?, ?)',
             [userId, specialization]
           );
+        }
+      }
+    }
+
+    // タグの更新（利用者の場合）
+    if (updateData.tags !== undefined) {
+      // 既存のタグを削除
+      await connection.execute(
+        'DELETE FROM user_tags WHERE user_id = ?',
+        [userId]
+      );
+      
+      // 新しいタグを追加（空でない場合のみ）
+      if (updateData.tags && Array.isArray(updateData.tags) && updateData.tags.length > 0) {
+        for (const tag of updateData.tags) {
+          if (tag && tag.trim()) {
+            await connection.execute(
+              'INSERT INTO user_tags (user_id, tag_name) VALUES (?, ?)',
+              [userId, tag.trim()]
+            );
+          }
         }
       }
     }
@@ -1141,12 +1252,33 @@ const issueTemporaryPassword = async (userId) => {
     
     // 新しい一時パスワードを生成
     const tempPassword = generateTemporaryPassword();
-    const expiryTime = getTodayEndTime();
     
-    // 新しい一時パスワードを登録
+    // 日本時間の今日の23:59:59を計算（dateUtilsを使用）
+    const { getTodayEndTimeJapan, formatJapanTime } = require('../utils/dateUtils');
+    const japanEndTime = getTodayEndTimeJapan();
+    
+    console.log('=== 日本時間設定の詳細 ===');
+    console.log('japanEndTime:', japanEndTime);
+    console.log('japanEndTime.toISOString():', japanEndTime.toISOString());
+    
+    // 日本時間の文字列を生成（フロントエンド用）
+    const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    console.log('japanTimeString:', japanTimeString);
+    
+    // データベース保存用の文字列を生成（日本時間で保存）
+    const expiryTimeString = japanTimeString.replace(/\//g, '-').replace(/,/g, '');
+    console.log('保存する文字列:', expiryTimeString);
+    
     await connection.execute(
       'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
-      [userId, tempPassword, expiryTime]
+      [userId, tempPassword, expiryTimeString]
     );
 
     // 支援アプリに通知を送信（非同期で実行）
@@ -1167,7 +1299,8 @@ const issueTemporaryPassword = async (userId) => {
       message: '一時パスワードが発行されました',
       data: {
         tempPassword,
-        expiresAt: expiryTime,
+        expiresAt: japanTimeString,
+        expires_at: japanTimeString, // getUsers関数と同じ形式で返す
         loginUrl: `http://localhost:3000/student-login?code=${user.login_code}`,
         userName: user.name
       }
@@ -1196,7 +1329,7 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
   try {
     connection = await pool.getConnection();
     
-    // ユーザーと一時パスワードの存在確認
+    // ユーザーと一時パスワードの存在確認（指導員名も取得）
     const [rows] = await connection.execute(`
       SELECT 
         ua.id, 
@@ -1204,9 +1337,11 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
         ua.role,
         utp.temp_password,
         utp.expires_at,
-        utp.is_used
+        utp.is_used,
+        i.name as instructor_name
       FROM user_accounts ua
       JOIN user_temp_passwords utp ON ua.id = utp.user_id
+      LEFT JOIN user_accounts i ON ua.instructor_id = i.id
       WHERE ua.login_code = ? AND utp.temp_password = ?
       ORDER BY utp.issued_at DESC
       LIMIT 1
@@ -1249,7 +1384,8 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
       data: {
         userId: user.id,
         userName: user.name,
-        role: user.role
+        role: user.role,
+        instructorName: user.instructor_name
       }
     };
   } catch (error) {
@@ -2161,6 +2297,138 @@ const getSatelliteInstructorsForHomeSupport = async (req, res) => {
   }
 };
 
+/**
+ * ユーザーのタグを一括追加
+ */
+const bulkAddUserTags = async (req, res) => {
+  const { userIds, tags } = req.body;
+  const connection = await pool.getConnection();
+  
+  try {
+    await connection.beginTransaction();
+    
+    // 各ユーザーに対してタグを追加
+    for (const userId of userIds) {
+      for (const tag of tags) {
+        try {
+          await connection.execute(`
+            INSERT IGNORE INTO user_tags (user_id, tag_name) 
+            VALUES (?, ?)
+          `, [userId, tag]);
+        } catch (error) {
+          console.error(`タグ追加エラー (user_id: ${userId}, tag: ${tag}):`, error);
+        }
+      }
+    }
+    
+    await connection.commit();
+    
+    customLogger.info('User tags added successfully', {
+      userIds,
+      tags,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      message: 'タグが正常に追加されました',
+      data: {
+        affectedUsers: userIds.length,
+        addedTags: tags
+      }
+    });
+  } catch (error) {
+    await connection.rollback();
+    customLogger.error('Error adding user tags:', error);
+    res.status(500).json({
+      success: false,
+      message: 'タグの追加に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * ユーザーのタグを削除
+ */
+const removeUserTag = async (req, res) => {
+  const { userId, tagName } = req.params;
+  const connection = await pool.getConnection();
+  
+  try {
+    const [result] = await connection.execute(`
+      DELETE FROM user_tags 
+      WHERE user_id = ? AND tag_name = ?
+    `, [userId, tagName]);
+    
+    customLogger.info('User tag removed successfully', {
+      userId,
+      tagName,
+      affectedRows: result.affectedRows,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      message: 'タグが削除されました',
+      data: {
+        affectedRows: result.affectedRows
+      }
+    });
+  } catch (error) {
+    customLogger.error('Error removing user tag:', error);
+    res.status(500).json({
+      success: false,
+      message: 'タグの削除に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
+ * 全タグ一覧を取得
+ */
+const getAllTags = async (req, res) => {
+  const connection = await pool.getConnection();
+  
+  try {
+    const [rows] = await connection.execute(`
+      SELECT DISTINCT tag_name, COUNT(*) as usage_count
+      FROM user_tags
+      GROUP BY tag_name
+      ORDER BY usage_count DESC, tag_name
+    `);
+    
+    const tags = rows.map(row => ({
+      name: row.tag_name,
+      usageCount: row.usage_count
+    }));
+    
+    customLogger.info('All tags retrieved successfully', {
+      count: tags.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: tags
+    });
+  } catch (error) {
+    customLogger.error('Error fetching all tags:', error);
+    res.status(500).json({
+      success: false,
+      message: 'タグ一覧の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
@@ -2192,5 +2460,8 @@ module.exports = {
   getSatelliteHomeSupportUsers,
   bulkUpdateHomeSupportFlag,
   removeHomeSupportFlag,
-  getSatelliteInstructorsForHomeSupport
+  getSatelliteInstructorsForHomeSupport,
+  bulkAddUserTags,
+  removeUserTag,
+  getAllTags
 }; 

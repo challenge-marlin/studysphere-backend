@@ -22,6 +22,7 @@ services:
       --default-authentication-plugin=mysql_native_password
       --innodb-buffer-pool-size=256M
       --max-connections=100
+      --default-time-zone=+09:00
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pshinomoto926!"]
       timeout: 30s

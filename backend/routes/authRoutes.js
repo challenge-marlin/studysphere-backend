@@ -6,14 +6,31 @@ const { authenticateToken } = require('../middleware/auth');
 const router = express.Router();
 
 router.post('/login', loginValidation, handleValidationErrors, async (req, res) => {
+  console.log('=== Login Route Debug ===');
+  console.log('Request body:', req.body);
+  console.log('Username:', req.body.username);
+  console.log('Password provided:', req.body.password ? 'Yes' : 'No');
+  
   const { username, password } = req.body;
-  const result = await adminLogin(username, password);
-  res.status(result.statusCode || 200).json({
-    success: result.success,
-    message: result.message,
-    ...(result.data && { data: result.data }),
-    ...(result.error && { error: result.error }),
-  });
+  
+  try {
+    const result = await adminLogin(username, password);
+    console.log('Login result:', result);
+    
+    res.status(result.statusCode || 200).json({
+      success: result.success,
+      message: result.message,
+      ...(result.data && { data: result.data }),
+      ...(result.error && { error: result.error }),
+    });
+  } catch (error) {
+    console.error('Login route error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'ログイン処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
 });
 
 // 指導員ログイン（企業・拠点選択）

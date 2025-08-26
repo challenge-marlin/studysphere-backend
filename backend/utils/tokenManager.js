@@ -1,5 +1,13 @@
 const jwt = require('jsonwebtoken');
 const { pool } = require('./database');
+const { 
+  getCurrentJapanTime, 
+  getTodayEndTime, 
+  convertUTCToJapanTime, 
+  convertJapanTimeToUTC,
+  isExpired,
+  formatJapanTime 
+} = require('./dateUtils');
 
 // JWT設定
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -9,12 +17,10 @@ const ACCESS_TOKEN_EXPIRY = '1h'; // 1時間に延長
 const getRefreshTokenExpiry = () => {
   // 日本時間の当日23:59:59を計算
   const now = new Date();
-  const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
-  const todayEnd = new Date(japanTime.getFullYear(), japanTime.getMonth(), japanTime.getDate(), 23, 59, 59);
-  const todayEndUTC = new Date(todayEnd.getTime() - (9 * 60 * 60 * 1000)); // UTCに戻す
+  const todayEnd = getTodayEndTime();
   
   // 現在時刻から当日23:59:59までの秒数を計算
-  const expirySeconds = Math.floor((todayEndUTC.getTime() - now.getTime()) / 1000);
+  const expirySeconds = Math.floor((todayEnd.getTime() - now.getTime()) / 1000);
   return `${expirySeconds}s`;
 };
 
@@ -91,12 +97,7 @@ const saveRefreshToken = async (userId, refreshToken) => {
   let connection;
   try {
     const issuedAt = new Date();
-    
-    // 日本時間の当日23:59:59を計算
-    const now = new Date();
-    const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
-    const todayEnd = new Date(japanTime.getFullYear(), japanTime.getMonth(), japanTime.getDate(), 23, 59, 59);
-    const expiresAt = new Date(todayEnd.getTime() - (9 * 60 * 60 * 1000)); // UTCに戻す
+    const expiresAt = getTodayEndTime();
 
     connection = await pool.getConnection();
     await connection.execute(`

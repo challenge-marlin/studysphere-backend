@@ -15,4 +15,7 @@ router.post('/issue', authenticateToken, TempPasswordController.issueTempPasswor
 // 一時パスワード一覧を取得
 router.get('/list', authenticateToken, TempPasswordController.getTempPasswords);
 
+// 一時パスワード状態確認（認証不要）
+router.get('/status/:login_code', TempPasswordController.checkTempPasswordStatus);
+
 module.exports = router;
