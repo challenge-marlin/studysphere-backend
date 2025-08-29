@@ -240,12 +240,32 @@ app.get('/api/debug/routes', (req, res) => {
         path: middleware.route.path,
         methods: Object.keys(middleware.route.methods)
       });
+    } else if (middleware.name === 'router') {
+      // ルーターの場合は、そのルーター内のルートも確認
+      middleware.handle.stack.forEach((handler) => {
+        if (handler.route) {
+          routes.push({
+            path: middleware.regexp.source + handler.route.path,
+            methods: Object.keys(handler.route.methods)
+          });
+        }
+      });
     }
   });
   res.json({ routes });
 });
 
+// 一括利用者追加エンドポイントのテスト
+app.get('/api/debug/bulk-test', (req, res) => {
+  res.json({ 
+    message: '一括利用者追加エンドポイントのテスト',
+    timestamp: new Date().toISOString(),
+    available: true
+  });
+});
+
 // ルーターマウント（機能別に切り分け）
+// より具体的なパスを先に配置
 app.use('/api/companies', companyRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/satellites', satelliteRoutes);
@@ -266,8 +286,9 @@ app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/remote-support', remoteSupportRoutes);
-app.use('/api', authRoutes);
 app.use('/api/test', testRoutes);
+// authRoutesを最後に配置（汎用的なパスのため）
+app.use('/api', authRoutes);
 
 // ルートエンドポイント
 app.get('/', (req, res) => {
@@ -281,6 +302,17 @@ app.get('/', (req, res) => {
 
 // ヘルスチェックエンドポイント
 app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    version: process.version
+  });
+});
+
+// APIヘルスチェックエンドポイント
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -574,5 +606,21 @@ app.use((err, req, res, next) => {
     error: process.env.NODE_ENV === 'development' ? err.message : 'INTERNAL_SERVER_ERROR'
   });
 });
+
+// 起動時のログ出力
+console.log('=== StudySphere Backend Starting ===');
+console.log('Environment:', process.env.NODE_ENV || 'development');
+console.log('Timestamp:', new Date().toISOString());
+
+// 利用可能なルートの確認
+setTimeout(() => {
+  console.log('=== Available Routes ===');
+  app._router.stack.forEach((middleware) => {
+    if (middleware.name === 'router') {
+      console.log(`Router mounted at: ${middleware.regexp.source}`);
+    }
+  });
+  console.log('=== Routes Check Complete ===');
+}, 1000);
 
 module.exports = app; 

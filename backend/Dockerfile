@@ -6,7 +6,8 @@ WORKDIR /app
 RUN apk add --no-cache \
     netcat-openbsd \
     mysql-client \
-    bash
+    bash \
+    dos2unix
 
 # パッケージマネージャーのキャッシュを活用
 COPY package*.json ./
@@ -18,11 +19,8 @@ RUN npm install -g nodemon
 # アプリケーションコードをコピー
 COPY . .
 
-# 起動スクリプトに実行権限を付与
-RUN chmod +x start.sh
-
 # ポート5000を公開
 EXPOSE 5000
 
-# 起動スクリプトを使用
-CMD ["./start.sh"] 
+# デフォルトコマンド（docker-compose.ymlで上書きされる）
+CMD ["npm", "run", "dev"] 

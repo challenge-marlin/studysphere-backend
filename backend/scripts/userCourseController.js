@@ -146,9 +146,12 @@ const getSatelliteAvailableCourses = async (req, res) => {
  */
 const getSatelliteAvailableCurriculumPaths = async (req, res) => {
   const { satelliteId } = req.params;
-  const connection = await pool.getConnection();
+  let connection;
   
   try {
+    // 接続プールから接続を取得
+    connection = await pool.getConnection();
+    
     // 拠点の無効化コースIDを取得
     let disabledCourseIds = [];
     const [satRows] = await connection.execute(
@@ -228,7 +231,9 @@ const getSatelliteAvailableCurriculumPaths = async (req, res) => {
       error: error.message
     });
   } finally {
-    connection.release();
+    if (connection) {
+      connection.release();
+    }
   }
 };
 

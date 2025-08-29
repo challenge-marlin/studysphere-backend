@@ -533,6 +533,9 @@ const getSatelliteStats = async (satelliteId) => {
       SELECT COUNT(*) as count
       FROM user_accounts
       WHERE role = 1 
+        AND satellite_ids IS NOT NULL 
+        AND satellite_ids != 'null' 
+        AND satellite_ids != '[]'
         AND JSON_CONTAINS(satellite_ids, ?)
         AND status = 1
     `, [JSON.stringify(satelliteId)]);

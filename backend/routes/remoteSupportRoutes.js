@@ -11,6 +11,15 @@ const upload = multer({
   }
 });
 
+// ヘルスチェックエンドポイント
+router.get('/health', (req, res) => {
+  res.status(200).json({ 
+    success: true, 
+    message: 'Remote Support API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // 画像アップロード（カメラ・スクリーンショット）
 router.post('/upload-capture', upload.fields([
   { name: 'photo', maxCount: 1 },

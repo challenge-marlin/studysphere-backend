@@ -466,6 +466,18 @@ const instructorLogin = async (username, password, companyId, satelliteId) => {
       company_name: satelliteInfo ? satelliteInfo.company_name : admin.company_name,
       satellite_id: satelliteId ? parseInt(satelliteId) : null,
       satellite_name: satelliteInfo ? satelliteInfo.satellite_name : null,
+      satellite_ids: satelliteId ? [parseInt(satelliteId)] : (admin.satellite_ids ? (() => {
+        try {
+          if (typeof admin.satellite_ids === 'string') {
+            const parsed = JSON.parse(admin.satellite_ids);
+            return Array.isArray(parsed) ? parsed : [parsed];
+          }
+          return Array.isArray(admin.satellite_ids) ? admin.satellite_ids : [admin.satellite_ids];
+        } catch (error) {
+          console.error('satellite_ids parse error:', error);
+          return [];
+        }
+      })() : []),
       password_reset_required: admin.password_reset_required === 1,
       access_token: accessToken,
       refresh_token: refreshToken
@@ -975,7 +987,14 @@ const getUserCompanySatelliteInfo = async (userId) => {
           ? JSON.parse(user.satellite_ids) 
           : user.satellite_ids;
         
-        if (satelliteIds.length > 0) {
+        console.log('ユーザーの拠点ID解析:', {
+          originalSatelliteIds: user.satellite_ids,
+          parsedSatelliteIds: satelliteIds,
+          isArray: Array.isArray(satelliteIds),
+          length: Array.isArray(satelliteIds) ? satelliteIds.length : 0
+        });
+        
+        if (Array.isArray(satelliteIds) && satelliteIds.length > 0) {
           const placeholders = satelliteIds.map(() => '?').join(',');
           const [satelliteRows] = await connection.execute(`
             SELECT 
@@ -996,9 +1015,15 @@ const getUserCompanySatelliteInfo = async (userId) => {
             FROM satellites s
             LEFT JOIN office_types ot ON s.office_type_id = ot.id
             LEFT JOIN companies c ON s.company_id = c.id
-            WHERE s.id IN (${placeholders})
+            WHERE s.id IN (${placeholders}) AND s.status = 1
             ORDER BY s.name
           `, satelliteIds);
+          
+          console.log('拠点情報取得結果:', {
+            requestedIds: satelliteIds,
+            foundSatellites: satelliteRows.length,
+            satelliteNames: satelliteRows.map(s => s.name)
+          });
           
           // 拠点管理者の判定を追加
           satellites = satelliteRows.map(satellite => {
@@ -1047,10 +1072,14 @@ const getUserCompanySatelliteInfo = async (userId) => {
               manager_ids: satellite.manager_ids // デバッグ用にmanager_idsも含める
             };
           });
+        } else {
+          console.log('拠点IDが空または無効な形式です:', satelliteIds);
         }
       } catch (error) {
         console.error('拠点情報の解析エラー:', error);
       }
+    } else {
+      console.log('ユーザーに拠点IDが設定されていません');
     }
     
     // 拠点管理者判定: この関数では管理者判定を行わない（拠点変更時の再認証処理で行う）

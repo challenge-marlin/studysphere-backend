@@ -15,6 +15,7 @@ const {
   changeInstructorPassword,
   issueTemporaryPassword,
   verifyTemporaryPassword,
+  markTempPasswordAsUsed,
   updateLoginCodes,
   getInstructorSpecializations,
   addInstructorSpecialization,
@@ -32,26 +33,45 @@ const {
   getSatelliteInstructorsForHomeSupport,
   bulkAddUserTags,
   removeUserTag,
-  getAllTags
+  getAllTags,
+  bulkCreateUsers
 } = require('../scripts/userController');
 
 const router = express.Router();
 
 // ユーザー一覧
 router.get('/', async (req, res) => {
-  const result = await getUsers();
-  if (result.success) {
-    res.json(result.data.users);
-  } else {
+  try {
+    console.log('=== 利用者一覧API呼び出し ===');
+    console.log('リクエストURL:', req.url);
+    console.log('リクエストメソッド:', req.method);
+    
+    const result = await getUsers();
+    console.log('getUsers関数実行完了');
+    
+    if (result.success) {
+      console.log('利用者一覧取得成功。件数:', result.data.count);
+      res.json(result.data.users);
+    } else {
+      console.log('利用者一覧取得失敗:', result.message);
+      res.status(500).json({
+        message: result.message,
+        error: result.error,
+      });
+    }
+  } catch (error) {
+    console.error('=== 利用者一覧APIエラー ===');
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
     res.status(500).json({
-      message: result.message,
-      error: result.error,
+      message: '利用者一覧の取得中にエラーが発生しました',
+      error: error.message,
     });
   }
 });
 
 // ユーザー作成
-router.post('/', async (req, res) => {
+router.post('/create', async (req, res) => {
   try {
     const result = await createUser(req.body);
     if (result.success) {
@@ -61,6 +81,43 @@ router.post('/', async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ success: false, message: 'ユーザーの作成に失敗しました', error: error.message });
+  }
+});
+
+// テスト用エンドポイント
+router.get('/bulk-test', (req, res) => {
+  res.json({ message: '一括利用者追加エンドポイントは利用可能です' });
+});
+
+// 一括利用者追加
+router.post('/bulk-create', async (req, res) => {
+  try {
+    console.log('=== 一括利用者追加API呼び出し ===');
+    console.log('リクエストボディ:', req.body);
+    console.log('リクエストURL:', req.url);
+    console.log('リクエストメソッド:', req.method);
+    console.log('Content-Type:', req.headers['content-type']);
+    
+    if (!req.body || !req.body.users) {
+      console.log('リクエストボディまたはusersプロパティが存在しません');
+      return res.status(400).json({
+        success: false,
+        message: '利用者データが正しく指定されていません',
+        receivedBody: req.body
+      });
+    }
+    
+    console.log('bulkCreateUsers関数を呼び出します');
+    await bulkCreateUsers(req, res);
+  } catch (error) {
+    console.error('一括利用者追加エラー:', error);
+    console.error('エラースタック:', error.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: '一括利用者追加に失敗しました', 
+      error: error.message,
+      stack: error.stack
+    });
   }
 });
 
@@ -388,6 +445,21 @@ router.delete('/:userId/tags/:tagName', authenticateToken, removeUserTag);
 
 // 全タグ一覧を取得
 router.get('/tags/all', authenticateToken, getAllTags);
+
+// ログアウト時に一時パスワードを使用済みにマーク
+router.post('/:userId/mark-temp-password-used', async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const result = await markTempPasswordAsUsed(userId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: '一時パスワードの使用済みマークに失敗しました', 
+      error: error.message 
+    });
+  }
+});
 
 module.exports = router;
 

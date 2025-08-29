@@ -221,13 +221,15 @@ const createTextVideoLink = async (req, res) => {
 
 // テキストと動画の紐づけ更新
 const updateTextVideoLink = async (req, res) => {
+  const connection = await pool.getConnection();
+  
   try {
     const { id } = req.params;
     const { text_file_key, video_id, link_order } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.user_id || req.user?.id;
     
     // 既存の紐づけを確認
-    const [existing] = await db.execute(
+    const [existing] = await connection.execute(
       'SELECT * FROM lesson_text_video_links WHERE id = ?',
       [id]
     );
@@ -243,7 +245,7 @@ const updateTextVideoLink = async (req, res) => {
     
     // 動画の存在確認（video_idが変更される場合）
     if (video_id && video_id !== currentLink.video_id) {
-      const [videos] = await db.execute('SELECT id FROM lesson_videos WHERE id = ?', [video_id]);
+      const [videos] = await connection.execute('SELECT id FROM lesson_videos WHERE id = ?', [video_id]);
       if (videos.length === 0) {
         return res.status(400).json({
           success: false,
@@ -255,7 +257,7 @@ const updateTextVideoLink = async (req, res) => {
     // 重複チェック（text_file_keyまたはvideo_idが変更される場合）
     if ((text_file_key && text_file_key !== currentLink.text_file_key) || 
         (video_id && video_id !== currentLink.video_id)) {
-      const [duplicate] = await db.execute(
+      const [duplicate] = await connection.execute(
         'SELECT id FROM lesson_text_video_links WHERE lesson_id = ? AND text_file_key = ? AND video_id = ? AND id != ?',
         [currentLink.lesson_id, text_file_key || currentLink.text_file_key, video_id || currentLink.video_id, id]
       );
@@ -279,7 +281,7 @@ const updateTextVideoLink = async (req, res) => {
       WHERE id = ?
     `;
     
-    await db.execute(query, [
+    await connection.execute(query, [
       text_file_key,
       video_id,
       link_order,
@@ -292,20 +294,24 @@ const updateTextVideoLink = async (req, res) => {
       message: 'テキストと動画の紐づけが更新されました'
     });
   } catch (error) {
-    logger.error('テキストと動画の紐づけ更新エラー:', error);
+    customLogger.error('テキストと動画の紐づけ更新エラー:', error);
     res.status(500).json({
       success: false,
       message: 'テキストと動画の紐づけ更新中にエラーが発生しました'
     });
+  } finally {
+    connection.release();
   }
 };
 
 // テキストと動画の紐づけ削除
 const deleteTextVideoLink = async (req, res) => {
+  const connection = await pool.getConnection();
+  
   try {
     const { id } = req.params;
     
-    const [existing] = await db.execute(
+    const [existing] = await connection.execute(
       'SELECT * FROM lesson_text_video_links WHERE id = ?',
       [id]
     );
@@ -317,23 +323,27 @@ const deleteTextVideoLink = async (req, res) => {
       });
     }
     
-    await db.execute('DELETE FROM lesson_text_video_links WHERE id = ?', [id]);
+    await connection.execute('DELETE FROM lesson_text_video_links WHERE id = ?', [id]);
     
     res.json({
       success: true,
       message: 'テキストと動画の紐づけが削除されました'
     });
   } catch (error) {
-    logger.error('テキストと動画の紐づけ削除エラー:', error);
+    customLogger.error('テキストと動画の紐づけ削除エラー:', error);
     res.status(500).json({
       success: false,
       message: 'テキストと動画の紐づけ削除中にエラーが発生しました'
     });
+  } finally {
+    connection.release();
   }
 };
 
 // テキストと動画の紐づけ順序更新
 const updateTextVideoLinkOrder = async (req, res) => {
+  const connection = await pool.getConnection();
+  
   try {
     const { links } = req.body;
     
@@ -352,7 +362,7 @@ const updateTextVideoLinkOrder = async (req, res) => {
         });
       }
       
-      await db.execute(
+      await connection.execute(
         'UPDATE lesson_text_video_links SET link_order = ? WHERE id = ?',
         [link.link_order, link.id]
       );
@@ -363,19 +373,23 @@ const updateTextVideoLinkOrder = async (req, res) => {
       message: 'テキストと動画の紐づけ順序が更新されました'
     });
   } catch (error) {
-    logger.error('テキストと動画の紐づけ順序更新エラー:', error);
+    customLogger.error('テキストと動画の紐づけ順序更新エラー:', error);
     res.status(500).json({
       success: false,
       message: 'テキストと動画の紐づけ順序更新中にエラーが発生しました'
     });
+  } finally {
+    connection.release();
   }
 };
 
 // 複数紐づけの一括作成・更新
 const bulkUpsertTextVideoLinks = async (req, res) => {
+  const connection = await pool.getConnection();
+  
   try {
     const { lesson_id, links } = req.body;
-    const userId = req.user.id;
+    const userId = req.user?.user_id || req.user?.id;
     
     if (!lesson_id || !Array.isArray(links)) {
       return res.status(400).json({
@@ -385,7 +399,7 @@ const bulkUpsertTextVideoLinks = async (req, res) => {
     }
     
     // レッスンの存在確認
-    const [lessons] = await db.execute('SELECT id FROM lessons WHERE id = ?', [lesson_id]);
+    const [lessons] = await connection.execute('SELECT id FROM lessons WHERE id = ?', [lesson_id]);
     if (lessons.length === 0) {
       return res.status(400).json({
         success: false,
@@ -394,7 +408,7 @@ const bulkUpsertTextVideoLinks = async (req, res) => {
     }
     
     // 既存の紐づけを削除
-    await db.execute('DELETE FROM lesson_text_video_links WHERE lesson_id = ?', [lesson_id]);
+    await connection.execute('DELETE FROM lesson_text_video_links WHERE lesson_id = ?', [lesson_id]);
     
     // 新しい紐づけを作成
     for (let i = 0; i < links.length; i++) {
@@ -405,12 +419,12 @@ const bulkUpsertTextVideoLinks = async (req, res) => {
       }
       
       // 動画の存在確認
-      const [videos] = await db.execute('SELECT id FROM lesson_videos WHERE id = ?', [link.video_id]);
+      const [videos] = await connection.execute('SELECT id FROM lesson_videos WHERE id = ?', [link.video_id]);
       if (videos.length === 0) {
         continue; // 動画が存在しない場合はスキップ
       }
       
-      await db.execute(
+      await connection.execute(
         `INSERT INTO lesson_text_video_links 
          (lesson_id, text_file_key, video_id, link_order, created_by, updated_by)
          VALUES (?, ?, ?, ?, ?, ?)`,
@@ -423,11 +437,13 @@ const bulkUpsertTextVideoLinks = async (req, res) => {
       message: 'テキストと動画の紐づけが一括更新されました'
     });
   } catch (error) {
-    logger.error('テキストと動画の紐づけ一括更新エラー:', error);
+    customLogger.error('テキストと動画の紐づけ一括更新エラー:', error);
     res.status(500).json({
       success: false,
       message: 'テキストと動画の紐づけ一括更新中にエラーが発生しました'
     });
+  } finally {
+    connection.release();
   }
 };
 

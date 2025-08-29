@@ -13,14 +13,16 @@ const {
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const ACCESS_TOKEN_EXPIRY = '1h'; // 1時間に延長
 
-// リフレッシュトークンの有効期限を当日23:59までに設定
+// リフレッシュトークンの有効期限を24時間に設定
 const getRefreshTokenExpiry = () => {
-  // 日本時間の当日23:59:59を計算
-  const now = new Date();
-  const todayEnd = getTodayEndTime();
+  // 24時間の有効期限を設定
+  const expirySeconds = 24 * 60 * 60; // 24時間
   
-  // 現在時刻から当日23:59:59までの秒数を計算
-  const expirySeconds = Math.floor((todayEnd.getTime() - now.getTime()) / 1000);
+  console.log('リフレッシュトークン有効期限計算:', {
+    expirySeconds,
+    remainingHours: Math.floor(expirySeconds / 3600)
+  });
+  
   return `${expirySeconds}s`;
 };
 

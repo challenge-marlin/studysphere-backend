@@ -57,6 +57,149 @@ const getSatellites = async () => {
 };
 
 /**
+ * 拠点に所属するユーザー一覧取得
+ */
+const getSatelliteUsers = async (satelliteId, req) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 拠点に所属するユーザーを取得
+    const [rows] = await connection.execute(`
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.email,
+        ua.role,
+        ua.status,
+        ua.login_code,
+        ua.company_id,
+        ua.satellite_ids,
+        ua.is_remote_user,
+        ua.recipient_number,
+        ua.password_reset_required,
+        ua.instructor_id,
+        c.name as company_name,
+        instructor.name as instructor_name
+      FROM user_accounts ua
+      LEFT JOIN companies c ON ua.company_id = c.id
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      ORDER BY ua.name
+    `, [JSON.stringify(satelliteId)]);
+    
+    console.log('拠点別ユーザー取得完了。件数:', rows.length);
+    console.log('拠点ID:', satelliteId);
+    console.log('ユーザーサンプル:', rows.slice(0, 3).map(u => ({ id: u.id, name: u.name, satellite_ids: u.satellite_ids })));
+    
+    // タグ情報を取得（拠点に所属するユーザーのみ）
+    let userTags = [];
+    try {
+      const [tagRows] = await connection.execute(`
+        SELECT ut.user_id, ut.tag_name
+        FROM user_tags ut
+        JOIN user_accounts ua ON ut.user_id = ua.id
+        WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      `, [JSON.stringify(satelliteId)]);
+      userTags = tagRows;
+      console.log('拠点別タグ情報取得完了。件数:', userTags.length);
+    } catch (tagError) {
+      console.error('タグ情報取得エラー:', tagError);
+    }
+    
+    // タグ情報をマップ化
+    const tagMap = {};
+    userTags.forEach(tag => {
+      if (!tagMap[tag.user_id]) {
+        tagMap[tag.user_id] = [];
+      }
+      tagMap[tag.user_id].push(tag.tag_name);
+    });
+
+    // コース情報を取得（拠点に所属するユーザーのみ）
+    let userCourses = [];
+    try {
+      const [courseRows] = await connection.execute(`
+        SELECT 
+          uc.user_id,
+          c.title as course_title,
+          c.category as course_category
+        FROM user_courses uc
+        JOIN courses c ON uc.course_id = c.id
+        JOIN user_accounts ua ON uc.user_id = ua.id
+        WHERE uc.status = 'active' AND c.status = 'active'
+          AND JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      `, [JSON.stringify(satelliteId)]);
+      userCourses = courseRows;
+      console.log('拠点別コース情報取得完了。件数:', userCourses.length);
+      console.log('拠点別コース情報サンプル:', userCourses.slice(0, 3));
+    } catch (courseError) {
+      console.error('コース情報取得エラー:', courseError);
+    }
+    
+    // コース情報をマップ化
+    const courseMap = {};
+    userCourses.forEach(course => {
+      if (!courseMap[course.user_id]) {
+        courseMap[course.user_id] = [];
+      }
+      courseMap[course.user_id].push({
+        title: course.course_title,
+        category: course.course_category
+      });
+    });
+    
+    console.log('拠点別コースマップサンプル:', Object.keys(courseMap).slice(0, 3).map(key => ({ user_id: key, courses: courseMap[key] })));
+    
+    // ユーザー情報にタグとコース情報を追加
+    const processedRows = rows.map(user => {
+      const processedUser = { ...user };
+      
+      // タグ情報を処理
+      let allTags = [];
+      
+      // 通常のタグ
+      if (tagMap[user.id]) {
+        allTags = [...allTags, ...tagMap[user.id]];
+      }
+      
+      // 在宅支援タグ
+      if (user.is_remote_user === 1) {
+        allTags.push('在宅支援');
+      }
+      
+      // 重複を除去してタグを設定
+      processedUser.tags = [...new Set(allTags)];
+      
+      // コース情報を追加
+      processedUser.courses = courseMap[user.id] || [];
+      
+      return processedUser;
+    });
+    
+    return {
+      success: true,
+      data: processedRows
+    };
+  } catch (error) {
+    console.error('拠点ユーザー一覧取得エラー:', error);
+    return {
+      success: false,
+      message: '拠点ユーザー一覧の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
  * 拠点情報をIDで取得
  */
 const getSatelliteById = async (id) => {
@@ -210,8 +353,12 @@ const createSatellite = async (satelliteData) => {
     const tokenIssuedAt = new Date();
     const tokenExpiryAt = calculateExpiryDate(contract_type || '30days');
     
-    // 日本時間として保存するため、UTCに変換
-    const utcExpiryAt = new Date(tokenExpiryAt.getTime() - (9 * 60 * 60 * 1000)); // JSTからUTCに変換（-9時間）
+    // 日本時間のまま保存
+    console.log('トークン有効期限設定:', {
+      contractType: contract_type || '30days',
+      tokenExpiryAt: tokenExpiryAt.toISOString(),
+      japanTime: tokenExpiryAt.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+    });
     
     let officeTypeId = office_type_id;
     
@@ -236,7 +383,7 @@ const createSatellite = async (satelliteData) => {
     const [result] = await connection.execute(`
       INSERT INTO satellites (company_id, name, address, phone, office_type_id, token, token_issued_at, token_expiry_at, contract_type, max_users)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [company_id, name, address, phone, officeTypeId, token, tokenIssuedAt, utcExpiryAt, contract_type || '30days', max_users || 10]);
+    `, [company_id, name, address, phone, officeTypeId, token, tokenIssuedAt, tokenExpiryAt, contract_type || '30days', max_users || 10]);
 
     const satelliteId = result.insertId;
     
@@ -389,11 +536,10 @@ const updateSatellite = async (id, satelliteData) => {
       updateValues.push(jsonValue);
     }
     if (token_expiry_at !== undefined) {
-      // 日本時間として保存するため、UTCに変換
+      // 日本時間のまま保存
       const japanDate = new Date(token_expiry_at);
-      const utcDate = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000)); // JSTからUTCに変換（-9時間）
       updateFields.push('token_expiry_at = ?');
-      updateValues.push(utcDate.toISOString().slice(0, 19).replace('T', ' '));
+      updateValues.push(japanDate.toISOString().slice(0, 19).replace('T', ' '));
     }
     
     if (updateFields.length === 0) {
@@ -544,8 +690,8 @@ const deleteSatellite = async (id) => {
 
     // 関連するユーザーがいるかチェック
     const [userRows] = await connection.execute(
-      'SELECT COUNT(*) as count FROM user_accounts WHERE satellite_id = ?',
-      [id]
+      'SELECT COUNT(*) as count FROM user_accounts WHERE satellite_ids IS NOT NULL AND satellite_ids != "null" AND satellite_ids != "[]" AND JSON_CONTAINS(satellite_ids, ?)',
+      [JSON.stringify(id)]
     );
 
     if (userRows[0].count > 0) {
@@ -954,5 +1100,6 @@ module.exports = {
   addSatelliteManager,
   removeSatelliteManager,
   getSatelliteDisabledCourses,
-  setSatelliteDisabledCourses
+  setSatelliteDisabledCourses,
+  getSatelliteUsers
 }; 

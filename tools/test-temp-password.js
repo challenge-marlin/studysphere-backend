@@ -130,11 +130,7 @@ const testVerifyTemporaryPassword = async (loginCode, tempPassword) => {
       return false;
     }
 
-    // パスワードを使用済みにマーク
-    await connection.execute(
-      'UPDATE user_temp_passwords SET is_used = 1, used_at = NOW() WHERE user_id = ? AND temp_password = ?',
-      [user.id, tempPassword]
-    );
+    // ログイン時は使用済みフラグを更新しない（ログアウト時に更新）
 
     console.log('ログイン成功:', user.name);
     return true;

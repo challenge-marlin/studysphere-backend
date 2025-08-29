@@ -402,7 +402,7 @@ CREATE TABLE IF NOT EXISTS lesson_videos (
 CREATE TABLE IF NOT EXISTS lesson_text_video_links (
     id INT AUTO_INCREMENT PRIMARY KEY COMMENT '紐づけID',
     lesson_id INT NOT NULL COMMENT '関連レッスンID',
-    text_file_key VARCHAR(1024) NOT NULL COMMENT 'テキストファイルのS3キー',
+    text_file_key VARCHAR(255) NOT NULL COMMENT 'テキストファイルのS3キー',
     video_id INT NOT NULL COMMENT '関連動画ID',
     link_order INT NOT NULL DEFAULT 0 COMMENT '紐づけ順序',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',

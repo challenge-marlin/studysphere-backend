@@ -3,7 +3,6 @@ const {
   getSatellites,
   getSatelliteById,
   getSatellitesByIds,
-  getSatelliteUsers,
   createSatellite,
   updateSatellite,
   deleteSatellite,
@@ -19,6 +18,10 @@ const {
   getSatelliteDisabledCourses,
   setSatelliteDisabledCourses,
 } = require('../scripts/satelliteController');
+
+const {
+  getSatelliteUsers,
+} = require('../scripts/userController');
 const {
   getSatelliteInstructors,
   getSatelliteStats,
@@ -28,6 +31,7 @@ const {
   satelliteUpdateValidation,
   handleValidationErrors,
 } = require('../middleware/validation');
+const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -136,18 +140,37 @@ router.get('/:id/users/count', async (req, res) => {
 });
 
 // 拠点に所属するユーザー一覧取得
-router.get('/:id/users', async (req, res) => {
-  const satelliteId = parseInt(req.params.id);
-  const result = await getSatelliteUsers(satelliteId);
-  if (result.success) {
-    res.json(result.data);
-  } else {
-    res.status(404).json({ message: result.message, error: result.error });
+router.get('/:id/users', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== 拠点ユーザー取得エンドポイント開始 ===');
+    console.log('リクエストパラメータ:', req.params);
+    console.log('リクエストユーザー:', req.user);
+    
+    const satelliteId = parseInt(req.params.id);
+    console.log('解析された拠点ID:', satelliteId);
+    
+    const result = await getSatelliteUsers(satelliteId, req);
+    console.log('getSatelliteUsers結果:', result);
+    
+    if (result.success) {
+      console.log('成功レスポンスを返却');
+      res.json(result);
+    } else {
+      console.log('エラーレスポンスを返却:', result);
+      res.status(404).json({ message: result.message, error: result.error });
+    }
+  } catch (error) {
+    console.error('拠点ユーザー取得エンドポイントエラー:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'サーバーエラーが発生しました', 
+      error: error.message 
+    });
   }
 });
 
 // 拠点内指導員一覧取得（専門分野含む）
-router.get('/:satelliteId/instructors', async (req, res) => {
+router.get('/:satelliteId/instructors', authenticateToken, async (req, res) => {
   const satelliteId = parseInt(req.params.satelliteId);
   const result = await getSatelliteInstructors(satelliteId);
   res.status(result.success ? 200 : 400).json({

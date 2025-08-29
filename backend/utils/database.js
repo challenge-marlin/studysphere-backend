@@ -3,63 +3,79 @@ const dbConfig = require('../config/database');
 const { customLogger } = require('./logger');
 
 // MySQL接続プールの作成
-const pool = mysql.createPool({
+let pool = mysql.createPool({
   ...dbConfig,
   // 接続プールの設定を最適化
-  timeout: 60000, // クエリタイムアウト
+  timeout: 120000, // クエリタイムアウトを2分に延長
   reconnect: true, // 自動再接続
   // 接続プールの監視設定
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
+  keepAliveInitialDelay: 10000, // KeepAlive開始を遅延
   // 接続プールのサイズ制限
-  connectionLimit: 10, // 接続数を適切に制限
-  queueLimit: 5, // キュー制限を設定
+  connectionLimit: 50, // 接続数を大幅に増加
+  queueLimit: 20, // キュー制限を増加
   // 接続の有効期限
-  maxIdle: 60000, // アイドル接続の最大時間（ミリ秒）
+  maxIdle: 600000, // アイドル接続の最大時間を10分に延長
+  // 接続の再利用設定
+  acquireTimeout: 120000, // 接続取得タイムアウトを2分に延長
+  waitForConnections: true, // 接続を待機
+  // 接続の検証設定を無効化（接続が閉じられる原因となるため）
+  // validateConnection: async (connection) => {
+  //   try {
+  //     await connection.ping();
+  //     return true;
+  //   } catch (error) {
+  //     customLogger.error('接続検証に失敗', { error: error.message });
+  //     return false;
+  //   }
+  // },
+  // 接続の再利用を改善
+  multipleStatements: false, // 複数ステートメントを無効化
+  dateStrings: true, // 日付を文字列として扱う
+  // 接続の安定性を向上
+  supportBigNumbers: true,
+  bigNumberStrings: true,
+  // 接続の安定性をさらに向上
+  charset: 'utf8mb4',
+  collation: 'utf8mb4_unicode_ci',
+  // 接続の安定性をさらに向上
+  ssl: false, // SSLを無効化
+  compress: false, // 圧縮を無効化
+  // 接続の再利用を改善
+  reuseConnection: true
 });
 
-// 接続プールの状態監視
+// 接続プールの状態監視（簡素化）
 pool.on('connection', (connection) => {
   customLogger.info('新しいデータベース接続が作成されました', {
     threadId: connection.threadId
   });
-  
-  // 接続エラーの監視
-  connection.on('error', (err) => {
-    customLogger.error('データベース接続エラー', {
-      error: err.message,
-      code: err.code,
-      threadId: connection.threadId
-    });
-    
-    // エラーが発生した接続を適切に処理
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      customLogger.warn('データベース接続が失われました。再接続を試行します。', {
-        threadId: connection.threadId
-      });
-    }
-  });
 });
 
-pool.on('acquire', (connection) => {
-  customLogger.debug('接続がプールから取得されました', {
-    threadId: connection.threadId
-  });
-});
-
-pool.on('release', (connection) => {
-  customLogger.debug('接続がプールに返されました', {
-    threadId: connection.threadId
-  });
-});
-
-// プールエラーの監視
+// プールエラーの監視（簡素化）
 pool.on('error', (err) => {
   customLogger.error('接続プールエラー', {
     error: err.message,
     code: err.code
   });
 });
+
+// 接続プールの状態監視を無効化（接続が閉じられる原因となるため）
+// setInterval(() => {
+//   try {
+//     const poolStatus = getPoolStatus();
+//     if (poolStatus) {
+//       customLogger.debug('接続プール状態', {
+//         totalConnections: poolStatus.totalConnections,
+//         activeConnections: poolStatus.activeConnections,
+//         idleConnections: poolStatus.idleConnections,
+//         waitingConnections: poolStatus.waitingConnections
+//       });
+//     }
+//   } catch (error) {
+//     customLogger.error('接続プール状態監視エラー', { error: error.message });
+//   }
+// }, 30000); // 30秒ごとに監視
 
 // データベース接続テスト
 const testConnection = async () => {
@@ -106,14 +122,7 @@ const testConnection = async () => {
     };
   } finally {
     if (connection) {
-      try {
-        connection.release();
-      } catch (releaseError) {
-        customLogger.error('接続の解放に失敗', {
-          error: releaseError.message,
-          threadId: connection.threadId
-        });
-      }
+      connection.release();
     }
   }
 };
@@ -125,6 +134,7 @@ const executeQuery = async (query, params = []) => {
   
   try {
     connection = await pool.getConnection();
+    
     const [rows] = await connection.execute(query, params);
     const duration = Date.now() - startTime;
     
@@ -146,17 +156,12 @@ const executeQuery = async (query, params = []) => {
       threadId: connection?.threadId
     });
     
+
+    
     return { success: false, error: error.message };
   } finally {
     if (connection) {
-      try {
-        connection.release();
-      } catch (releaseError) {
-        customLogger.error('接続の解放に失敗', {
-          error: releaseError.message,
-          threadId: connection.threadId
-        });
-      }
+      connection.release();
     }
   }
 };
@@ -247,8 +252,8 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// 定期的なクリーンアップの実行（5分ごと）
-setInterval(cleanupPool, 5 * 60 * 1000);
+// 定期的なクリーンアップを無効化（接続が閉じられる原因となるため）
+// setInterval(cleanupPool, 5 * 60 * 1000);
 
 module.exports = {
   pool,

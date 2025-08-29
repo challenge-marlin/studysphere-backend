@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # MySQL Database
   db:
@@ -15,7 +13,8 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # 開発時は初期化SQLのマウントを無効にする
+      # - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - app-network
     command: >
@@ -37,9 +36,21 @@ services:
 
   # Node.js Application
   backend:
+    image: studysphere-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
+    command: >
+      sh -c "
+        echo 'Waiting for database to be ready...' &&
+        while ! mysql --skip-ssl -h$$DB_HOST -u$$DB_USER -p$$DB_PASSWORD -e 'SELECT 1;' --silent; do
+          echo 'Database is not ready yet. Waiting...' &&
+          sleep 2
+        done &&
+        echo 'Database is ready!' &&
+        echo 'Starting application with nodemon...' &&
+        npm run dev
+      "
     container_name: express_app
     restart: always
     ports:
@@ -64,9 +75,10 @@ services:
         condition: service_healthy
     networks:
       - app-network
-    volumes:
-      - ./backend:/app
-      - node_modules:/app/node_modules
+    # 開発時はボリュームマウントを無効にして、イメージ内のファイルを使用
+    # volumes:
+    #   - ./backend:/app
+    #   - node_modules:/app/node_modules
     healthcheck:
       test: [
         "CMD",

@@ -46,59 +46,76 @@ const isPasswordValid = (expiryTime) => {
   return !isExpired(expiryTime);
 };
 
+
+
 // ユーザー一覧取得
 const getUsers = async () => {
   let connection;
   try {
-    connection = await pool.getConnection();
+    console.log('=== ユーザー一覧取得開始 ===');
     
-    // ユーザー情報を取得（JSON形式のsatellite_idsを適切に処理）
-    const [rows] = await connection.execute(`
-      SELECT 
-        ua.*,
-        CASE 
-          WHEN ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' 
-          THEN JSON_UNQUOTE(ua.satellite_ids)
-          ELSE NULL 
-        END as satellite_ids_processed,
-        ac.username,
-        instructor.name as instructor_name,
-        utp.temp_password,
-        utp.expires_at,
-        utp.is_used,
-        GROUP_CONCAT(DISTINCT ut.tag_name) as tags_processed,
-        GROUP_CONCAT(DISTINCT 
-          CASE 
-            WHEN ua.is_remote_user = 1 THEN '在宅支援'
-            ELSE NULL 
-          END
-        ) as home_support_tags,
-        GROUP_CONCAT(DISTINCT c.title) as course_names
-      FROM user_accounts ua
-      LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
-      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
-              LEFT JOIN user_temp_passwords utp ON ua.id = utp.user_id AND utp.is_used = 0
-      LEFT JOIN user_tags ut ON ua.id = ut.user_id
-      LEFT JOIN user_courses uc ON ua.id = uc.user_id
-      LEFT JOIN courses c ON uc.course_id = c.id
-      GROUP BY ua.id, ua.name, ua.email, ua.role, ua.status, ua.login_code, ua.company_id, ua.satellite_ids, ua.is_remote_user, ua.recipient_number, ua.password_reset_required, ua.instructor_id, ac.username, instructor.name, utp.temp_password, utp.expires_at, utp.is_used
-    `);
+    // データベース接続を取得
+    try {
+      connection = await pool.getConnection();
+      console.log('データベース接続取得成功');
+    } catch (connError) {
+      console.error('データベース接続エラー:', connError);
+      return {
+        success: false,
+        message: 'データベース接続に失敗しました',
+        error: connError.message
+      };
+    }
     
-    console.log('=== ユーザー一覧取得 ===');
-    console.log('取得したユーザー数:', rows.length);
-    // ロール4以上のユーザーのusernameを確認
-    const adminUsers = rows.filter(row => row.role >= 4);
-    console.log('管理者・指導員ユーザー:', adminUsers.map(u => ({ id: u.id, name: u.name, username: u.username, role: u.role })));
+    // 基本的なユーザー情報を取得（担当指導員名も含む）
+    console.log('基本的なユーザー情報を取得中...');
+    let rows;
+    try {
+      [rows] = await connection.execute(`
+        SELECT 
+          ua.id,
+          ua.name,
+          ua.email,
+          ua.role,
+          ua.status,
+          ua.login_code,
+          ua.company_id,
+          ua.satellite_ids,
+          ua.is_remote_user,
+          ua.recipient_number,
+          ua.password_reset_required,
+          ua.instructor_id,
+          instructor.name as instructor_name
+        FROM user_accounts ua
+        LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+        ORDER BY ua.id
+      `);
+      console.log('基本的なユーザー情報取得完了。ユーザー数:', rows.length);
+    } catch (queryError) {
+      console.error('SQLクエリエラー:', queryError);
+      return {
+        success: false,
+        message: 'ユーザー情報の取得に失敗しました',
+        error: queryError.message
+      };
+    }
     
     // 拠点情報を取得
-    const [satellites] = await connection.execute(`
-      SELECT s.*, c.name as company_name, ot.type as office_type_name
-      FROM satellites s
-      LEFT JOIN companies c ON s.company_id = c.id
-      LEFT JOIN office_types ot ON s.office_type_id = ot.id
-    `);
-    console.log('取得した拠点数:', satellites.length);
-    console.log('拠点データ:', satellites);
+    console.log('拠点情報を取得中...');
+    let satellites = [];
+    try {
+      const [satelliteRows] = await connection.execute(`
+        SELECT s.*, c.name as company_name, ot.type as office_type_name
+        FROM satellites s
+        LEFT JOIN companies c ON s.company_id = c.id
+        LEFT JOIN office_types ot ON s.office_type_id = ot.id
+      `);
+      satellites = satelliteRows;
+      console.log('拠点情報取得完了。拠点数:', satellites.length);
+    } catch (satelliteError) {
+      console.error('拠点情報取得エラー:', satelliteError);
+      // 拠点情報が取得できなくても続行
+    }
     
     // 拠点情報をマップ化
     const satelliteMap = {};
@@ -112,96 +129,129 @@ const getUsers = async () => {
         office_type_name: sat.office_type_name
       };
     });
-    console.log('拠点マップ:', satelliteMap);
     
-    // 進行度を計算する関数
-    const calculateProgress = async (userId) => {
-      try {
-        // カリキュラム進行状況を取得
-        const [progressRows] = await connection.execute(`
-          SELECT 
-            curriculum_name,
-            session_number,
-            chapter_number,
-            deliverable_confirmed,
-            test_passed
-          FROM curriculum_progress 
-          WHERE user_id = ?
-        `, [userId]);
-        
-        if (progressRows.length === 0) {
-          // カリキュラムが紐づいていない場合は0を返す
-          return 0;
-        }
-        
-        // 進行度を計算（完了した章の割合）
-        let totalChapters = 0;
-        let completedChapters = 0;
-        
-        progressRows.forEach(row => {
-          totalChapters++;
-          if (row.deliverable_confirmed && row.test_passed) {
-            completedChapters++;
-          }
-        });
-        
-        return totalChapters > 0 ? Math.round((completedChapters / totalChapters) * 100) : 0;
-      } catch (error) {
-        console.error('進行度計算エラー:', error);
-        return 0;
+    // 一時パスワード情報を取得
+    console.log('一時パスワード情報を取得中...');
+    let tempPasswords = [];
+    try {
+      const [tempPasswordRows] = await connection.execute(`
+        SELECT user_id, temp_password, expires_at, is_used
+        FROM user_temp_passwords 
+        WHERE is_used = 0
+      `);
+      tempPasswords = tempPasswordRows;
+      console.log('一時パスワード情報取得完了。件数:', tempPasswords.length);
+    } catch (tempPasswordError) {
+      console.error('一時パスワード情報取得エラー:', tempPasswordError);
+      // 一時パスワード情報が取得できなくても続行
+    }
+    
+    // 一時パスワード情報をマップ化
+    const tempPasswordMap = {};
+    tempPasswords.forEach(tp => {
+      tempPasswordMap[tp.user_id] = {
+        temp_password: tp.temp_password,
+        expires_at: tp.expires_at,
+        is_used: tp.is_used
+      };
+    });
+    
+    // タグ情報を取得
+    console.log('タグ情報を取得中...');
+    let userTags = [];
+    try {
+      const [tagRows] = await connection.execute(`
+        SELECT user_id, tag_name
+        FROM user_tags
+      `);
+      userTags = tagRows;
+      console.log('タグ情報取得完了。件数:', userTags.length);
+    } catch (tagError) {
+      console.error('タグ情報取得エラー:', tagError);
+      // タグ情報が取得できなくても続行
+    }
+    
+    // タグ情報をマップ化
+    const tagMap = {};
+    userTags.forEach(tag => {
+      if (!tagMap[tag.user_id]) {
+        tagMap[tag.user_id] = [];
       }
-    };
+      tagMap[tag.user_id].push(tag.tag_name);
+    });
+
+    // コース情報を取得
+    console.log('コース情報を取得中...');
+    let userCourses = [];
+    try {
+      const [courseRows] = await connection.execute(`
+        SELECT 
+          uc.user_id,
+          c.title as course_title,
+          c.category as course_category
+        FROM user_courses uc
+        JOIN courses c ON uc.course_id = c.id
+        WHERE uc.status = 'active' AND c.status = 'active'
+      `);
+      userCourses = courseRows;
+      console.log('コース情報取得完了。件数:', userCourses.length);
+      console.log('コース情報サンプル:', userCourses.slice(0, 3));
+    } catch (courseError) {
+      console.error('コース情報取得エラー:', courseError);
+      // コース情報が取得できなくても続行
+    }
     
-    // ユーザー情報に拠点情報を追加
-    const processedRows = await Promise.all(rows.map(async (row) => {
+    // コース情報をマップ化
+    const courseMap = {};
+    userCourses.forEach(course => {
+      if (!courseMap[course.user_id]) {
+        courseMap[course.user_id] = [];
+      }
+      courseMap[course.user_id].push({
+        title: course.course_title,
+        category: course.course_category
+      });
+    });
+    
+    console.log('コースマップサンプル:', Object.keys(courseMap).slice(0, 3).map(key => ({ user_id: key, courses: courseMap[key] })));
+    
+    // ユーザー情報を処理
+    console.log('ユーザー情報を処理中...');
+    const processedRows = [];
+    
+    for (const row of rows) {
       const user = { ...row };
       
-      // 進行度を計算（ロール1の利用者のみ）
-      if (user.role === 1) {
-        user.progress = await calculateProgress(user.id);
-      } else {
-        user.progress = 0; // 管理者・指導員は進行度なし
+      // 一時パスワード情報を追加
+      if (tempPasswordMap[user.id]) {
+        user.temp_password = tempPasswordMap[user.id].temp_password;
+        user.expires_at = tempPasswordMap[user.id].expires_at;
+        user.is_used = tempPasswordMap[user.id].is_used;
       }
       
       // satellite_idsから拠点情報を取得
       let satelliteDetails = [];
-      if (user.satellite_ids_processed) {
+      if (user.satellite_ids) {
         try {
           let satelliteIds;
           
-          // satellite_ids_processedを使用して処理
-          if (typeof user.satellite_ids_processed === 'string') {
-            satelliteIds = JSON.parse(user.satellite_ids_processed);
-          } else if (Array.isArray(user.satellite_ids_processed)) {
-            satelliteIds = user.satellite_ids_processed;
+          if (typeof user.satellite_ids === 'string') {
+            satelliteIds = JSON.parse(user.satellite_ids);
+          } else if (Array.isArray(user.satellite_ids)) {
+            satelliteIds = user.satellite_ids;
           } else {
-            satelliteIds = [user.satellite_ids_processed];
+            satelliteIds = [user.satellite_ids];
           }
           
-          console.log(`ユーザー${user.id}の拠点ID:`, satelliteIds);
-          console.log(`ユーザー${user.id}の拠点IDの型:`, typeof satelliteIds);
-          console.log(`拠点マップのキー:`, Object.keys(satelliteMap));
-          
-          // satelliteIdsが配列でない場合は配列に変換
           const idsArray = Array.isArray(satelliteIds) ? satelliteIds : [satelliteIds];
           
           satelliteDetails = idsArray
-            .map(id => {
-              const mappedSatellite = satelliteMap[Number(id)];
-              console.log(`拠点ID ${id} のマッピング結果:`, mappedSatellite);
-              return mappedSatellite;
-            })
-            .filter(sat => sat); // nullの要素を除外
-          console.log(`ユーザー${user.id}の拠点詳細:`, satelliteDetails);
+            .map(id => satelliteMap[Number(id)])
+            .filter(sat => sat);
         } catch (e) {
-          console.error('拠点IDのパースエラー:', e);
-          console.error('パース対象のsatellite_ids_processed:', user.satellite_ids_processed);
-          console.error('satellite_ids_processedの型:', typeof user.satellite_ids_processed);
-          console.error('元のsatellite_ids:', user.satellite_ids);
+          console.error(`ユーザー${user.id}の拠点IDパースエラー:`, e);
           satelliteDetails = [];
         }
-      } else {
-        console.log(`ユーザー${user.id}のsatellite_idsはnullまたはundefined`);
       }
       
       user.satellite_details = satelliteDetails;
@@ -210,55 +260,27 @@ const getUsers = async () => {
       let allTags = [];
       
       // 通常のタグ
-      if (user.tags_processed) {
-        try {
-          const tags = user.tags_processed.split(',').map(tag => tag.trim()).filter(tag => tag);
-          allTags = [...allTags, ...tags];
-        } catch (e) {
-          console.error('タグの処理エラー:', e);
-          console.error('処理対象のtags_processed:', user.tags_processed);
-        }
+      if (tagMap[user.id]) {
+        allTags = [...allTags, ...tagMap[user.id]];
       }
       
       // 在宅支援タグ
-      if (user.home_support_tags) {
-        try {
-          const homeSupportTags = user.home_support_tags.split(',').map(tag => tag.trim()).filter(tag => tag);
-          allTags = [...allTags, ...homeSupportTags];
-        } catch (e) {
-          console.error('在宅支援タグの処理エラー:', e);
-        }
-      }
-      
-      // 学習コースタグ
-      if (user.course_names) {
-        try {
-          const courseTags = user.course_names.split(',').map(course => course.trim()).filter(course => course);
-          allTags = [...allTags, ...courseTags];
-        } catch (e) {
-          console.error('学習コースタグの処理エラー:', e);
-        }
+      if (user.is_remote_user === 1) {
+        allTags.push('在宅支援');
       }
       
       // 重複を除去してタグを設定
       user.tags = [...new Set(allTags)];
       
-      // デバッグ用ログ
-      console.log(`ユーザー${user.id} (${user.name}) のタグ情報:`, {
-        tags_processed: user.tags_processed,
-        home_support_tags: user.home_support_tags,
-        course_names: user.course_names,
-        final_tags: user.tags,
-        is_remote_user: user.is_remote_user
-      });
+      // コース情報を追加
+      user.courses = courseMap[user.id] || [];
+      
+      // 進行度は0に設定（計算しない）
+      user.progress = 0;
       
       // 一時パスワードの有効期限を日本時間で返す
       if (user.expires_at) {
-        // データベースに保存されている日本時間をそのまま使用
-        const originalTime = user.expires_at;
         const dateObj = new Date(user.expires_at);
-        
-        // 日本時間として適切な形式で返す
         user.expires_at = dateObj.toLocaleString('ja-JP', {
           year: 'numeric',
           month: '2-digit',
@@ -267,17 +289,12 @@ const getUsers = async () => {
           minute: '2-digit',
           second: '2-digit'
         });
-        
-        // デバッグ用ログ
-        console.log(`ユーザー${user.id}の一時パスワード有効期限変換:`, {
-          original_time: originalTime,
-          date_obj: dateObj,
-          final_string: user.expires_at
-        });
       }
       
-      return user;
-    }));
+      processedRows.push(user);
+    }
+    
+    console.log('ユーザー情報処理完了');
     
     return {
       success: true,
@@ -287,18 +304,23 @@ const getUsers = async () => {
       }
     };
   } catch (error) {
-    console.error('Error fetching users:', error);
+    console.error('=== ユーザー一覧取得エラー ===');
+    console.error('エラーメッセージ:', error.message);
+    console.error('エラースタック:', error.stack);
+    console.error('エラーコード:', error.code);
+    
     return {
       success: false,
-      message: 'Failed to fetch users',
+      message: 'ユーザー一覧の取得に失敗しました',
       error: error.message
     };
   } finally {
     if (connection) {
       try {
         connection.release();
+        console.log('データベース接続を解放しました');
       } catch (releaseError) {
-        console.error('接続の解放に失敗:', releaseError);
+        console.error('データベース接続の解放に失敗:', releaseError);
       }
     }
   }
@@ -466,10 +488,97 @@ const getUserSatellites = async (userId) => {
 };
 
 // 拠点に所属するユーザー一覧を取得
-const getSatelliteUsers = async (satelliteId) => {
+const getSatelliteUsers = async (satelliteId, req = null) => {
   let connection;
   try {
+    console.log('=== getSatelliteUsers デバッグ開始 ===');
+    console.log('要求された拠点ID:', satelliteId);
+    console.log('拠点IDの型:', typeof satelliteId);
+    console.log('リクエスト情報:', req ? { user: req.user } : 'なし');
+    
+    // 拠点IDの妥当性チェック
+    if (!satelliteId || satelliteId === 'null' || satelliteId === 'undefined') {
+      console.log('無効な拠点IDが指定されました');
+      return {
+        success: false,
+        message: '有効な拠点IDが指定されていません',
+        error: 'Invalid satellite ID'
+      };
+    }
+    
+    // 数値に変換
+    const numericSatelliteId = parseInt(satelliteId);
+    if (isNaN(numericSatelliteId)) {
+      console.log('拠点IDを数値に変換できませんでした:', satelliteId);
+      return {
+        success: false,
+        message: '拠点IDが数値ではありません',
+        error: 'Invalid satellite ID format'
+      };
+    }
+    
+    console.log('数値変換後の拠点ID:', numericSatelliteId);
+    
     connection = await pool.getConnection();
+    
+    // まず拠点の存在確認
+    const [satelliteCheck] = await connection.execute(
+      'SELECT id, name FROM satellites WHERE id = ? AND status = 1',
+      [numericSatelliteId]
+    );
+    
+    if (satelliteCheck.length === 0) {
+      console.log('指定された拠点が見つからないか、無効です:', numericSatelliteId);
+      return {
+        success: false,
+        message: '指定された拠点が見つかりません',
+        error: 'Satellite not found'
+      };
+    }
+    
+    console.log('拠点確認完了:', satelliteCheck[0]);
+    
+    // 認証情報がある場合は権限チェック
+    if (req && req.user) {
+      console.log('認証ユーザー情報:', req.user);
+      
+      // 管理者（ロール9）の場合は全拠点にアクセス可能
+      if (req.user.role >= 9) {
+        console.log('システム管理者のため、全拠点にアクセス可能');
+      } else {
+        // 一般管理者・指導員の場合は所属拠点のみアクセス可能
+        const [userRows] = await connection.execute(
+          'SELECT satellite_ids FROM user_accounts WHERE id = ?',
+          [req.user.user_id]
+        );
+        
+        if (userRows.length > 0 && userRows[0].satellite_ids) {
+          let userSatelliteIds = [];
+          try {
+            userSatelliteIds = JSON.parse(userRows[0].satellite_ids);
+            if (!Array.isArray(userSatelliteIds)) {
+              userSatelliteIds = [userSatelliteIds];
+            }
+          } catch (error) {
+            console.error('ユーザーの拠点IDパースエラー:', error);
+            userSatelliteIds = [];
+          }
+          
+          console.log('ユーザーの所属拠点:', userSatelliteIds);
+          
+          if (!userSatelliteIds.includes(numericSatelliteId)) {
+            console.log('アクセス権限がありません');
+            return {
+              success: false,
+              message: '指定された拠点へのアクセス権限がありません',
+              error: 'Access denied'
+            };
+          }
+        }
+      }
+    }
+    
+    // 拠点に所属するユーザーを取得
     const [rows] = await connection.execute(`
       SELECT 
         ua.id,
@@ -485,19 +594,162 @@ const getSatelliteUsers = async (satelliteId) => {
       LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
       WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
       ORDER BY ua.role DESC, ua.name
-    `, [JSON.stringify(satelliteId)]);
+    `, [JSON.stringify(numericSatelliteId)]);
+    
+    console.log('取得したユーザー数:', rows.length);
+    
+    // タグ情報を取得（拠点に所属するユーザーのみ）
+    let userTags = [];
+    try {
+      const [tagRows] = await connection.execute(`
+        SELECT ut.user_id, ut.tag_name
+        FROM user_tags ut
+        JOIN user_accounts ua ON ut.user_id = ua.id
+        WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      `, [JSON.stringify(numericSatelliteId)]);
+      userTags = tagRows;
+      console.log('拠点別タグ情報取得完了。件数:', userTags.length);
+    } catch (tagError) {
+      console.error('タグ情報取得エラー:', tagError);
+    }
+    
+    // タグ情報をマップ化
+    const tagMap = {};
+    userTags.forEach(tag => {
+      if (!tagMap[tag.user_id]) {
+        tagMap[tag.user_id] = [];
+      }
+      tagMap[tag.user_id].push(tag.tag_name);
+    });
 
-    return {
+    // コース情報を取得（拠点に所属するユーザーのみ）
+    let userCourses = [];
+    try {
+      const [courseRows] = await connection.execute(`
+        SELECT 
+          uc.user_id,
+          c.title as course_title,
+          c.category as course_category
+        FROM user_courses uc
+        JOIN courses c ON uc.course_id = c.id
+        JOIN user_accounts ua ON uc.user_id = ua.id
+        WHERE uc.status = 'active' AND c.status = 'active'
+          AND JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      `, [JSON.stringify(numericSatelliteId)]);
+      userCourses = courseRows;
+      console.log('拠点別コース情報取得完了。件数:', userCourses.length);
+      console.log('拠点別コース情報サンプル:', userCourses.slice(0, 3));
+    } catch (courseError) {
+      console.error('コース情報取得エラー:', courseError);
+    }
+    
+    // コース情報をマップ化
+    const courseMap = {};
+    userCourses.forEach(course => {
+      if (!courseMap[course.user_id]) {
+        courseMap[course.user_id] = [];
+      }
+      courseMap[course.user_id].push({
+        title: course.course_title,
+        category: course.course_category
+      });
+    });
+    
+    console.log('拠点別コースマップサンプル:', Object.keys(courseMap).slice(0, 3).map(key => ({ user_id: key, courses: courseMap[key] })));
+    
+    // 一時パスワード情報を取得
+    let tempPasswordMap = {};
+    try {
+      const [tempPasswordRows] = await connection.execute(`
+        SELECT 
+          tp.user_id,
+          tp.temp_password,
+          tp.expires_at,
+          tp.is_used
+        FROM temp_passwords tp
+        JOIN user_accounts ua ON tp.user_id = ua.id
+        WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+          AND tp.is_used = 0 AND tp.expires_at > NOW()
+        ORDER BY tp.created_at DESC
+      `, [JSON.stringify(numericSatelliteId)]);
+      
+      // 最新の一時パスワードのみを取得（ユーザーごと）
+      tempPasswordRows.forEach(row => {
+        if (!tempPasswordMap[row.user_id]) {
+          tempPasswordMap[row.user_id] = {
+            temp_password: row.temp_password,
+            expires_at: row.expires_at,
+            is_used: row.is_used
+          };
+        }
+      });
+      
+      console.log('一時パスワード情報取得完了。件数:', Object.keys(tempPasswordMap).length);
+    } catch (tempPasswordError) {
+      console.error('一時パスワード情報取得エラー:', tempPasswordError);
+    }
+    
+    // ユーザー情報にタグとコース情報を追加
+    const processedRows = rows.map(user => {
+      const processedUser = { ...user };
+      
+      // タグ情報を処理
+      let allTags = [];
+      
+      // 通常のタグ
+      if (tagMap[user.id]) {
+        allTags = [...allTags, ...tagMap[user.id]];
+      }
+      
+      // 在宅支援タグ
+      if (user.is_remote_user === 1) {
+        allTags.push('在宅支援');
+      }
+      
+      // 重複を除去してタグを設定
+      processedUser.tags = [...new Set(allTags)];
+      
+      // コース情報を追加
+      processedUser.courses = courseMap[user.id] || [];
+      
+      // 一時パスワード情報を追加
+      if (tempPasswordMap[user.id]) {
+        processedUser.temp_password = tempPasswordMap[user.id].temp_password;
+        processedUser.expires_at = tempPasswordMap[user.id].expires_at;
+        processedUser.is_used = tempPasswordMap[user.id].is_used;
+      }
+      
+      return processedUser;
+    });
+    
+    const successResponse = {
       success: true,
-      data: rows
+      data: processedRows
     };
+    
+    console.log('=== getSatelliteUsers 成功レスポンス ===');
+    console.log('返却する成功レスポンス:', successResponse);
+    
+    return successResponse;
   } catch (error) {
-    console.error('Error fetching satellite users:', error);
-    return {
+    console.error('=== getSatelliteUsers エラー発生 ===');
+    console.error('拠点ユーザー取得エラー:', error);
+    console.error('エラー詳細:', {
+      satelliteId: satelliteId,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
+    
+    const errorResponse = {
       success: false,
       message: '拠点ユーザーの取得に失敗しました',
       error: error.message
     };
+    
+    console.log('=== getSatelliteUsers エラーレスポンス ===');
+    console.log('返却するエラーレスポンス:', errorResponse);
+    
+    return errorResponse;
   } finally {
     if (connection) {
       try {
@@ -674,14 +926,18 @@ const createUser = async (userData) => {
       console.log('username一意性チェックOK');
     }
     
-    // ログインコードの生成（指定されていない場合）
+    // ログインコードの自動生成
     // XXXX-XXXX-XXXX形式（英数大文字小文字交じり）
-    
-
-    
-    // フロントエンドから送信されたログインコードを無視し、常に新しい形式で生成
     const loginCode = generateLoginCode();
     
+    // satellite_idを配列に変換
+    let satelliteIds = [];
+    if (userData.satellite_id) {
+      satelliteIds = [userData.satellite_id];
+    } else if (userData.satellite_ids && Array.isArray(userData.satellite_ids)) {
+      satelliteIds = userData.satellite_ids;
+    }
+
     // ユーザー作成
     const [result] = await connection.execute(
       `INSERT INTO user_accounts (
@@ -701,7 +957,7 @@ const createUser = async (userData) => {
         userData.status || 1,
         loginCode,
         userData.company_id || 4,
-        JSON.stringify(userData.satellite_ids || []),
+        JSON.stringify(satelliteIds),
         userData.instructor_id || null
       ]
     );
@@ -1301,7 +1557,9 @@ const issueTemporaryPassword = async (userId) => {
         tempPassword,
         expiresAt: japanTimeString,
         expires_at: japanTimeString, // getUsers関数と同じ形式で返す
-        loginUrl: `http://localhost:3000/student-login?code=${user.login_code}`,
+        loginUrl: process.env.NODE_ENV === 'production' 
+          ? `https://studysphere-frontend.vercel.app/studysphere/student-login?code=${user.login_code}`
+          : `http://localhost:3000/studysphere/student-login?code=${user.login_code}`,
         userName: user.name
       }
     };
@@ -1372,11 +1630,7 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
       };
     }
 
-    // パスワードを使用済みにマーク
-    await connection.execute(
-      'UPDATE user_temp_passwords SET is_used = 1, used_at = NOW() WHERE user_id = ? AND temp_password = ?',
-      [user.id, tempPassword]
-    );
+    // ログイン時は使用済みフラグを更新しない（ログアウト時に更新）
 
     return {
       success: true,
@@ -1470,6 +1724,49 @@ const changeInstructorPassword = async (userId, currentPassword, newPassword) =>
     return {
       success: false,
       message: 'パスワードの変更に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+// ログアウト時に使用済みフラグを更新
+const markTempPasswordAsUsed = async (userId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // ユーザーの最新の未使用一時パスワードを使用済みにマーク
+    const [result] = await connection.execute(
+      'UPDATE user_temp_passwords SET is_used = 1, used_at = NOW() WHERE user_id = ? AND is_used = 0 ORDER BY issued_at DESC LIMIT 1',
+      [userId]
+    );
+
+    if (result.affectedRows > 0) {
+      console.log(`ユーザーID ${userId} の一時パスワードを使用済みにマークしました`);
+      return {
+        success: true,
+        message: '一時パスワードを使用済みにマークしました'
+      };
+    } else {
+      console.log(`ユーザーID ${userId} の未使用一時パスワードが見つかりませんでした`);
+      return {
+        success: true,
+        message: '未使用の一時パスワードがありませんでした'
+      };
+    }
+  } catch (error) {
+    console.error('一時パスワード使用済みマークエラー:', error);
+    return {
+      success: false,
+      message: '一時パスワードの使用済みマークに失敗しました',
       error: error.message
     };
   } finally {
@@ -2429,6 +2726,213 @@ const getAllTags = async (req, res) => {
   }
 };
 
+/**
+ * 一括利用者追加
+ */
+const bulkCreateUsers = async (req, res) => {
+  console.log('=== bulkCreateUsers関数開始 ===');
+  console.log('リクエストボディ:', req.body);
+  console.log('リクエストボディの型:', typeof req.body);
+  console.log('usersプロパティ:', req.body.users);
+  console.log('usersの型:', typeof req.body.users);
+  console.log('usersの長さ:', req.body.users ? req.body.users.length : 'undefined');
+  
+  let connection;
+  try {
+    console.log('データベース接続を取得中...');
+    connection = await pool.getConnection();
+    console.log('データベース接続取得成功');
+    
+    // データベース接続テスト
+    try {
+      const [testResult] = await connection.execute('SELECT 1 as test');
+      console.log('データベース接続テスト成功:', testResult);
+    } catch (testError) {
+      console.error('データベース接続テスト失敗:', testError);
+      return res.status(500).json({
+        success: false,
+        message: 'データベース接続テストに失敗しました',
+        error: testError.message
+      });
+    }
+  } catch (connectionError) {
+    console.error('データベース接続エラー:', connectionError);
+    return res.status(500).json({
+      success: false,
+      message: 'データベース接続に失敗しました',
+      error: connectionError.message
+    });
+  }
+  
+  try {
+    const { users } = req.body;
+    
+    console.log('取得したusers:', users);
+    
+    if (!Array.isArray(users) || users.length === 0) {
+      console.log('usersが配列でないか、空です');
+      return res.status(400).json({
+        success: false,
+        message: '利用者データが正しく指定されていません'
+      });
+    }
+    
+    await connection.beginTransaction();
+    
+    const createdUsers = [];
+    const errors = [];
+    
+    for (let i = 0; i < users.length; i++) {
+      const userData = users[i];
+      
+      try {
+        console.log(`処理中のユーザーデータ ${i + 1}:`, userData);
+        console.log(`ユーザーデータ ${i + 1} の型:`, typeof userData);
+        console.log(`ユーザーデータ ${i + 1} のname:`, userData.name);
+        console.log(`ユーザーデータ ${i + 1} のemail:`, userData.email);
+        
+        // 必須フィールドのチェック
+        if (!userData.name || userData.name.trim() === '') {
+          console.log(`行${i + 1}: 名前が空です`);
+          errors.push(`行${i + 1}: 利用者名は必須です`);
+          continue;
+        }
+        
+        // メールアドレスの形式チェック（指定されている場合のみ）
+        if (userData.email && userData.email.trim() !== '') {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(userData.email.trim())) {
+            errors.push(`行${i + 1}: 有効なメールアドレス形式ではありません: ${userData.email}`);
+            continue;
+          }
+        }
+        
+        // ログインコードの自動生成
+        const loginCode = generateLoginCode();
+        
+        // ユーザー作成
+        console.log(`行${i + 1}: データベース挿入開始`);
+        console.log(`行${i + 1}: 挿入データ:`, {
+          name: userData.name,
+          email: userData.email || null,
+          role: userData.role || 1,
+          status: userData.status || 1,
+          loginCode,
+          company_id: userData.company_id || 4,
+          satellite_id: userData.satellite_id,
+          satellite_ids: JSON.stringify(userData.satellite_ids || []),
+          instructor_id: userData.instructor_id || null
+        });
+        
+        // company_idの検証
+        if (!userData.company_id) {
+          console.log(`行${i + 1}: company_idが指定されていません`);
+          errors.push(`行${i + 1}: 所属企業の指定は必須です`);
+          continue;
+        }
+
+        // satellite_idを配列に変換
+        let satelliteIds = [];
+        if (userData.satellite_id) {
+          satelliteIds = [userData.satellite_id];
+        } else if (userData.satellite_ids && Array.isArray(userData.satellite_ids)) {
+          satelliteIds = userData.satellite_ids;
+        }
+
+        const [result] = await connection.execute(
+          `INSERT INTO user_accounts (
+            name, 
+            email,
+            role, 
+            status, 
+            login_code, 
+            company_id, 
+            satellite_ids,
+            instructor_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userData.name,
+            userData.email || null,
+            userData.role || 1,
+            userData.status || 1,
+            loginCode,
+            userData.company_id,
+            JSON.stringify(satelliteIds),
+            userData.instructor_id || null
+          ]
+        );
+        
+        console.log(`行${i + 1}: データベース挿入成功, userId:`, result.insertId);
+        
+        const userId = result.insertId;
+        
+        // タグの追加（指定されている場合）
+        if (userData.tags && Array.isArray(userData.tags) && userData.tags.length > 0) {
+          for (const tag of userData.tags) {
+            if (tag.trim()) {
+              await connection.execute(
+                'INSERT INTO user_tags (user_id, tag_name) VALUES (?, ?)',
+                [userId, tag.trim()]
+              );
+            }
+          }
+        }
+        
+        createdUsers.push({
+          id: userId,
+          name: userData.name,
+          login_code: loginCode
+        });
+        
+      } catch (error) {
+        errors.push(`行${i + 1}: ${error.message}`);
+      }
+    }
+    
+    if (errors.length > 0) {
+      await connection.rollback();
+      console.log('一括利用者追加エラー:', errors);
+      return res.status(400).json({
+        success: false,
+        message: `${errors.length}件のエラーが発生しました`,
+        errors: errors,
+        createdUsers: createdUsers,
+        totalProcessed: users.length,
+        successCount: createdUsers.length,
+        errorCount: errors.length
+      });
+    }
+    
+    await connection.commit();
+    
+    customLogger.info('Bulk users created successfully', {
+      count: createdUsers.length,
+      userId: req.user?.user_id
+    });
+    
+    console.log('一括利用者追加成功:', createdUsers);
+    
+    res.status(201).json({
+      success: true,
+      message: `${createdUsers.length}名の利用者が追加されました`,
+      data: {
+        createdUsers: createdUsers
+      }
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    customLogger.error('Error in bulk user creation:', error);
+    res.status(500).json({
+      success: false,
+      message: '一括利用者追加に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
@@ -2445,6 +2949,7 @@ module.exports = {
   changeInstructorPassword,
   issueTemporaryPassword,
   verifyTemporaryPassword,
+  markTempPasswordAsUsed,
   updateLoginCodes,
   generateLoginCode,
   getInstructorSpecializations,
@@ -2463,5 +2968,6 @@ module.exports = {
   getSatelliteInstructorsForHomeSupport,
   bulkAddUserTags,
   removeUserTag,
-  getAllTags
+  getAllTags,
+  bulkCreateUsers
 }; 

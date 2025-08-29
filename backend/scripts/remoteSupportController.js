@@ -829,8 +829,8 @@ class RemoteSupportController {
 
       // 環境に応じたURLを設定
       const baseUrl = target === 'prod' 
-        ? 'https://studysphere-frontend.vercel.app'
-        : 'http://localhost:3000';
+        ? 'https://studysphere-frontend.vercel.app/studysphere'
+        : 'http://localhost:3000/studysphere';
 
       // 自動ログイン用のHTMLを生成
       const html = `

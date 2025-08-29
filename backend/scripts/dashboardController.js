@@ -61,11 +61,24 @@ const getSystemOverview = async () => {
           SELECT 
             c.id,
             c.name as company_name,
-            COUNT(ua.id) as user_count,
-            COUNT(CASE WHEN ua.role = 1 THEN 1 END) as student_count,
-            COUNT(CASE WHEN ua.role = 5 THEN 1 END) as instructor_count
+            COUNT(DISTINCT ua.id) as user_count,
+            COUNT(DISTINCT CASE WHEN ua.role = 1 THEN ua.id END) as student_count,
+            COUNT(DISTINCT CASE WHEN ua.role = 5 THEN ua.id END) as instructor_count
           FROM companies c
-          LEFT JOIN user_accounts ua ON c.id = ua.company_id AND ua.status = 1
+          LEFT JOIN user_accounts ua ON (
+            (ua.role >= 4 AND c.id = ua.company_id AND ua.status = 1) OR
+            (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND EXISTS (
+              SELECT 1 FROM satellites s 
+              WHERE s.company_id = c.id 
+              AND s.status = 1 
+              AND (
+                CASE 
+                  WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                  ELSE ua.satellite_ids = s.id
+                END
+              )
+            ) AND ua.status = 1)
+          )
           GROUP BY c.id, c.name
           ORDER BY c.id
         `);
@@ -76,9 +89,22 @@ const getSystemOverview = async () => {
           SELECT 
             c.id,
             c.name as company_name,
-            COUNT(ua.id) as user_count
+            COUNT(DISTINCT ua.id) as user_count
           FROM companies c
-          LEFT JOIN user_accounts ua ON c.id = ua.company_id AND ua.status = 1
+          LEFT JOIN user_accounts ua ON (
+            (ua.role >= 4 AND c.id = ua.company_id AND ua.status = 1) OR
+            (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND EXISTS (
+              SELECT 1 FROM satellites s 
+              WHERE s.company_id = c.id 
+              AND s.status = 1 
+              AND (
+                CASE 
+                  WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                  ELSE ua.satellite_ids = s.id
+                END
+              )
+            ) AND ua.status = 1)
+          )
           GROUP BY c.id, c.name
           ORDER BY c.id
         `);
@@ -94,12 +120,25 @@ const getSystemOverview = async () => {
             s.id,
             s.name as satellite_name,
             c.name as company_name,
-            COUNT(ua.id) as user_count,
+            COUNT(DISTINCT ua.id) as user_count,
             s.max_users,
-            ROUND((COUNT(ua.id) / s.max_users) * 100, 1) as utilization_rate
+            ROUND((COUNT(DISTINCT ua.id) / s.max_users) * 100, 1) as utilization_rate
           FROM satellites s
           JOIN companies c ON s.company_id = c.id
-          LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.status = 1
+          LEFT JOIN user_accounts ua ON (
+            (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+              CASE 
+                WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                ELSE ua.satellite_ids = s.id
+              END
+            ) AND ua.status = 1) OR
+            (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+              CASE 
+                WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                ELSE ua.satellite_ids = s.id
+              END
+            ) AND ua.status = 1)
+          )
           WHERE s.status = 1
           GROUP BY s.id, s.name, c.name, s.max_users
           ORDER BY c.id, s.id
@@ -112,10 +151,23 @@ const getSystemOverview = async () => {
             s.id,
             s.name as satellite_name,
             c.name as company_name,
-            COUNT(ua.id) as user_count
+            COUNT(DISTINCT ua.id) as user_count
           FROM satellites s
           JOIN companies c ON s.company_id = c.id
-          LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.status = 1
+          LEFT JOIN user_accounts ua ON (
+            (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+              CASE 
+                WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                ELSE ua.satellite_ids = s.id
+              END
+            ) AND ua.status = 1) OR
+            (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+              CASE 
+                WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                ELSE ua.satellite_ids = s.id
+              END
+            ) AND ua.status = 1)
+          )
           WHERE s.status = 1
           GROUP BY s.id, s.name, c.name
           ORDER BY c.id, s.id
@@ -268,7 +320,20 @@ const getCompanyStats = async (companyId) => {
           COUNT(CASE WHEN ua.role = 5 THEN 1 END) as instructor_count,
           ROUND((COUNT(ua.id) / s.max_users) * 100, 1) as utilization_rate
         FROM satellites s
-        LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.status = 1
+        LEFT JOIN user_accounts ua ON (
+          (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1) OR
+          (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1)
+        )
         WHERE s.company_id = ?
         GROUP BY s.id
         ORDER BY s.id
@@ -363,7 +428,20 @@ const getAlerts = async () => {
           ROUND((COUNT(ua.id) / s.max_users) * 100, 1) as utilization_rate
         FROM satellites s
         JOIN companies c ON s.company_id = c.id
-        LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.status = 1
+        LEFT JOIN user_accounts ua ON (
+          (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1) OR
+          (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1)
+        )
         WHERE s.status = 1
         GROUP BY s.id, s.name, c.name, s.max_users
         HAVING utilization_rate >= 80
@@ -391,7 +469,20 @@ const getAlerts = async () => {
           ROUND((COUNT(ua.id) / s.max_users) * 100, 1) as utilization_rate
         FROM satellites s
         JOIN companies c ON s.company_id = c.id
-        LEFT JOIN user_accounts ua ON s.id = ua.satellite_id AND ua.status = 1
+        LEFT JOIN user_accounts ua ON (
+          (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1) OR
+          (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+            CASE 
+              WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+              ELSE ua.satellite_ids = s.id
+            END
+          ) AND ua.status = 1)
+        )
         WHERE s.status = 1
         GROUP BY s.id, s.name, c.name, s.max_users
         HAVING utilization_rate <= 20 AND s.max_users > 1

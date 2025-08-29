@@ -84,16 +84,14 @@ if defined USE_COMPOSE_PLUGIN (
 REM Build images when requested
 if /I "%MODE%"=="rebuild" (
     echo [INFO] Building images...
-    if defined USE_COMPOSE_PLUGIN (
-        docker compose build
-    ) else (
-        docker-compose build
-    )
+    echo [INFO] Building backend image directly...
+    docker build -t studysphere-backend:latest ./backend
     if errorlevel 1 (
-        echo [ERROR] Failed to build images.
+        echo [ERROR] Failed to build backend image.
         pause
         exit /b 1
     )
+    echo [INFO] Backend image built successfully.
 )
 
 REM Start services according to mode (avoid nested IF/ELSE for robustness)
