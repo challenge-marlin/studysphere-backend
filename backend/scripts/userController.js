@@ -625,6 +625,9 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
     // コース情報を取得（拠点に所属するユーザーのみ）
     let userCourses = [];
     try {
+      console.log('=== コース情報取得開始 ===');
+      console.log('拠点ID:', numericSatelliteId);
+      
       const [courseRows] = await connection.execute(`
         SELECT 
           uc.user_id,
@@ -639,8 +642,46 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
       userCourses = courseRows;
       console.log('拠点別コース情報取得完了。件数:', userCourses.length);
       console.log('拠点別コース情報サンプル:', userCourses.slice(0, 3));
+      
+      // 各ユーザーIDのコース数を確認
+      const courseCountByUser = {};
+      userCourses.forEach(course => {
+        courseCountByUser[course.user_id] = (courseCountByUser[course.user_id] || 0) + 1;
+      });
+      console.log('ユーザー別コース数:', courseCountByUser);
     } catch (courseError) {
       console.error('コース情報取得エラー:', courseError);
+    }
+    
+    // カリキュラムパス情報を取得（拠点に所属するユーザーのみ）
+    let userCurriculumPaths = [];
+    try {
+      console.log('=== カリキュラムパス情報取得開始 ===');
+      console.log('拠点ID:', numericSatelliteId);
+      
+      const [curriculumPathRows] = await connection.execute(`
+        SELECT 
+          ucp.user_id,
+          cp.name as curriculum_path_name,
+          cp.description as curriculum_path_description
+        FROM user_curriculum_paths ucp
+        JOIN curriculum_paths cp ON ucp.curriculum_path_id = cp.id
+        JOIN user_accounts ua ON ucp.user_id = ua.id
+        WHERE ucp.status = 'active'
+          AND JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
+      `, [JSON.stringify(numericSatelliteId)]);
+      userCurriculumPaths = curriculumPathRows;
+      console.log('拠点別カリキュラムパス情報取得完了。件数:', userCurriculumPaths.length);
+      console.log('拠点別カリキュラムパス情報サンプル:', userCurriculumPaths.slice(0, 3));
+      
+      // 各ユーザーIDのカリキュラムパス数を確認
+      const curriculumPathCountByUser = {};
+      userCurriculumPaths.forEach(path => {
+        curriculumPathCountByUser[path.user_id] = (curriculumPathCountByUser[path.user_id] || 0) + 1;
+      });
+      console.log('ユーザー別カリキュラムパス数:', curriculumPathCountByUser);
+    } catch (curriculumPathError) {
+      console.error('カリキュラムパス情報取得エラー:', curriculumPathError);
     }
     
     // コース情報をマップ化
@@ -652,6 +693,19 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
       courseMap[course.user_id].push({
         title: course.course_title,
         category: course.course_category
+      });
+    });
+    
+    // カリキュラムパス情報をマップ化
+    const curriculumPathMap = {};
+    userCurriculumPaths.forEach(curriculumPath => {
+      if (!curriculumPathMap[curriculumPath.user_id]) {
+        curriculumPathMap[curriculumPath.user_id] = [];
+      }
+      curriculumPathMap[curriculumPath.user_id].push({
+        title: curriculumPath.curriculum_path_name,
+        category: 'カリキュラムパス',
+        description: curriculumPath.curriculum_path_description
       });
     });
     
@@ -690,6 +744,11 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
     }
     
     // ユーザー情報にタグとコース情報を追加
+    console.log('=== データ処理開始 ===');
+    console.log('処理対象ユーザー数:', rows.length);
+    console.log('コースマップ:', courseMap);
+    console.log('カリキュラムパスマップ:', curriculumPathMap);
+    
     const processedRows = rows.map(user => {
       const processedUser = { ...user };
       
@@ -709,8 +768,16 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
       // 重複を除去してタグを設定
       processedUser.tags = [...new Set(allTags)];
       
-      // コース情報を追加
-      processedUser.courses = courseMap[user.id] || [];
+      // コース情報とカリキュラムパス情報を追加
+      const userCourses = courseMap[user.id] || [];
+      const userCurriculumPaths = curriculumPathMap[user.id] || [];
+      processedUser.courses = [...userCourses, ...userCurriculumPaths];
+      
+      console.log(`ユーザー ${user.name} (ID: ${user.id}) の処理結果:`, {
+        tags: processedUser.tags,
+        courses: processedUser.courses,
+        courseCount: processedUser.courses.length
+      });
       
       // 一時パスワード情報を追加
       if (tempPasswordMap[user.id]) {
