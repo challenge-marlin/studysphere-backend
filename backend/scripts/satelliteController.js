@@ -8,7 +8,9 @@ const getSatellites = async () => {
   let connection;
   try {
     connection = await pool.getConnection();
-    const [rows] = await connection.execute(`
+    
+    // 1. 拠点基本情報を取得
+    const [satellites] = await connection.execute(`
       SELECT 
         s.id,
         s.company_id,
@@ -33,6 +35,43 @@ const getSatellites = async () => {
       LEFT JOIN office_types ot ON s.office_type_id = ot.id
       ORDER BY s.created_at DESC
     `);
+    
+    // 2. 各拠点の利用者数を取得
+    const [userCounts] = await connection.execute(`
+      SELECT 
+        s.id as satellite_id,
+        COUNT(DISTINCT ua.id) as current_users
+      FROM satellites s
+      LEFT JOIN user_accounts ua ON (
+        (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+          CASE 
+            WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+            WHEN ua.satellite_ids LIKE '%,%' THEN FIND_IN_SET(s.id, ua.satellite_ids)
+            ELSE ua.satellite_ids = s.id
+          END
+        ) AND ua.status = 1) OR
+        (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+          CASE 
+            WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+            WHEN ua.satellite_ids LIKE '%,%' THEN FIND_IN_SET(s.id, ua.satellite_ids)
+            ELSE ua.satellite_ids = s.id
+          END
+        ) AND ua.status = 1)
+      )
+      GROUP BY s.id
+    `);
+    
+    // 3. 結果をマージ
+    const userCountMap = {};
+    userCounts.forEach(count => {
+      userCountMap[count.satellite_id] = count.current_users;
+    });
+    
+    const rows = satellites.map(satellite => ({
+      ...satellite,
+      current_users: userCountMap[satellite.id] || 0,
+      utilization_rate: satellite.max_users > 0 ? Math.round((userCountMap[satellite.id] || 0) / satellite.max_users * 100 * 10) / 10 : 0
+    }));
     
     return {
       success: true,

@@ -609,6 +609,175 @@ class TempPasswordController {
             });
         }
     }
+
+    // 企業・拠点・担当者の階層構造を取得
+    static async getHierarchyData(req, res) {
+        try {
+            const { user_id, role } = req.user;
+            
+            // 企業一覧を取得
+            const [companies] = await pool.execute(`
+                SELECT 
+                    c.id,
+                    c.name
+                FROM companies c
+                ORDER BY c.name
+            `);
+
+            // 拠点一覧を取得
+            const [satellites] = await pool.execute(`
+                SELECT 
+                    s.id,
+                    s.company_id,
+                    s.name
+                FROM satellites s
+                WHERE s.status = 1
+                ORDER BY s.name
+            `);
+
+            // 担当者一覧を取得（指導員）
+            const [instructors] = await pool.execute(`
+                SELECT 
+                    ua.id,
+                    ua.name,
+                    ua.company_id,
+                    ua.satellite_ids
+                FROM user_accounts ua
+                WHERE ua.role = 4 
+                AND ua.status = 1
+                ORDER BY ua.name
+            `);
+
+            // 階層構造を構築
+            const hierarchy = companies.map(company => {
+                const companySatellites = satellites.filter(s => s.company_id === company.id);
+                const companyInstructors = instructors.filter(i => i.company_id === company.id);
+                
+                return {
+                    id: company.id,
+                    name: company.name,
+                    type: 'company',
+                    satellites: companySatellites.map(satellite => {
+                        const satelliteInstructors = companyInstructors.filter(instructor => {
+                            try {
+                                const instructorSatelliteIds = instructor.satellite_ids;
+                                return Array.isArray(instructorSatelliteIds) && instructorSatelliteIds.includes(satellite.id.toString());
+                            } catch (error) {
+                                return false;
+                            }
+                        });
+                        
+                        return {
+                            id: satellite.id,
+                            name: satellite.name,
+                            type: 'satellite',
+                            company_id: company.id,
+                            instructors: satelliteInstructors.map(instructor => ({
+                                id: instructor.id,
+                                name: instructor.name,
+                                type: 'instructor',
+                                company_id: company.id,
+                                satellite_id: satellite.id
+                            }))
+                        };
+                    })
+                };
+            });
+
+            res.json({
+                success: true,
+                data: hierarchy
+            });
+
+        } catch (error) {
+            customLogger.error('階層データ取得エラー:', error);
+            res.status(500).json({
+                success: false,
+                message: '階層データの取得に失敗しました'
+            });
+        }
+    }
+
+    // 選択された企業・拠点・担当者に基づいて利用者を取得
+    static async getUsersByHierarchy(req, res) {
+        try {
+            const { user_id, role } = req.user;
+            const { selected_companies, selected_satellites, selected_instructors } = req.query;
+            
+            // パラメータを配列に変換
+            const companyIds = selected_companies ? (Array.isArray(selected_companies) ? selected_companies : [selected_companies]) : [];
+            const satelliteIds = selected_satellites ? (Array.isArray(selected_satellites) ? selected_satellites : [selected_satellites]) : [];
+            const instructorIds = selected_instructors ? (Array.isArray(selected_instructors) ? selected_instructors : [selected_instructors]) : [];
+            
+            // 担当者IDから'none'を除外して実際のIDのみを取得
+            const actualInstructorIds = instructorIds.filter(id => id !== 'none');
+            const hasNoneInstructor = instructorIds.includes('none');
+
+            let query = `
+                SELECT 
+                    ua.id,
+                    ua.name,
+                    ua.login_code,
+                    ua.instructor_id,
+                    ua.company_id,
+                    ua.satellite_ids,
+                    c.name as company_name,
+                    s.name as satellite_name,
+                    CASE 
+                        WHEN ua.instructor_id IS NULL THEN 'no_instructor'
+                        WHEN ua.instructor_id IN (${actualInstructorIds.length > 0 ? actualInstructorIds.map(() => '?').join(',') : 'NULL'}) THEN 'selected_instructor'
+                        ELSE 'other_instructor'
+                    END as user_type
+                FROM user_accounts ua
+                LEFT JOIN companies c ON ua.company_id = c.id
+                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                WHERE ua.role = 1 
+                AND ua.status = 1
+                AND (
+                    ${companyIds.length > 0 ? 'ua.company_id IN (' + companyIds.map(() => '?').join(',') + ')' : '1=1'}
+                    ${satelliteIds.length > 0 ? 'AND JSON_CONTAINS(ua.satellite_ids, JSON_ARRAY(' + satelliteIds.map(() => '?').join(',') + '))' : ''}
+                    ${actualInstructorIds.length > 0 ? 'AND ua.instructor_id IN (' + actualInstructorIds.map(() => '?').join(',') + ')' : ''}
+                    ${hasNoneInstructor ? 'AND ua.instructor_id IS NULL' : ''}
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM user_temp_passwords utp 
+                    WHERE utp.user_id = ua.id 
+                    AND utp.expires_at > NOW()
+                    AND utp.is_used = 0
+                )
+            `;
+
+            const params = [];
+            if (companyIds.length > 0) {
+                params.push(...companyIds);
+            }
+            if (satelliteIds.length > 0) {
+                params.push(...satelliteIds);
+            }
+            if (actualInstructorIds.length > 0) {
+                params.push(...actualInstructorIds);
+            }
+            if (hasNoneInstructor) {
+                // hasNoneInstructorの場合はパラメータを追加しない（条件はua.instructor_id IS NULL）
+            }
+
+            query += ' ORDER BY user_type, company_name, satellite_name, name';
+
+            const [users] = await pool.execute(query, params);
+
+            res.json({
+                success: true,
+                data: users
+            });
+
+        } catch (error) {
+            customLogger.error('階層別利用者取得エラー:', error);
+            res.status(500).json({
+                success: false,
+                message: '利用者一覧の取得に失敗しました'
+            });
+        }
+    }
 }
 
 module.exports = TempPasswordController;

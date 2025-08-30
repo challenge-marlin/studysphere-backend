@@ -528,7 +528,7 @@ const getSatelliteStats = async (satelliteId) => {
               console.log(`指導員 ${row.name} (ID: ${row.id}) のsatellite_ids:`, row.satellite_ids, '型:', typeof row.satellite_ids);
     });
     
-    // 現在の生徒数（ロール1）を取得
+    // 現在の利用者数（ロール1）を取得
     const [studentRows] = await connection.execute(`
       SELECT COUNT(*) as count
       FROM user_accounts
@@ -540,7 +540,7 @@ const getSatelliteStats = async (satelliteId) => {
         AND status = 1
     `, [JSON.stringify(satelliteId)]);
     
-    console.log('生徒数クエリ結果:', studentRows);
+    console.log('利用者数クエリ結果:', studentRows);
     
 
     
@@ -605,7 +605,7 @@ const getSatelliteStats = async (satelliteId) => {
       }
     }).length;
     
-          console.log('計算結果 - 生徒数:', currentStudents, '指導員数:', instructorCount);
+          console.log('計算結果 - 利用者数:', currentStudents, '指導員数:', instructorCount);
     
     const capacityPercentage = satellite.max_users > 0 ? (currentStudents / satellite.max_users) * 100 : 0;
     

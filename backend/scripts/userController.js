@@ -85,9 +85,11 @@ const getUsers = async () => {
           ua.recipient_number,
           ua.password_reset_required,
           ua.instructor_id,
-          instructor.name as instructor_name
+          instructor.name as instructor_name,
+          ac.username
         FROM user_accounts ua
         LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+        LEFT JOIN admin_credentials ac ON ua.id = ac.user_id
         ORDER BY ua.id
       `);
       console.log('基本的なユーザー情報取得完了。ユーザー数:', rows.length);
