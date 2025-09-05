@@ -43,7 +43,7 @@ if (missingVars.length > 0) {
   console.log('✅ すべての必要な環境変数が設定されています');
   console.log('');
   console.log('次のステップ:');
-  console.log('1. node test-s3-config.js を実行してS3接続をテストしてください');
+  console.log('1. node ../test-s3-config.js を実行してS3接続をテストしてください');
   console.log('2. Electronアプリでログインを試してください');
 }
 

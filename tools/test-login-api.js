@@ -1,35 +1,31 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
 
 async function testLoginAPI() {
+  console.log('=== ログインAPIテスト開始 ===');
+  
   try {
-    console.log('Testing login API...');
-    
-    const response = await fetch('http://localhost:5000/api/login', {
-      method: 'POST',
+    const response = await axios.post('http://localhost:5000/api/login', {
+      username: 'test',
+      password: 'test'
+    }, {
       headers: {
         'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        username: 'ono1105',
-        password: 'Ono1'
-      })
+      }
     });
-
-    console.log('Response status:', response.status);
-    console.log('Response ok:', response.ok);
     
-    const data = await response.json();
-    console.log('Response data:', data);
+    console.log('レスポンスステータス:', response.status);
+    console.log('レスポンスデータ:', response.data);
     
-    if (!response.ok) {
-      console.log('Login failed with status:', response.status);
-      console.log('Error details:', data);
-    } else {
-      console.log('Login successful!');
-    }
   } catch (error) {
-    console.error('Error testing login API:', error);
+    console.error('API呼び出しエラー:', error.message);
+    if (error.response) {
+      console.log('エラーレスポンスステータス:', error.response.status);
+      console.log('エラーレスポンスデータ:', error.response.data);
+    }
   }
+  
+  console.log('=== ログインAPIテスト終了 ===');
+  process.exit(0);
 }
 
 testLoginAPI();

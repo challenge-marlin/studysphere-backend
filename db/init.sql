@@ -139,19 +139,30 @@ CREATE TABLE `user_tags` (
     INDEX `idx_tag_name` (`tag_name`)
 ) COMMENT = 'ユーザータグ情報管理テーブル';
 
--- カリキュラム進行状況テーブル
-CREATE TABLE `curriculum_progress` (
-    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '進行記録ID',
-    `user_id` INT NOT NULL COMMENT '利用者のユーザーID',
-    `curriculum_name` VARCHAR(100) NOT NULL COMMENT 'カリキュラム名（例：カリキュラム1）',
-    `session_number` INT NOT NULL COMMENT '第◯回（例：第1回）',
-    `chapter_number` INT NOT NULL COMMENT '第◯章（例：第1章）',
-    `deliverable_confirmed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '成果物確認済みフラグ',
-    `test_passed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'テスト合格フラグ',
-    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
-    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
-    UNIQUE KEY `unique_progress` (`user_id`, `curriculum_name`, `session_number`, `chapter_number`)
-) COMMENT = 'カリキュラム進行状況テーブル';
+CREATE TABLE `user_lesson_progress` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '進捗ID',
+  `user_id` INT NOT NULL COMMENT '利用者ID',
+  `lesson_id` INT NOT NULL COMMENT 'レッスンID',
+  `status` ENUM('not_started', 'in_progress', 'completed') NOT NULL DEFAULT 'not_started' COMMENT '進捗状況',
+  `completed_at` DATETIME DEFAULT NULL COMMENT '完了日時',
+  `test_score` INT DEFAULT NULL COMMENT 'テストスコア',
+  `assignment_submitted` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '課題提出済みフラグ',
+  `assignment_submitted_at` DATETIME DEFAULT NULL COMMENT '課題提出日時',
+  `instructor_approved` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '指導員承認フラグ',
+  `instructor_approved_at` DATETIME DEFAULT NULL COMMENT '指導員承認日時',
+  `instructor_id` INT DEFAULT NULL COMMENT '承認した指導員ID',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+  UNIQUE KEY `unique_user_lesson` (`user_id`, `lesson_id`),
+  FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`lesson_id`) REFERENCES `lessons`(`id`) ON DELETE CASCADE,
+  FOREIGN KEY (`instructor_id`) REFERENCES `user_accounts`(`id`) ON DELETE SET NULL,
+  INDEX `idx_user_id` (`user_id`),
+  INDEX `idx_lesson_id` (`lesson_id`),
+  INDEX `idx_status` (`status`),
+  INDEX `idx_completed_at` (`completed_at`),
+  INDEX `idx_instructor_approved` (`instructor_approved`)
+) COMMENT = '利用者のレッスン進捗管理テーブル';
 
 -- リフレッシュトークン管理テーブル
 CREATE TABLE `refresh_tokens` (

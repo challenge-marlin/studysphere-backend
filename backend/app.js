@@ -164,14 +164,40 @@ const userCourseRoutes = require('./routes/userCourseRoutes');
 const supportPlanRoutes = require('./routes/supportPlanRoutes');
 const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
+const studentRoutes = require('./routes/studentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 const remoteSupportRoutes = require('./routes/remoteSupportRoutes');
+const learningRoutes = require('./routes/learningRoutes');
+const pdfRoutes = require('./routes/pdfRoutes');
+// AIルートの条件付き読み込み（環境変数が設定されている場合のみ）
+let aiRoutes;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    aiRoutes = require('./routes/ai');
+  }
+} catch (error) {
+  console.warn('AIルートの読み込みに失敗しました:', error.message);
+  aiRoutes = null;
+}
 
 const app = express();
 
 // セキュリティミドルウェア
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      frameSrc: ["'self'", "http://localhost:5050", "http://localhost:3000"],
+      frameAncestors: ["'self'", "http://localhost:3000", "http://localhost:5050", "http://localhost:3000/studysphere"],
+      connectSrc: ["'self'", "http://localhost:5050", "http://localhost:3000"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
   origin: function (origin, callback) {
     // 開発環境ではすべてのオリジンを許可
@@ -285,8 +311,17 @@ app.use('/api/user-courses', userCourseRoutes);
 app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/student', studentRoutes);
 app.use('/api/remote-support', remoteSupportRoutes);
+app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/learning', learningRoutes);
+// AIルートの条件付きマウント
+if (aiRoutes) {
+  app.use('/api/ai', aiRoutes);
+} else {
+  console.log('AIルートは無効化されています（OPENAI_API_KEYが設定されていません）');
+}
 // authRoutesを最後に配置（汎用的なパスのため）
 app.use('/api', authRoutes);
 
@@ -612,15 +647,21 @@ console.log('=== StudySphere Backend Starting ===');
 console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('Timestamp:', new Date().toISOString());
 
-// 利用可能なルートの確認
+// 利用可能なルートの確認（安全な方法）
 setTimeout(() => {
-  console.log('=== Available Routes ===');
-  app._router.stack.forEach((middleware) => {
-    if (middleware.name === 'router') {
-      console.log(`Router mounted at: ${middleware.regexp.source}`);
+  try {
+    console.log('=== Available Routes ===');
+    if (app._router && app._router.stack) {
+      app._router.stack.forEach((middleware) => {
+        if (middleware.name === 'router') {
+          console.log(`Router mounted at: ${middleware.regexp.source}`);
+        }
+      });
     }
-  });
-  console.log('=== Routes Check Complete ===');
+    console.log('=== Routes Check Complete ===');
+  } catch (error) {
+    console.warn('ルート確認中にエラーが発生:', error.message);
+  }
 }, 1000);
 
 module.exports = app; 
