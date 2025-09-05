@@ -57,13 +57,13 @@ services:
       - "5050:5000"
     environment:
       - DB_HOST=db
-      - DB_USER=root
-      - DB_PASSWORD=shinomoto926!
-      - DB_NAME=curriculum-portal
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
       - DB_PORT=3306
-      - NODE_ENV=development
+      - NODE_ENV=${NODE_ENV}
       - PORT=5000
-      - FRONTEND_URL=http://localhost:3000
+      - FRONTEND_URL=${FRONTEND_URL}
       - CHOKIDAR_USEPOLLING=true
       - WATCHPACK_POLLING=true
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}

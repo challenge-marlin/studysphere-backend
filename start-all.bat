@@ -431,6 +431,8 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+echo [INFO] Services started successfully with force recreate
+goto after_up
 
 REM バックエンドサーバーを起動
 echo [INFO] Starting backend server on port 5050...
