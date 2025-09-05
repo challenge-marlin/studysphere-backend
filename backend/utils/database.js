@@ -6,43 +6,19 @@ const { customLogger } = require('./logger');
 let pool = mysql.createPool({
   ...dbConfig,
   // 接続プールの設定を最適化
-  timeout: 120000, // クエリタイムアウトを2分に延長
-  reconnect: true, // 自動再接続
-  // 接続プールの監視設定
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 10000, // KeepAlive開始を遅延
   // 接続プールのサイズ制限
-  connectionLimit: 50, // 接続数を大幅に増加
-  queueLimit: 20, // キュー制限を増加
-  // 接続の有効期限
-  maxIdle: 600000, // アイドル接続の最大時間を10分に延長
+  connectionLimit: 10, // 接続数を適切に制限（メモリ使用量を削減）
+  queueLimit: 5, // キュー制限を設定
   // 接続の再利用設定
-  acquireTimeout: 120000, // 接続取得タイムアウトを2分に延長
   waitForConnections: true, // 接続を待機
-  // 接続の検証設定を無効化（接続が閉じられる原因となるため）
-  // validateConnection: async (connection) => {
-  //   try {
-  //     await connection.ping();
-  //     return true;
-  //   } catch (error) {
-  //     customLogger.error('接続検証に失敗', { error: error.message });
-  //     return false;
-  //   }
-  // },
-  // 接続の再利用を改善
-  multipleStatements: false, // 複数ステートメントを無効化
-  dateStrings: true, // 日付を文字列として扱う
-  // 接続の安定性を向上
-  supportBigNumbers: true,
-  bigNumberStrings: true,
-  // 接続の安定性をさらに向上
-  charset: 'utf8mb4',
-  collation: 'utf8mb4_unicode_ci',
-  // 接続の安定性をさらに向上
-  ssl: false, // SSLを無効化
-  compress: false, // 圧縮を無効化
-  // 接続の再利用を改善
-  reuseConnection: true
+  // 接続タイムアウト設定
+  acquireTimeout: 60000, // 60秒
+  timeout: 60000, // 60秒
+  // アイドル接続のタイムアウト
+  idleTimeout: 300000, // 5分
+  // 接続の最大生存時間
+  maxReconnects: 3,
+  reconnectDelay: 2000
 });
 
 // 接続プールの状態監視（簡素化）
@@ -173,12 +149,12 @@ const getPool = () => pool;
 const getPoolStatus = () => {
   try {
     return {
-      totalConnections: pool._allConnections?.length || 0,
-      freeConnections: pool._freeConnections?.length || 0,
-      activeConnections: (pool._allConnections?.length || 0) - (pool._freeConnections?.length || 0),
+      totalConnections: 0,
+      freeConnections: 0,
+      activeConnections: 0,
       config: {
-        connectionLimit: pool.pool?.config?.connectionLimit || 'unknown',
-        queueLimit: pool.pool?.config?.queueLimit || 'unknown'
+        connectionLimit: dbConfig.connectionLimit || 'unknown',
+        queueLimit: dbConfig.queueLimit || 'unknown'
       }
     };
   } catch (error) {

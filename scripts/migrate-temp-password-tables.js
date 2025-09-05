@@ -18,12 +18,7 @@ const dbConfig = {
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 5,
-  charset: 'utf8mb4',
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-  acquireTimeout: 60000,
-  idleTimeout: 60000,
-  debug: false
+  charset: 'utf8mb4'
 };
 
 // デバッグ用：設定値を表示

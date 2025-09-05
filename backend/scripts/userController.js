@@ -1,6 +1,7 @@
 const { pool } = require('../utils/database');
 const bcrypt = require('bcryptjs');
 const { customLogger } = require('../utils/logger');
+const { generateAccessToken, generateRefreshToken, saveRefreshToken } = require('../utils/tokenManager');
 const { 
   getCurrentJapanTime, 
   getTodayEndTime: getTodayEndTimeUtil, 
@@ -1662,6 +1663,7 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
         ua.id, 
         ua.name, 
         ua.role,
+        ua.company_id,
         utp.temp_password,
         utp.expires_at,
         utp.is_used,
@@ -1699,7 +1701,28 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
       };
     }
 
+    // JWTトークンを生成
+    const userData = {
+      user_id: user.id,
+      user_name: user.name,
+      role: user.role,
+      company_id: user.company_id
+    };
+    
+    const accessToken = generateAccessToken(userData);
+    const refreshToken = generateRefreshToken(userData);
+    
+    // リフレッシュトークンをデータベースに保存
+    await saveRefreshToken(user.id, refreshToken);
+    
     // ログイン時は使用済みフラグを更新しない（ログアウト時に更新）
+
+    console.log('verifyTemporaryPassword: 指導員名デバッグ:', {
+      instructor_name: user.instructor_name,
+      type: typeof user.instructor_name,
+      isTruthy: !!user.instructor_name,
+      user: user
+    });
 
     return {
       success: true,
@@ -1708,7 +1731,10 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
         userId: user.id,
         userName: user.name,
         role: user.role,
-        instructorName: user.instructor_name
+        instructorName: user.instructor_name,
+        expiresAt: user.expires_at,
+        access_token: accessToken,
+        refresh_token: refreshToken
       }
     };
   } catch (error) {

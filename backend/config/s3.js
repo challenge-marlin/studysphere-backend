@@ -187,12 +187,19 @@ const s3Utils = {
         Expires: expiresIn
       };
 
+      // PDFファイルの場合はブラウザ内表示用のパラメータを設定
+      if (key.toLowerCase().endsWith('.pdf')) {
+        params.ResponseContentDisposition = 'inline';
+        params.ResponseContentType = 'application/pdf';
+      }
+
       const url = await s3.getSignedUrlPromise('getObject', params);
       
       customLogger.info(`Presigned URL generated: ${key}`, {
         bucket: s3Config.bucketName,
         key: key,
-        expiresIn: expiresIn
+        expiresIn: expiresIn,
+        responseContentDisposition: params.ResponseContentDisposition || 'default'
       });
 
       return {

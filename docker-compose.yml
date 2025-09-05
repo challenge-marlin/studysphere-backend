@@ -43,7 +43,7 @@ services:
     command: >
       sh -c "
         echo 'Waiting for database to be ready...' &&
-        while ! mysql --skip-ssl -h$$DB_HOST -u$$DB_USER -p$$DB_PASSWORD -e 'SELECT 1;' --silent; do
+        while ! mysql --skip-ssl -h$$DB_HOST -P$$DB_PORT -u$$DB_USER -p$$DB_PASSWORD -e 'SELECT 1;' --silent; do
           echo 'Database is not ready yet. Waiting...' &&
           sleep 2
         done &&
@@ -54,7 +54,7 @@ services:
     container_name: express_app
     restart: always
     ports:
-      - "5000:5000"
+      - "5050:5000"
     environment:
       - DB_HOST=db
       - DB_USER=root
@@ -68,8 +68,9 @@ services:
       - WATCHPACK_POLLING=true
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-3}
       - AWS_S3_BUCKET=${AWS_S3_BUCKET:-studysphere}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -86,12 +87,12 @@ services:
         "--no-verbose",
         "--tries=1",
         "--spider",
-        "http://localhost:5000/"
+        "http://localhost:5000/api/test/health"
       ]
       timeout: 10s
       retries: 5
       interval: 30s
-      start_period: 40s
+      start_period: 60s
     logging:
       driver: "json-file"
       options:

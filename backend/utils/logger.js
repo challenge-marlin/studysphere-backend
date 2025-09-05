@@ -21,6 +21,31 @@ const getLogDir = () => {
 // ログディレクトリの作成
 const logDir = getLogDir();
 
+// ログディレクトリの権限確認と修正
+const ensureLogDirectoryPermissions = () => {
+  try {
+    const logsBaseDir = path.join(__dirname, '../logs');
+    if (!fs.existsSync(logsBaseDir)) {
+      fs.mkdirSync(logsBaseDir, { recursive: true, mode: 0o755 });
+    }
+    
+    // 現在のログディレクトリの権限を確認
+    const currentLogDir = getLogDir();
+    const stats = fs.statSync(currentLogDir);
+    
+    // 権限が不十分な場合は修正
+    if ((stats.mode & 0o777) !== 0o755) {
+      fs.chmodSync(currentLogDir, 0o755);
+      console.log(`Log directory permissions updated: ${currentLogDir}`);
+    }
+  } catch (error) {
+    console.error('Error ensuring log directory permissions:', error);
+  }
+};
+
+// ログディレクトリの権限を確保
+ensureLogDirectoryPermissions();
+
 // カスタムログフォーマット
 const logFormat = winston.format.combine(
   winston.format.timestamp({
@@ -131,12 +156,15 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// ログレベルの設定
+// ログレベルの設定（強制的にinfo以上を設定）
 const logLevel = process.env.LOG_LEVEL || 'info';
+const effectiveLogLevel = ['error', 'warn', 'info', 'debug'].includes(logLevel) ? logLevel : 'info';
+
+console.log(`Logger initialized with level: ${effectiveLogLevel}`);
 
 // Winstonロガーの設定
 const logger = winston.createLogger({
-  level: logLevel,
+  level: effectiveLogLevel,
   format: logFormat,
   defaultMeta: { service: 'curriculum-portal-backend' },
   transports: [
@@ -146,6 +174,8 @@ const logger = winston.createLogger({
       level: 'error',
       maxsize: 5242880, // 5MB
       maxFiles: 5,
+      handleExceptions: true,
+      handleRejections: true,
     }),
     
     // 全ログファイル
@@ -153,6 +183,8 @@ const logger = winston.createLogger({
       filename: path.join(getLogDir(), 'combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5,
+      handleExceptions: true,
+      handleRejections: true,
     }),
     
     // デバッグログファイル（開発環境のみ）
@@ -162,9 +194,28 @@ const logger = winston.createLogger({
         level: 'debug',
         maxsize: 5242880, // 5MB
         maxFiles: 3,
+        handleExceptions: true,
+        handleRejections: true,
       })
     ] : []),
   ],
+  // 例外処理の設定
+  exceptionHandlers: [
+    new winston.transports.File({
+      filename: path.join(getLogDir(), 'exceptions.log'),
+      maxsize: 5242880, // 5MB
+      maxFiles: 3,
+    })
+  ],
+  rejectionHandlers: [
+    new winston.transports.File({
+      filename: path.join(getLogDir(), 'rejections.log'),
+      maxsize: 5242880, // 5MB
+      maxFiles: 3,
+    })
+  ],
+  // ログの即座フラッシュを有効化
+  exitOnError: false,
 });
 
 // コンソール出力（開発環境のみ）
@@ -174,6 +225,14 @@ if (process.env.NODE_ENV !== 'production') {
     level: 'debug'
   }));
 }
+
+// ログの即座フラッシュ機能
+const flushLogs = () => {
+  return new Promise((resolve) => {
+    logger.on('finish', resolve);
+    logger.end();
+  });
+};
 
 // ログローテーション設定
 const logRotation = {
@@ -194,11 +253,19 @@ const logRotation = {
   }
 };
 
-// カスタムログメソッド
+// カスタムログメソッド（即座フラッシュ対応）
 const customLogger = {
   // 基本ログメソッド
   error: (message, meta = {}) => {
     logger.error(message, meta);
+    // エラーログは即座にフラッシュ
+    if (logger.transports.length > 0) {
+      logger.transports.forEach(transport => {
+        if (transport.log && typeof transport.log === 'function') {
+          transport.log({ level: 'error', message, ...meta }, () => {});
+        }
+      });
+    }
   },
   
   warn: (message, meta = {}) => {
@@ -314,6 +381,35 @@ const customLogger = {
     };
     
     logger.error('Application Error', errorInfo);
+    // エラーログは即座にフラッシュ
+    if (logger.transports.length > 0) {
+      logger.transports.forEach(transport => {
+        if (transport.log && typeof transport.log === 'function') {
+          transport.log({ level: 'error', message: 'Application Error', ...errorInfo }, () => {});
+        }
+      });
+    }
+  },
+  
+  // ログの即座フラッシュ
+  flush: flushLogs,
+  
+  // ログレベルの確認
+  getLevel: () => logger.level,
+  
+  // ログファイルの確認
+  getLogFiles: () => {
+    try {
+      const currentLogDir = getLogDir();
+      const files = fs.readdirSync(currentLogDir);
+      return files.map(file => ({
+        name: file,
+        path: path.join(currentLogDir, file),
+        size: fs.statSync(path.join(currentLogDir, file)).size
+      }));
+    } catch (error) {
+      return [];
+    }
   }
 };
 
@@ -384,10 +480,27 @@ const cleanupOldLogs = (daysToKeep = 30) => {
 // 定期的なログクリーンアップ（週1回）
 setInterval(cleanupOldLogs, 7 * 24 * 60 * 60 * 1000);
 
+// プロセス終了時のログフラッシュ
+process.on('exit', () => {
+  customLogger.info('Application shutting down, flushing logs...');
+  flushLogs();
+});
+
+process.on('SIGINT', () => {
+  customLogger.info('Received SIGINT, flushing logs...');
+  flushLogs().then(() => process.exit(0));
+});
+
+process.on('SIGTERM', () => {
+  customLogger.info('Received SIGTERM, flushing logs...');
+  flushLogs().then(() => process.exit(0));
+});
+
 module.exports = {
   logger,
   customLogger,
   cleanupOldLogs,
   getLogDir,
-  logDir
+  logDir,
+  flushLogs
 }; 

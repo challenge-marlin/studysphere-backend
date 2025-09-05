@@ -164,14 +164,40 @@ const userCourseRoutes = require('./routes/userCourseRoutes');
 const supportPlanRoutes = require('./routes/supportPlanRoutes');
 const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
+const studentRoutes = require('./routes/studentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 const remoteSupportRoutes = require('./routes/remoteSupportRoutes');
+const learningRoutes = require('./routes/learningRoutes');
+const pdfRoutes = require('./routes/pdfRoutes');
+// AIルートの条件付き読み込み（環境変数が設定されている場合のみ）
+let aiRoutes;
+try {
+  if (process.env.OPENAI_API_KEY) {
+    aiRoutes = require('./routes/ai');
+  }
+} catch (error) {
+  console.warn('AIルートの読み込みに失敗しました:', error.message);
+  aiRoutes = null;
+}
 
 const app = express();
 
 // セキュリティミドルウェア
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      frameSrc: ["'self'", "http://localhost:5050", "http://localhost:3000"],
+      frameAncestors: ["'self'", "http://localhost:3000", "http://localhost:5050", "http://localhost:3000/studysphere"],
+      connectSrc: ["'self'", "http://localhost:5050", "http://localhost:3000"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({
   origin: function (origin, callback) {
     // 開発環境ではすべてのオリジンを許可
@@ -285,8 +311,17 @@ app.use('/api/user-courses', userCourseRoutes);
 app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/student', studentRoutes);
 app.use('/api/remote-support', remoteSupportRoutes);
+app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/learning', learningRoutes);
+// AIルートの条件付きマウント
+if (aiRoutes) {
+  app.use('/api/ai', aiRoutes);
+} else {
+  console.log('AIルートは無効化されています（OPENAI_API_KEYが設定されていません）');
+}
 // authRoutesを最後に配置（汎用的なパスのため）
 app.use('/api', authRoutes);
 
@@ -297,17 +332,6 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     status: 'running'
-  });
-});
-
-// ヘルスチェックエンドポイント
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    version: process.version
   });
 });
 
@@ -379,154 +403,11 @@ app.get('/memory/report', (req, res) => {
 
 // 認証系エンドポイントは routes/authRoutes.js に移動
 
-// ヘルスチェックエンドポイント
-app.get('/', async (req, res) => {
-  const result = await healthCheck();
-  
-  if (result.success) {
-    res.json(result.data);
-  } else {
-    res.status(500).json({
-      message: result.message,
-      error: result.error
-    });
-  }
-});
-
 // Users routes are moved to routes/userRoutes.js
 
 
 
-// 管理者管理エンドポイント
-
-// 管理者一覧取得
-app.get('/api/admins', async (req, res) => {
-  try {
-    const includeDeleted = req.query.includeDeleted === 'true';
-    const result = await getAdmins(includeDeleted);
-    
-    if (result.success) {
-      res.json(result.data);
-    } else {
-      res.status(500).json({
-        success: false,
-        message: result.message,
-        error: result.error
-      });
-    }
-  } catch (error) {
-    console.error('管理者一覧取得エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者一覧の取得に失敗しました',
-      error: error.message
-    });
-  }
-});
-
-// 管理者作成
-app.post('/api/admins', async (req, res) => {
-  try {
-    const result = await createAdmin(req.body);
-    
-    if (result.success) {
-      res.status(201).json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('管理者作成エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者の作成に失敗しました',
-      error: error.message
-    });
-  }
-});
-
-// 管理者更新
-app.put('/api/admins/:adminId', async (req, res) => {
-  try {
-    const adminId = parseInt(req.params.adminId);
-    const result = await updateAdmin(adminId, req.body);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('管理者更新エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者の更新に失敗しました',
-      error: error.message
-    });
-  }
-});
-
-// 管理者削除（論理削除）
-app.delete('/api/admins/:adminId', async (req, res) => {
-  try {
-    const adminId = parseInt(req.params.adminId);
-    const result = await deleteAdmin(adminId);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('管理者削除エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者の削除に失敗しました',
-      error: error.message
-    });
-  }
-});
-
-// 管理者復元
-app.post('/api/admins/:adminId/restore', async (req, res) => {
-  try {
-    const adminId = parseInt(req.params.adminId);
-    const result = await restoreAdmin(adminId);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('管理者復元エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者の復元に失敗しました',
-      error: error.message
-    });
-  }
-});
-
-// 管理者物理削除
-app.delete('/api/admins/:adminId/permanent', async (req, res) => {
-  try {
-    const adminId = parseInt(req.params.adminId);
-    const result = await permanentlyDeleteAdmin(adminId);
-    
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(400).json(result);
-    }
-  } catch (error) {
-    console.error('管理者物理削除エラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '管理者の物理削除に失敗しました',
-      error: error.message
-    });
-  }
-});
+// 管理者管理エンドポイントは routes/adminRoutes.js に移動
 
 // Companies routes are moved to routes/companyRoutes.js
 
@@ -542,31 +423,7 @@ app.delete('/api/admins/:adminId/permanent', async (req, res) => {
 
 // 拠点内指導員一覧や拠点統計は routes/satelliteRoutes.js に移動
 
-// ヘルスチェックエンドポイント
-app.get('/health', async (req, res) => {
-  try {
-    const { testConnection, getPoolStatus } = require('./utils/database');
-    const dbTest = await testConnection();
-    const poolStatus = getPoolStatus();
-    
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      database: {
-        connected: dbTest.success,
-        currentTime: dbTest.currentTime,
-        error: dbTest.error
-      },
-      pool: poolStatus
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      timestamp: new Date().toISOString(),
-      error: error.message
-    });
-  }
-});
+// ヘルスチェックエンドポイントは /api/health に統合済み
 
 // ログ管理エンドポイントは routes/logRoutes.js に移動
 
@@ -612,15 +469,21 @@ console.log('=== StudySphere Backend Starting ===');
 console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('Timestamp:', new Date().toISOString());
 
-// 利用可能なルートの確認
+// 利用可能なルートの確認（安全な方法）
 setTimeout(() => {
-  console.log('=== Available Routes ===');
-  app._router.stack.forEach((middleware) => {
-    if (middleware.name === 'router') {
-      console.log(`Router mounted at: ${middleware.regexp.source}`);
+  try {
+    console.log('=== Available Routes ===');
+    if (app._router && app._router.stack) {
+      app._router.stack.forEach((middleware) => {
+        if (middleware.name === 'router') {
+          console.log(`Router mounted at: ${middleware.regexp.source}`);
+        }
+      });
     }
-  });
-  console.log('=== Routes Check Complete ===');
+    console.log('=== Routes Check Complete ===');
+  } catch (error) {
+    console.warn('ルート確認中にエラーが発生:', error.message);
+  }
 }, 1000);
 
 module.exports = app; 

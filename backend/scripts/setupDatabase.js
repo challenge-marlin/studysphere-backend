@@ -11,8 +11,8 @@ async function setupDatabase() {
     connection = await mysql.createConnection(dbConfig);
     console.log('データベース接続成功');
 
-    // SQLファイルを読み込み
-    const sqlFilePath = path.join(__dirname, '../db/add_user_courses_tables.sql');
+    // SQLファイルを読み込み（存在するファイルを使用）
+    const sqlFilePath = path.join(__dirname, '../db/init.sql');
     console.log('SQLファイルパス:', sqlFilePath);
     
     const sqlContent = await fs.readFile(sqlFilePath, 'utf8');
@@ -58,8 +58,9 @@ async function setupDatabase() {
   }
 }
 
-// スクリプトが直接実行された場合
+// スクリプトが直接実行された場合のみ実行
 if (require.main === module) {
+  console.log('setupDatabase.js は手動実行専用です。アプリケーション起動時には実行されません。');
   setupDatabase()
     .then(() => {
       console.log('セットアップが正常に完了しました');
