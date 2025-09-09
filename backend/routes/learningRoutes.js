@@ -10,7 +10,8 @@ const {
   getLessonContent,
   getCourseProgress,
   assignCourseToUser,
-  getCurrentLesson
+  getCurrentLesson,
+  approveLessonCompletion
 } = require('../scripts/learningController');
 const multer = require('multer');
 const { pool } = require('../utils/database');
@@ -20,6 +21,529 @@ const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 const router = express.Router();
+
+// ファイル読み込み確認
+console.log('=== Learning Routes File Loaded ===');
+console.log('Timestamp:', new Date().toISOString());
+
+
+// テスト用エンドポイント
+router.get('/test', (req, res) => {
+  console.log('=== テストエンドポイント呼び出し ===');
+  res.json({ message: 'Learning routes are working!', timestamp: new Date().toISOString() });
+});
+
+
+// 基本的なヘルスチェック
+router.get('/', (req, res) => {
+  console.log('=== Learning Routes Root ===');
+  res.json({ message: 'Learning routes are active', timestamp: new Date().toISOString() });
+});
+
+// 成果物アップロード（リクエストボディベース）
+router.post('/upload-assignment', authenticateToken, upload.single('file'), async (req, res) => {
+  try {
+    console.log('=== アップロードエンドポイント呼び出し ===');
+    console.log('URL:', req.url);
+    console.log('Method:', req.method);
+    console.log('Body keys:', Object.keys(req.body || {}));
+    console.log('File:', req.file ? 'Present' : 'Not present');
+    
+    const { lessonId } = req.body;
+    const userId = req.user.user_id;
+    const file = req.file;
+
+    // lessonIdの検証
+    if (!lessonId) {
+      return res.status(400).json({
+        success: false,
+        message: 'レッスンIDが指定されていません'
+      });
+    }
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: 'ファイルがアップロードされていません'
+      });
+    }
+
+    // ZIPファイルのみ許可
+    if (!file.mimetype.includes('zip') && !file.originalname.toLowerCase().endsWith('.zip')) {
+      return res.status(400).json({
+        success: false,
+        message: 'ZIPファイルのみアップロード可能です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // トランザクション開始
+      await connection.beginTransaction();
+      
+      // レッスンの課題設定を確認
+      const [lessonRows] = await connection.execute(`
+        SELECT l.has_assignment, l.title, c.title as course_title 
+        FROM lessons l 
+        JOIN courses c ON l.course_id = c.id 
+        WHERE l.id = ? AND l.status = 'active'
+      `, [lessonId]);
+
+      if (lessonRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'レッスンが見つかりません'
+        });
+      }
+
+      const lesson = lessonRows[0];
+      if (!lesson.has_assignment) {
+        return res.status(400).json({
+          success: false,
+          message: 'このレッスンには課題が設定されていません'
+        });
+      }
+
+      // ユーザー情報を取得（企業・拠点・ユーザートークン）
+      console.log('=== ユーザー情報取得開始 ===');
+      console.log('userId:', userId);
+      
+      // まずユーザーアカウント情報を取得
+      const [userAccountRows] = await connection.execute(`
+        SELECT id, login_code, company_id, satellite_ids FROM user_accounts WHERE id = ?
+      `, [userId]);
+
+      console.log('ユーザーアカウント情報:', userAccountRows);
+
+      if (userAccountRows.length === 0) {
+        console.log('=== ユーザーアカウントが見つからない場合の詳細調査 ===');
+        
+        // 全ユーザーアカウントの確認
+        const [allUsers] = await connection.execute('SELECT id, name, login_code FROM user_accounts LIMIT 10');
+        console.log('利用可能なユーザーアカウント（最初の10件）:', allUsers);
+        
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーアカウントが見つかりません'
+        });
+      }
+
+      const userAccount = userAccountRows[0];
+      
+      // 企業情報を取得
+      console.log('企業ID:', userAccount.company_id);
+      const [companyRows] = await connection.execute(`
+        SELECT id, token FROM companies WHERE id = ?
+      `, [userAccount.company_id]);
+
+      console.log('企業情報クエリ結果:', companyRows);
+
+      if (companyRows.length === 0) {
+        console.log('=== 企業情報が見つからない場合の詳細調査 ===');
+        
+        // 全企業の確認
+        const [allCompanies] = await connection.execute('SELECT id, name, token FROM companies LIMIT 10');
+        console.log('利用可能な企業（最初の10件）:', allCompanies);
+        
+        return res.status(404).json({
+          success: false,
+          message: '企業情報が見つかりません'
+        });
+      }
+
+      const company = companyRows[0];
+      
+      // 拠点情報を取得（最初の拠点を使用）
+      console.log('satellite_ids:', userAccount.satellite_ids);
+      let satelliteRows = [];
+      if (userAccount.satellite_ids) {
+        try {
+          // JSON配列として解析を試行
+          let satelliteIds;
+          if (typeof userAccount.satellite_ids === 'string') {
+            satelliteIds = JSON.parse(userAccount.satellite_ids);
+          } else {
+            satelliteIds = userAccount.satellite_ids;
+          }
+          
+          console.log('解析されたsatellite_ids:', satelliteIds);
+          
+          // 配列でない場合は配列に変換
+          if (!Array.isArray(satelliteIds)) {
+            satelliteIds = [satelliteIds];
+          }
+          
+          if (satelliteIds.length > 0) {
+            console.log('最初の拠点ID:', satelliteIds[0]);
+            const [rows] = await connection.execute(`
+              SELECT id, token FROM satellites WHERE id = ?
+            `, [satelliteIds[0]]);
+            satelliteRows = rows;
+            console.log('拠点情報クエリ結果:', satelliteRows);
+          }
+        } catch (parseError) {
+          console.log('satellite_idsのJSON解析エラー:', parseError);
+          // フォールバック: FIND_IN_SETを使用
+          const [rows] = await connection.execute(`
+            SELECT id, token FROM satellites WHERE FIND_IN_SET(id, ?)
+            LIMIT 1
+          `, [userAccount.satellite_ids]);
+          satelliteRows = rows;
+          console.log('FIND_IN_SET拠点情報クエリ結果:', satelliteRows);
+        }
+      } else {
+        console.log('satellite_idsがnullまたはundefinedです');
+      }
+
+      if (satelliteRows.length === 0) {
+        console.log('=== 拠点情報が見つからない場合の詳細調査 ===');
+        
+        // 全拠点の確認
+        const [allSatellites] = await connection.execute('SELECT id, name, token, company_id FROM satellites LIMIT 10');
+        console.log('利用可能な拠点（最初の10件）:', allSatellites);
+        
+        return res.status(404).json({
+          success: false,
+          message: '拠点情報が見つかりません'
+        });
+      }
+
+      const satellite = satelliteRows[0];
+      
+      const user = {
+        login_code: userAccount.login_code,
+        company_token: company.token,
+        satellite_token: satellite.token
+      };
+      
+      // 現在の日時からファイル名を生成（YYYY_MMDD_HHMMSS.zip形式）- JST時刻を使用
+      const { getCurrentJapanTime } = require('../utils/dateUtils');
+      const now = getCurrentJapanTime();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      
+      const fileName = `${year}_${month}${day}_${hours}${minutes}${seconds}.zip`;
+      
+      // S3パスを構築: doc/{企業トークン}/{拠点トークン}/{利用者トークン}/{レッスンID}/
+      const s3Key = `doc/${user.company_token}/${user.satellite_token}/${user.login_code}/${lessonId}/${fileName}`;
+
+      // S3にアップロード
+      const s3Config = {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        region: process.env.AWS_REGION || 'ap-northeast-1',
+        bucketName: process.env.AWS_S3_BUCKET || 'studysphere'
+      };
+
+      const s3 = new AWS.S3({
+        accessKeyId: s3Config.accessKeyId,
+        secretAccessKey: s3Config.secretAccessKey,
+        region: s3Config.region
+      });
+
+      const uploadParams = {
+        Bucket: s3Config.bucketName,
+        Key: s3Key,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+        Metadata: {
+          'original-name': Buffer.from(file.originalname, 'utf8').toString('base64'),
+          'upload-date': new Date().toISOString(),
+          'lesson-id': lessonId,
+          'user-id': userId.toString(),
+          'course-title': Buffer.from(lesson.course_title, 'utf8').toString('base64'),
+          'lesson-title': Buffer.from(lesson.title, 'utf8').toString('base64')
+        }
+      };
+
+      await s3.upload(uploadParams).promise();
+
+      // データベースに提出記録を保存
+      const [existingProgress] = await connection.execute(`
+        SELECT id FROM user_lesson_progress 
+        WHERE user_id = ? AND lesson_id = ?
+      `, [userId, lessonId]);
+
+      if (existingProgress.length > 0) {
+        // 既存の進捗を更新
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET assignment_submitted = 1, assignment_submitted_at = NOW(), updated_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [userId, lessonId]);
+      } else {
+        // 新しい進捗を作成
+        await connection.execute(`
+          INSERT INTO user_lesson_progress 
+          (user_id, lesson_id, status, assignment_submitted, assignment_submitted_at, created_at, updated_at)
+          VALUES (?, ?, 'in_progress', 1, NOW(), NOW(), NOW())
+        `, [userId, lessonId]);
+      }
+
+      // deliverablesテーブルにファイル情報を保存
+      try {
+        console.log('=== deliverablesテーブル挿入開始 ===');
+        console.log('挿入データ:', {
+          userId: userId,
+          curriculumName: lesson.course_title,
+          sessionNumber: lessonId,
+          fileUrl: s3Key,
+          fileType: 'other'
+        });
+        
+        const [deliverableResult] = await connection.execute(`
+          INSERT INTO deliverables 
+          (user_id, curriculum_name, session_number, file_url, file_type, uploaded_at)
+          VALUES (?, ?, ?, ?, 'other', NOW())
+        `, [userId, lesson.course_title, lessonId, s3Key]);
+        
+        console.log('=== deliverablesテーブル挿入成功 ===');
+        console.log('挿入結果:', deliverableResult);
+        
+        // 挿入確認のためのクエリ
+        const [verifyRows] = await connection.execute(`
+          SELECT * FROM deliverables WHERE id = ?
+        `, [deliverableResult.insertId]);
+        console.log('挿入確認:', verifyRows);
+        
+      } catch (deliverableError) {
+        console.error('=== deliverablesテーブル挿入エラー ===');
+        console.error('エラー詳細:', deliverableError);
+        console.error('エラーメッセージ:', deliverableError.message);
+        console.error('エラーコード:', deliverableError.code);
+        console.error('エラースタック:', deliverableError.stack);
+        
+        // deliverablesテーブル挿入エラーでも処理を継続（既存の進捗更新は成功しているため）
+        console.log('deliverablesテーブル挿入エラーが発生しましたが、処理を継続します');
+      }
+
+      // トランザクションコミット
+      await connection.commit();
+      console.log('=== トランザクションコミット完了 ===');
+
+      res.json({
+        success: true,
+        message: '成果物のアップロードが完了しました',
+        data: {
+          fileName: fileName,
+          originalFileName: file.originalname,
+          fileSize: file.size,
+          s3Key,
+          lessonId: parseInt(lessonId),
+          userId: parseInt(userId)
+        }
+      });
+
+    } catch (transactionError) {
+      // トランザクションロールバック
+      console.error('=== トランザクションエラー、ロールバック実行 ===');
+      console.error('エラー詳細:', transactionError);
+      await connection.rollback();
+      throw transactionError;
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('成果物アップロードエラー:', error);
+    console.error('エラースタック:', error.stack);
+    
+    // データベース接続エラーの場合
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+      return res.status(503).json({
+        success: false,
+        message: 'データベース接続エラーが発生しました。しばらく時間をおいてから再試行してください。',
+        error: 'DATABASE_CONNECTION_ERROR'
+      });
+    }
+    
+    // その他のエラー
+    res.status(500).json({
+      success: false,
+      message: '成果物のアップロードに失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'INTERNAL_SERVER_ERROR'
+    });
+  }
+});
+
+// アップロード済みファイル取得
+router.get('/lesson/:lessonId/uploaded-files', authenticateToken, async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.user_id;
+
+    console.log('=== アップロード済みファイル取得 ===');
+    console.log('lessonId:', lessonId);
+    console.log('userId:', userId);
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // deliverablesテーブルからファイル情報を取得
+      const [fileRows] = await connection.execute(`
+        SELECT id, curriculum_name, session_number, file_url, file_type, uploaded_at
+        FROM deliverables 
+        WHERE user_id = ? AND session_number = ?
+        ORDER BY uploaded_at DESC
+      `, [userId, lessonId]);
+
+      console.log('取得されたファイル数:', fileRows.length);
+
+      const uploadedFiles = fileRows.map(file => ({
+        id: file.id,
+        name: file.file_url.split('/').pop(), // S3キーからファイル名を抽出
+        type: file.file_type,
+        uploadDate: file.uploaded_at, // JST時刻をUTC扱いでそのまま表示
+        status: 'uploaded',
+        s3Key: file.file_url,
+        curriculumName: file.curriculum_name,
+        sessionNumber: file.session_number
+      }));
+
+      res.json({
+        success: true,
+        data: uploadedFiles
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('アップロード済みファイル取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'アップロード済みファイルの取得に失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'INTERNAL_SERVER_ERROR'
+    });
+  }
+});
+
+// アップロード済みファイル削除
+router.delete('/lesson/:lessonId/uploaded-files/:fileId', authenticateToken, async (req, res) => {
+  try {
+    const { lessonId, fileId } = req.params;
+    const userId = req.user.user_id;
+
+    console.log('=== アップロード済みファイル削除 ===');
+    console.log('lessonId:', lessonId);
+    console.log('fileId:', fileId);
+    console.log('userId:', userId);
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // トランザクション開始
+      await connection.beginTransaction();
+
+      // 削除対象のファイル情報を取得
+      const [fileRows] = await connection.execute(`
+        SELECT id, file_url, user_id, session_number
+        FROM deliverables 
+        WHERE id = ? AND user_id = ? AND session_number = ?
+      `, [fileId, userId, lessonId]);
+
+      if (fileRows.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'ファイルが見つかりません'
+        });
+      }
+
+      const file = fileRows[0];
+
+      // S3からファイルを削除
+      if (file.file_url) {
+        try {
+          const AWS = require('aws-sdk');
+          const s3Config = {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            region: process.env.AWS_REGION || 'ap-northeast-1',
+            bucketName: process.env.AWS_S3_BUCKET || 'studysphere'
+          };
+
+          const s3 = new AWS.S3({
+            accessKeyId: s3Config.accessKeyId,
+            secretAccessKey: s3Config.secretAccessKey,
+            region: s3Config.region
+          });
+
+          await s3.deleteObject({
+            Bucket: s3Config.bucketName,
+            Key: file.file_url
+          }).promise();
+
+          console.log('S3ファイル削除成功:', file.file_url);
+        } catch (s3Error) {
+          console.error('S3ファイル削除エラー:', s3Error);
+          // S3削除エラーでも処理を継続
+        }
+      }
+
+      // deliverablesテーブルからファイル情報を削除
+      await connection.execute(`
+        DELETE FROM deliverables 
+        WHERE id = ? AND user_id = ? AND session_number = ?
+      `, [fileId, userId, lessonId]);
+
+      // 同じレッスンで他のファイルが残っているかチェック
+      const [remainingFiles] = await connection.execute(`
+        SELECT COUNT(*) as count
+        FROM deliverables 
+        WHERE user_id = ? AND session_number = ?
+      `, [userId, lessonId]);
+
+      // ファイルが0件になった場合、課題提出状況をfalseに戻す
+      if (remainingFiles[0].count === 0) {
+        console.log('ファイルが0件になったため、課題提出状況をfalseに戻します');
+        
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET assignment_submitted = 0, assignment_submitted_at = NULL, updated_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [userId, lessonId]);
+      }
+
+      // トランザクションコミット
+      await connection.commit();
+      console.log('=== ファイル削除完了 ===');
+
+      res.json({
+        success: true,
+        message: 'ファイルが削除されました',
+        data: {
+          fileId: fileId,
+          lessonId: lessonId,
+          assignmentStatusReset: remainingFiles[0].count === 0
+        }
+      });
+
+    } catch (transactionError) {
+      // トランザクションロールバック
+      console.error('=== トランザクションエラー、ロールバック実行 ===');
+      console.error('エラー詳細:', transactionError);
+      await connection.rollback();
+      throw transactionError;
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('アップロード済みファイル削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'ファイルの削除に失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'INTERNAL_SERVER_ERROR'
+    });
+  }
+});
 
 // 学習進捗関連
 router.get('/progress/:userId', authenticateToken, getUserProgress);
@@ -32,6 +556,9 @@ router.get('/current-lesson', authenticateToken, getCurrentLesson);
 // テスト結果関連
 router.post('/test/submit', authenticateToken, submitTestResult);
 router.get('/test/results/:userId', authenticateToken, getTestResults);
+
+// 指導員承認関連
+router.post('/approve-completion', authenticateToken, approveLessonCompletion);
 
 // レッスンコンテンツ取得
 router.get('/lesson/:lessonId/content', authenticateToken, getLessonContent);
@@ -726,164 +1253,5 @@ router.get('/pdf-viewer', async (req, res) => {
   }
 });
 
-// 成果物アップロード
-router.post('/lesson/:lessonId/upload-assignment', authenticateToken, upload.single('file'), async (req, res) => {
-  try {
-    const { lessonId } = req.params;
-    const userId = req.user.user_id;
-    const file = req.file;
-
-    if (!file) {
-      return res.status(400).json({
-        success: false,
-        message: 'ファイルがアップロードされていません'
-      });
-    }
-
-    // ZIPファイルのみ許可
-    if (!file.mimetype.includes('zip') && !file.originalname.toLowerCase().endsWith('.zip')) {
-      return res.status(400).json({
-        success: false,
-        message: 'ZIPファイルのみアップロード可能です'
-      });
-    }
-
-    const connection = await pool.getConnection();
-    
-    try {
-      // レッスンの課題設定を確認
-      const [lessonRows] = await connection.execute(`
-        SELECT l.has_assignment, l.title, c.title as course_title 
-        FROM lessons l 
-        JOIN courses c ON l.course_id = c.id 
-        WHERE l.id = ? AND l.status = 'active'
-      `, [lessonId]);
-
-      if (lessonRows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'レッスンが見つかりません'
-        });
-      }
-
-      const lesson = lessonRows[0];
-      if (!lesson.has_assignment) {
-        return res.status(400).json({
-          success: false,
-          message: 'このレッスンには課題が設定されていません'
-        });
-      }
-
-      // ユーザー情報を取得（企業・拠点・ユーザートークン）
-      const [userRows] = await connection.execute(`
-        SELECT ua.login_code, c.token as company_token, s.token as satellite_token
-        FROM user_accounts ua
-        JOIN companies c ON ua.company_id = c.id
-        JOIN satellites s ON FIND_IN_SET(s.id, ua.satellite_ids)
-        WHERE ua.id = ?
-      `, [userId]);
-
-      if (userRows.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: 'ユーザー情報が見つかりません'
-        });
-      }
-
-      const user = userRows[0];
-      
-      // 現在の日時からファイル名を生成（YYYY_MMDD_HHMMSS.zip形式）
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      const timestamp = `${year}_${month}${day}_${hours}${minutes}${seconds}`;
-      const fileName = `${timestamp}.zip`;
-      
-      // S3パスを構築: doc/{企業トークン}/{拠点トークン}/{利用者トークン}/{レッスンID}/
-      const s3Key = `doc/${user.company_token}/${user.satellite_token}/${user.login_code}/${lessonId}/${fileName}`;
-
-      // S3にアップロード
-      const s3Config = {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-        region: process.env.AWS_REGION || 'ap-northeast-1',
-        bucketName: process.env.AWS_S3_BUCKET || 'studysphere'
-      };
-
-      const s3 = new AWS.S3({
-        accessKeyId: s3Config.accessKeyId,
-        secretAccessKey: s3Config.secretAccessKey,
-        region: s3Config.region
-      });
-
-      const uploadParams = {
-        Bucket: s3Config.bucketName,
-        Key: s3Key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
-        Metadata: {
-          'original-name': Buffer.from(file.originalname, 'utf8').toString('base64'),
-          'upload-date': new Date().toISOString(),
-          'lesson-id': lessonId,
-          'user-id': userId.toString(),
-          'course-title': Buffer.from(lesson.course_title, 'utf8').toString('base64'),
-          'lesson-title': Buffer.from(lesson.title, 'utf8').toString('base64')
-        }
-      };
-
-      await s3.upload(uploadParams).promise();
-
-      // データベースに提出記録を保存
-      const [existingProgress] = await connection.execute(`
-        SELECT id FROM user_lesson_progress 
-        WHERE user_id = ? AND lesson_id = ?
-      `, [userId, lessonId]);
-
-      if (existingProgress.length > 0) {
-        // 既存の進捗を更新
-        await connection.execute(`
-          UPDATE user_lesson_progress 
-          SET assignment_submitted = 1, assignment_submitted_at = NOW(), updated_at = NOW()
-          WHERE user_id = ? AND lesson_id = ?
-        `, [userId, lessonId]);
-      } else {
-        // 新しい進捗を作成
-        await connection.execute(`
-          INSERT INTO user_lesson_progress 
-          (user_id, lesson_id, status, assignment_submitted, assignment_submitted_at, created_at, updated_at)
-          VALUES (?, ?, 'in_progress', 1, NOW(), NOW(), NOW())
-        `, [userId, lessonId]);
-      }
-
-      res.json({
-        success: true,
-        message: '成果物のアップロードが完了しました',
-        data: {
-          fileName: fileName,
-          originalFileName: file.originalname,
-          fileSize: file.size,
-          s3Key,
-          lessonId: parseInt(lessonId),
-          userId: parseInt(userId)
-        }
-      });
-
-    } finally {
-      connection.release();
-    }
-
-  } catch (error) {
-    console.error('成果物アップロードエラー:', error);
-    res.status(500).json({
-      success: false,
-      message: '成果物のアップロードに失敗しました',
-      error: error.message
-    });
-  }
-});
 
 module.exports = router;

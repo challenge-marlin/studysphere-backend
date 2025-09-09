@@ -12,10 +12,16 @@ const router = express.Router();
 
 // 利用者のコース一覧取得（認証を柔軟に処理）
 router.get('/courses', async (req, res, next) => {
+  const { customLogger } = require('../utils/logger');
+  customLogger.info('=== /api/student/courses エンドポイントが呼ばれました ===');
+  customLogger.info('認証ヘッダー:', { authorization: req.headers['authorization'] });
+  customLogger.info('クエリパラメータ:', req.query);
+  
   try {
     // 認証トークンがある場合は認証を試行
     const authHeader = req.headers['authorization'];
     if (authHeader && authHeader.startsWith('Bearer ')) {
+      customLogger.info('JWTトークン認証を試行します');
       return authenticateToken(req, res, next);
     }
     

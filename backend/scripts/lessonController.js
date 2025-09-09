@@ -22,14 +22,31 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB制限
   },
   fileFilter: (req, file, cb) => {
-    // 許可するファイル形式
-    const allowedTypes = ['application/pdf', 'text/markdown', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'];
+    // 許可するファイル形式（PDF、MD、TXT、RTF）
+    const allowedMimeTypes = [
+      'application/pdf', 
+      'text/markdown', 
+      'text/x-markdown',  // MDファイルの別のMIMEタイプ
+      'text/plain', 
+      'application/rtf',
+      'application/octet-stream'  // 一部のMDファイルで使用される
+    ];
     
-    if (allowedTypes.includes(file.mimetype)) {
+    // 許可するファイル拡張子
+    const allowedExtensions = ['.pdf', '.md', '.txt', '.rtf'];
+    
+    // ファイル拡張子を取得
+    const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    
+    // MIMEタイプまたは拡張子でチェック
+    const isValidMimeType = allowedMimeTypes.includes(file.mimetype);
+    const isValidExtension = allowedExtensions.includes(fileExtension);
+    
+    if (isValidMimeType || isValidExtension) {
       // ファイル名の処理は無効化（フロントエンドから送信されるファイル名を使用）
       cb(null, true);
     } else {
-      cb(new Error('許可されていないファイル形式です'), false);
+      cb(new Error('許可されていないファイル形式です。PDF、MD、TXT、RTFファイルのみアップロード可能です。'), false);
     }
   }
 });
@@ -227,6 +244,7 @@ const createLesson = async (req, res) => {
     const fileTypeMap = {
       'pdf': 'pdf',
       'md': 'md',
+      'txt': 'text/plain',
       'docx': 'docx',
       'pptx': 'pptx'
     };
@@ -536,6 +554,8 @@ const updateLesson = async (req, res) => {
       const fileTypeMap = {
         'pdf': 'pdf',
         'md': 'md',
+        'txt': 'text/plain',
+        'rtf': 'application/rtf',
         'docx': 'docx',
         'pptx': 'pptx'
       };
@@ -631,10 +651,30 @@ const updateLesson = async (req, res) => {
       });
       
       try {
-        // 既存の動画を削除（論理削除）
-        await connection.execute(`
-          UPDATE lesson_videos SET status = 'deleted' WHERE lesson_id = ?
-        `, [id]);
+        // 新しい動画リストに含まれていない動画のみを削除（論理削除）
+        if (videos && Array.isArray(videos) && videos.length > 0) {
+          // 新しい動画のIDリストを作成
+          const newVideoIds = videos.map(video => video.id).filter(id => id);
+          
+          if (newVideoIds.length > 0) {
+            // 新しい動画リストに含まれていない動画のみを削除
+            await connection.execute(`
+              UPDATE lesson_videos 
+              SET status = 'deleted' 
+              WHERE lesson_id = ? AND id NOT IN (${newVideoIds.map(() => '?').join(',')})
+            `, [id, ...newVideoIds]);
+          } else {
+            // 新しい動画にIDがない場合は、すべての動画を削除
+            await connection.execute(`
+              UPDATE lesson_videos SET status = 'deleted' WHERE lesson_id = ?
+            `, [id]);
+          }
+        } else {
+          // 動画が空配列の場合は、すべての動画を削除
+          await connection.execute(`
+            UPDATE lesson_videos SET status = 'deleted' WHERE lesson_id = ?
+          `, [id]);
+        }
 
         // 新しい動画を一括挿入（videosが空配列の場合は動画を削除するだけ）
         if (videos && Array.isArray(videos) && videos.length > 0) {
@@ -662,19 +702,40 @@ const updateLesson = async (req, res) => {
               throw new Error(`動画${i + 1}: 有効なYouTube URLではありません`);
             }
 
-            await connection.execute(`
-              INSERT INTO lesson_videos (
-                lesson_id, title, description, youtube_url, order_index, duration, created_by
-              ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            `, [
-              id,
-              video.title,
-              video.description || null,
-              video.youtube_url,
-              video.order_index || i,
-              video.duration || null,
-              req.user?.user_id || null
-            ]);
+            // 既存の動画がある場合は更新、ない場合は新規作成
+            if (video.id) {
+              // 既存の動画を更新
+              await connection.execute(`
+                UPDATE lesson_videos SET
+                  title = ?, description = ?, youtube_url = ?, order_index = ?, duration = ?, 
+                  status = 'active', updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND lesson_id = ?
+              `, [
+                video.title,
+                video.description || null,
+                video.youtube_url,
+                video.order_index || i,
+                video.duration || null,
+                req.user?.user_id || null,
+                video.id,
+                id
+              ]);
+            } else {
+              // 新しい動画を作成
+              await connection.execute(`
+                INSERT INTO lesson_videos (
+                  lesson_id, title, description, youtube_url, order_index, duration, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+              `, [
+                id,
+                video.title,
+                video.description || null,
+                video.youtube_url,
+                video.order_index || i,
+                video.duration || null,
+                req.user?.user_id || null
+              ]);
+            }
             
             customLogger.info('Video inserted successfully', {
               lessonId: id,
@@ -1169,10 +1230,30 @@ const downloadLessonFile = async (req, res) => {
         const lastModified = file.LastModified;
         const fileExtension = fileName.split('.').pop().toLowerCase();
         
+        // ファイル拡張子からMIMEタイプを推定
+        let mimeType = fileExtension;
+        switch (fileExtension) {
+          case 'pdf':
+            mimeType = 'application/pdf';
+            break;
+          case 'md':
+            mimeType = 'text/markdown';
+            break;
+          case 'txt':
+            mimeType = 'text/plain';
+            break;
+          case 'rtf':
+            mimeType = 'application/rtf';
+            break;
+          default:
+            mimeType = fileExtension;
+        }
+        
         return {
           key: file.Key,
           file_name: fileName,
-          file_type: fileExtension,
+          file_type: mimeType,
+          file_extension: fileExtension,
           size: fileSize,
           lastModified: lastModified,
           sizeFormatted: formatFileSize(fileSize)

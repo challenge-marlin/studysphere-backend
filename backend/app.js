@@ -312,10 +312,11 @@ app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/student', studentRoutes);
+app.use('/api/learning', learningRoutes);
+
 app.use('/api/remote-support', remoteSupportRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
-app.use('/api/learning', learningRoutes);
 // AIルートの条件付きマウント
 if (aiRoutes) {
   app.use('/api/ai', aiRoutes);

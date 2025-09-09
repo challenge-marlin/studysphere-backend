@@ -5,9 +5,9 @@ const { pool } = require('../utils/database');
  * 利用者のコース一覧を取得
  */
 const getStudentCourses = async (req, res) => {
-  console.log('=== getStudentCourses 関数が実行されました ===');
-  console.log('ファイルパス:', __filename);
-  console.log('現在時刻:', new Date().toISOString());
+  customLogger.info('=== getStudentCourses 関数が実行されました ===');
+  customLogger.info('ファイルパス:', { filePath: __filename });
+  customLogger.info('現在時刻:', { timestamp: new Date().toISOString() });
   
   const userId = req.user.user_id;
   const connection = await pool.getConnection();
@@ -57,8 +57,8 @@ const getStudentCourses = async (req, res) => {
       const weightedProgress = completedLessons + (inProgressLessons * 0.5);
       const progressPercentage = totalLessons > 0 ? Math.round((weightedProgress / totalLessons) * 10000) / 100 : 0;
 
-      console.log(`📊 getStudentCourses進捗計算: courseId=${course.id}, total=${totalLessons}, completed=${completedLessons}, in_progress=${inProgressLessons}`);
-      console.log(`📈 getStudentCourses進捗率計算: weightedProgress=${weightedProgress}, progressPercentage=${progressPercentage}%`);
+      customLogger.info(`📊 getStudentCourses進捗計算: courseId=${course.id}, total=${totalLessons}, completed=${completedLessons}, in_progress=${inProgressLessons}`);
+      customLogger.info(`📈 getStudentCourses進捗率計算: weightedProgress=${weightedProgress}, progressPercentage=${progressPercentage}%`);
 
       // 計算された進捗率を設定
       course.progress_percentage = progressPercentage;
@@ -68,6 +68,13 @@ const getStudentCourses = async (req, res) => {
     customLogger.info('Student courses retrieved successfully', {
       userId,
       count: courses.length
+    });
+
+    // キャッシュを無効化
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
     });
 
     res.json({

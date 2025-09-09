@@ -305,29 +305,223 @@ const updateLessonProgress = async (req, res) => {
 
 // テスト結果を提出
 const submitTestResult = async (req, res) => {
-  const { userId, lessonId, answers, score, totalQuestions } = req.body;
+  // 認証されたユーザーIDを優先的に使用
+  const userId = req.user?.user_id || req.body.userId;
+  const { lessonId, answers, score, totalQuestions, testData, shuffledQuestions, testType } = req.body;
   const connection = await pool.getConnection();
   
+  console.log('submitTestResult呼び出し:', {
+    userId,
+    lessonId,
+    testType,
+    score,
+    totalQuestions,
+    hasAnswers: !!answers,
+    hasTestData: !!testData,
+    hasShuffledQuestions: !!shuffledQuestions,
+    testDataQuestions: testData?.questions?.length,
+    shuffledQuestionsLength: shuffledQuestions?.length,
+    authenticatedUser: req.user?.user_id,
+    bodyUserId: req.body.userId,
+    testDataStructure: testData ? Object.keys(testData) : null,
+    shuffledQuestionsStructure: shuffledQuestions ? Object.keys(shuffledQuestions) : null
+  });
+  
   try {
-    // テスト結果を保存（新しいテーブルを作成する必要があります）
-    // 現在はuser_lesson_progressにテストスコアのみ保存
+    // パラメータの検証
+    if (!userId) {
+      throw new Error(`ユーザーIDが不足しています: userId=${userId}`);
+    }
+    if (!lessonId) {
+      throw new Error(`レッスンIDが不足しています: lessonId=${lessonId}`);
+    }
+    
+    // 使用する問題データを決定（採点計算とMDファイル生成で同じデータを使用）
+    const questionsToUse = shuffledQuestions && shuffledQuestions.length > 0 ? shuffledQuestions : testData.questions;
+    
+    // scoreとtotalQuestionsが提供されていない場合は、answersとquestionsToUseから計算
+    let calculatedScore = score;
+    let calculatedTotalQuestions = totalQuestions;
+    
+    if (score === undefined && answers && questionsToUse && questionsToUse.length > 0) {
+      // テストスコアを計算（シャッフルされた問題データを使用）
+      calculatedTotalQuestions = questionsToUse.length;
+      calculatedScore = 0;
+      
+      questionsToUse.forEach(question => {
+        const userAnswer = answers[question.id];
+        if (userAnswer !== undefined && userAnswer === question.correctAnswer) {
+          calculatedScore++;
+        }
+      });
+      
+      console.log('テストスコア計算結果:', {
+        calculatedScore,
+        calculatedTotalQuestions,
+        answersCount: Object.keys(answers).length,
+        usingShuffledQuestions: shuffledQuestions && shuffledQuestions.length > 0
+      });
+    }
+    
+    // 最終的なパラメータの検証
+    if (calculatedScore === undefined || calculatedTotalQuestions === undefined) {
+      throw new Error(`スコア計算に失敗しました: score=${calculatedScore}, totalQuestions=${calculatedTotalQuestions}`);
+    }
+    
+    // トランザクション開始
+    await connection.beginTransaction();
+    console.log('トランザクション開始');
+    
+    // ユーザー情報とレッスン情報を取得
+    console.log('ユーザー情報取得中...');
+    const [userInfo] = await connection.execute(`
+      SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
+      FROM user_accounts ua
+      LEFT JOIN companies c ON ua.company_id = c.id
+      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      WHERE ua.id = ?
+    `, [userId]);
+    console.log('ユーザー情報:', userInfo);
+
+    console.log('レッスン情報取得中...');
+    const [lessonInfo] = await connection.execute(`
+      SELECT title FROM lessons WHERE id = ?
+    `, [lessonId]);
+    console.log('レッスン情報:', lessonInfo);
+
+    if (userInfo.length === 0 || lessonInfo.length === 0) {
+      throw new Error('ユーザーまたはレッスン情報が見つかりません');
+    }
+
+    const user = userInfo[0];
+    const lesson = lessonInfo[0];
+    
+    // パーセンテージを計算
+    const progressPercentage = Math.round((calculatedScore / calculatedTotalQuestions) * 100);
+    
+    // 使用する問題データを決定（既に決定済みのquestionsToUseを使用）
+    const finalTestData = { ...testData, questions: questionsToUse };
+    console.log('MDファイル生成用データ決定:', {
+      hasShuffledQuestions: !!shuffledQuestions,
+      hasTestData: !!testData,
+      usingShuffled: shuffledQuestions && shuffledQuestions.length > 0,
+      finalTestDataQuestions: finalTestData?.questions?.length
+    });
+    
+    // MD形式の採点結果を生成（シャッフルされた問題データを使用）
+    const markdownContent = generateExamResultMarkdown({
+      user,
+      lesson,
+      testType: 'section',
+      sectionIndex: req.body.sectionIndex || null,
+      testData: finalTestData, // シャッフルされた問題データを優先使用
+      answers,
+      score: calculatedScore,
+      percentage: progressPercentage,
+      passed: calculatedScore >= (calculatedTotalQuestions - 1)
+    });
+
+    // S3に保存
+    const companyToken = user.company_token || 'UNKNOWN';
+    const satelliteToken = user.satellite_token || 'UNKNOWN';
+    const userToken = user.login_code;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `exam-result-${lessonId}-section-${timestamp}.md`;
+    const s3Key = `doc/${companyToken}/${satelliteToken}/${userToken}/exam-result/${fileName}`;
+
+    console.log('S3アップロード開始...');
+    const fileBuffer = Buffer.from(markdownContent, 'utf8');
+    
+    const { s3 } = require('../config/s3');
+    const uploadParams = {
+      Bucket: process.env.AWS_S3_BUCKET || 'studysphere',
+      Key: s3Key,
+      Body: fileBuffer,
+      ContentType: 'text/markdown',
+      Metadata: {
+        'original-name': Buffer.from(fileName, 'utf8').toString('base64'),
+        'upload-date': new Date().toISOString(),
+        'lesson-id': lessonId.toString(),
+        'user-id': userId.toString(),
+        'test-type': 'section',
+        'exam-result': 'true'
+      }
+    };
+
+    console.log('S3アップロードパラメータ:', { Bucket: uploadParams.Bucket, Key: uploadParams.Key });
+    await s3.upload(uploadParams).promise();
+    console.log('S3アップロード完了');
+    
+    // exam_resultsテーブルに保存
+    const examPercentage = Math.round((calculatedScore / calculatedTotalQuestions) * 100);
+    const passed = calculatedScore >= (calculatedTotalQuestions - 1);
+    
+    const examInsertParams = [
+      userId,
+      lessonId,
+      'section',
+      req.body.sectionIndex || null,
+      lesson.title,
+      s3Key,
+      passed,
+      calculatedScore,
+      calculatedTotalQuestions,
+      examPercentage
+    ];
+    
+    console.log('exam_results挿入パラメータ:', examInsertParams.map((param, index) => ({
+      index,
+      value: param,
+      type: typeof param,
+      isUndefined: param === undefined
+    })));
+    
+    const [examResult] = await connection.execute(`
+      INSERT INTO exam_results (
+        user_id, lesson_id, test_type, section_index, lesson_name,
+        s3_key, passed, score, total_questions, percentage, exam_date
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    `, examInsertParams);
+    console.log('exam_results記録完了, ID:', examResult.insertId);
+    
+    // user_lesson_progressテーブルにテスト結果を保存
+    // 完了条件: レッスンテスト(30問中29問以上)、セクションテスト(10問中9問以上) + 指導員承認
+    const testPassed = testType === 'lesson' 
+      ? calculatedScore >= 29  // レッスンテスト: 30問中29問以上
+      : progressPercentage >= 90;  // セクションテスト: 90%以上
+    
+    // テスト合格の場合のみ進捗を更新、指導員承認待ちの状態にする
+    let newStatus = 'in_progress'; // デフォルトは進行中
+    let completedAt = null;
+    
+    if (testPassed) {
+      // テストは合格したが、指導員承認待ち
+      newStatus = 'in_progress'; // 指導員承認まで完了にはしない
+      console.log(`✅ テスト合格 (${progressPercentage}%) - 指導員承認待ち`);
+    } else {
+      // テスト不合格
+      newStatus = 'in_progress'; // 再受験が必要
+      console.log(`❌ テスト不合格 (${progressPercentage}%) - 再受験が必要`);
+    }
+    
+    const insertParams = [userId, lessonId, newStatus, calculatedScore, completedAt];
+    console.log('user_lesson_progress挿入パラメータ:', insertParams.map((param, index) => ({
+      index,
+      value: param,
+      type: typeof param,
+      isUndefined: param === undefined
+    })));
+    
     await connection.execute(`
       INSERT INTO user_lesson_progress (
         user_id, lesson_id, status, test_score, completed_at
-      ) VALUES (?, ?, 'completed', ?, NOW())
+      ) VALUES (?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
-        status = 'completed',
+        status = VALUES(status),
         test_score = VALUES(test_score),
         completed_at = VALUES(completed_at),
         updated_at = NOW()
-    `, [userId, lessonId, score]);
-
-    // レッスンを完了済みに更新
-    await connection.execute(`
-      UPDATE user_lesson_progress 
-      SET status = 'completed', completed_at = NOW(), updated_at = NOW()
-      WHERE user_id = ? AND lesson_id = ?
-    `, [userId, lessonId]);
+    `, insertParams);
 
     // コース全体の進捗率を更新（エラーが発生しても処理を継続）
     try {
@@ -342,19 +536,34 @@ const submitTestResult = async (req, res) => {
       });
     }
 
+    // トランザクションコミット
+    await connection.commit();
+    console.log('トランザクションコミット完了');
+
     customLogger.info('Test result submitted successfully', {
       userId,
       lessonId,
-      score,
-      totalQuestions
+      score: calculatedScore,
+      totalQuestions: calculatedTotalQuestions,
+      s3Key: s3Key,
+      examResultId: examResult.insertId
     });
 
     res.json({
       success: true,
       message: 'テスト結果が提出されました',
-      data: { score, totalQuestions }
+      data: { 
+        score: calculatedScore, 
+        totalQuestions: calculatedTotalQuestions,
+        s3Key: s3Key,
+        examResultId: examResult.insertId
+      }
     });
   } catch (error) {
+    // トランザクションロールバック
+    console.error('submitTestResultエラー:', error);
+    await connection.rollback();
+    
     customLogger.error('Failed to submit test result', {
       error: error.message,
       userId,
@@ -370,6 +579,170 @@ const submitTestResult = async (req, res) => {
     connection.release();
   }
 };
+
+// 指導員によるレッスン完了承認
+const approveLessonCompletion = async (req, res) => {
+  const instructorId = req.user?.user_id;
+  const { userId, lessonId } = req.body;
+  const connection = await pool.getConnection();
+  
+  try {
+    // 指導員権限チェック
+    if (req.user?.role < 9) {
+      return res.status(403).json({
+        success: false,
+        message: '指導員権限が必要です'
+      });
+    }
+    
+    // レッスン進捗を確認
+    const [progress] = await connection.execute(`
+      SELECT * FROM user_lesson_progress 
+      WHERE user_id = ? AND lesson_id = ?
+    `, [userId, lessonId]);
+    
+    if (progress.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'レッスン進捗が見つかりません'
+      });
+    }
+    
+    const currentProgress = progress[0];
+    
+    // テスト合格チェック（レッスンテスト: 29問以上、セクションテスト: 90%以上）
+    const testPassed = currentProgress.test_score !== null && 
+                      currentProgress.test_score >= 29;  // レッスンテスト: 30問中29問以上
+    
+    if (!testPassed) {
+      return res.status(400).json({
+        success: false,
+        message: 'テストが合格していません。テスト合格後に承認してください。'
+      });
+    }
+    
+    // 指導員承認を実行
+    await connection.execute(`
+      UPDATE user_lesson_progress 
+      SET 
+        status = 'completed',
+        instructor_approved = TRUE,
+        instructor_approved_at = NOW(),
+        instructor_id = ?,
+        completed_at = NOW(),
+        updated_at = NOW()
+      WHERE user_id = ? AND lesson_id = ?
+    `, [instructorId, userId, lessonId]);
+    
+    // コース全体の進捗率を更新
+    try {
+      await updateCourseProgress(connection, userId, lessonId);
+    } catch (progressError) {
+      console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
+    }
+    
+    customLogger.info('Lesson completion approved by instructor', {
+      instructorId,
+      userId,
+      lessonId,
+      testScore: currentProgress.test_score
+    });
+    
+    res.json({
+      success: true,
+      message: 'レッスン完了を承認しました'
+    });
+    
+  } catch (error) {
+    customLogger.error('Failed to approve lesson completion', {
+      error: error.message,
+      instructorId,
+      userId,
+      lessonId
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: '承認処理に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// MD形式の採点結果を生成する関数
+function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, testData, answers, score, percentage, passed }) {
+  const now = new Date();
+  const japanTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+  const examDate = japanTime.toISOString().replace('T', ' ').substring(0, 19);
+
+  let markdown = `# 試験結果レポート\n\n`;
+  markdown += `## 基本情報\n`;
+  markdown += `- **受験者**: ${user.name} (${user.login_code})\n`;
+  markdown += `- **レッスン名**: ${lesson.title}\n`;
+  markdown += `- **テスト種別**: ${testType === 'section' ? 'セクションテスト' : '総合テスト'}\n`;
+  if (sectionIndex !== null && sectionIndex !== undefined) {
+    markdown += `- **セクション番号**: ${sectionIndex + 1}\n`;
+  }
+  markdown += `- **受験日時**: ${examDate}\n\n`;
+
+  markdown += `## 採点結果\n`;
+  markdown += `- **得点**: ${score}点\n`;
+  markdown += `- **総問題数**: ${testData?.questions?.length || 0}問\n`;
+  markdown += `- **正答率**: ${percentage}%\n`;
+  markdown += `- **合否**: ${passed ? '合格' : '不合格'}\n\n`;
+
+  markdown += `## 詳細採点\n\n`;
+  
+  console.log('MDファイル生成時のtestData:', {
+    hasTestData: !!testData,
+    hasQuestions: !!testData?.questions,
+    questionsLength: testData?.questions?.length,
+    testDataKeys: testData ? Object.keys(testData) : null
+  });
+  
+  if (testData?.questions && testData.questions.length > 0) {
+    testData.questions.forEach((question, index) => {
+    const userAnswer = answers[question.id];
+    const isCorrect = userAnswer !== undefined && userAnswer === question.correctAnswer;
+    
+    console.log(`問題 ${index + 1} の採点:`, {
+      questionId: question.id,
+      userAnswer,
+      correctAnswer: question.correctAnswer,
+      isCorrect,
+      hasOriginalCorrectAnswer: question.originalCorrectAnswer !== undefined,
+      hasOptions: !!question.options,
+      optionsLength: question.options?.length
+    });
+    
+    markdown += `### 問題 ${index + 1}\n`;
+    markdown += `**問題**: ${question.question}\n\n`;
+    
+    question.options.forEach((option, optionIndex) => {
+      const optionNumber = optionIndex + 1;
+      let marker = '';
+      if (optionNumber === question.correctAnswer + 1) { // correctAnswerは0ベースなので+1
+        marker = ' ✅ (正答)';
+      }
+      if (userAnswer === optionIndex) { // userAnswerは0ベースのインデックス
+        marker += isCorrect ? ' ✅ (あなたの回答)' : ' ❌ (あなたの回答)';
+      }
+      markdown += `${optionNumber}. ${option}${marker}\n`;
+    });
+    
+    markdown += `\n**結果**: ${isCorrect ? '正解' : '不正解'}\n\n`;
+    });
+  } else {
+    markdown += `問題データが見つかりません。\n\n`;
+  }
+
+  markdown += `---\n`;
+  markdown += `*このレポートは自動生成されました。*\n`;
+
+  return markdown;
+}
 
 // テスト結果を取得
 const getTestResults = async (req, res) => {
@@ -855,5 +1228,6 @@ module.exports = {
   getLessonContent,
   getCourseProgress,
   assignCourseToUser,
-  getCurrentLesson
+  getCurrentLesson,
+  approveLessonCompletion
 };
