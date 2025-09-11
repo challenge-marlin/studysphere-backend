@@ -412,7 +412,7 @@ const submitTestResult = async (req, res) => {
     const markdownContent = generateExamResultMarkdown({
       user,
       lesson,
-      testType: 'section',
+      testType: testType || 'section', // 実際のtestTypeパラメータを使用
       sectionIndex: req.body.sectionIndex || null,
       testData: finalTestData, // シャッフルされた問題データを優先使用
       answers,
@@ -426,7 +426,8 @@ const submitTestResult = async (req, res) => {
     const satelliteToken = user.satellite_token || 'UNKNOWN';
     const userToken = user.login_code;
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `exam-result-${lessonId}-section-${timestamp}.md`;
+    const testTypeSuffix = (testType || 'section') === 'lesson' ? 'lesson' : 'section';
+    const fileName = `exam-result-${lessonId}-${testTypeSuffix}-${timestamp}.md`;
     const s3Key = `doc/${companyToken}/${satelliteToken}/${userToken}/exam-result/${fileName}`;
 
     console.log('S3アップロード開始...');
@@ -443,7 +444,7 @@ const submitTestResult = async (req, res) => {
         'upload-date': new Date().toISOString(),
         'lesson-id': lessonId.toString(),
         'user-id': userId.toString(),
-        'test-type': 'section',
+        'test-type': testType || 'section',
         'exam-result': 'true'
       }
     };
@@ -459,7 +460,7 @@ const submitTestResult = async (req, res) => {
     const examInsertParams = [
       userId,
       lessonId,
-      'section',
+      testType || 'section', // 実際のtestTypeパラメータを使用
       req.body.sectionIndex || null,
       lesson.title,
       s3Key,
@@ -475,6 +476,11 @@ const submitTestResult = async (req, res) => {
       type: typeof param,
       isUndefined: param === undefined
     })));
+    console.log('testType確認:', { 
+      testType, 
+      testTypeFromBody: req.body.testType,
+      finalTestType: testType || 'section'
+    });
     
     const [examResult] = await connection.execute(`
       INSERT INTO exam_results (
@@ -970,6 +976,348 @@ const getLessonContent = async (req, res) => {
   }
 };
 
+// 合格証明書データを取得
+const getCertificateData = async (req, res) => {
+  const { userId, lessonId, examResultId } = req.params;
+  const connection = await pool.getConnection();
+  
+  try {
+    
+    // 試験結果とユーザー情報、レッスン情報を結合して取得（指導員と拠点管理者の名前も含む）
+    const [results] = await connection.execute(`
+      SELECT 
+        er.id as exam_result_id,
+        er.lesson_id,
+        er.test_type,
+        er.section_index,
+        er.lesson_name,
+        er.passed,
+        er.score,
+        er.total_questions,
+        er.percentage,
+        er.exam_date,
+        er.created_at,
+        ua.id as user_id,
+        ua.name as student_name,
+        ua.login_code as student_id,
+        ua.instructor_id,
+        l.title as lesson_title,
+        c.title as course_title,
+        comp.name as company_name,
+        sat.name as office_name,
+        sat.address as office_address,
+        sat.phone as office_phone,
+        sat.manager_ids,
+        instructor.name as instructor_name
+      FROM exam_results er
+      JOIN user_accounts ua ON er.user_id = ua.id
+      JOIN lessons l ON er.lesson_id = l.id
+      JOIN courses c ON l.course_id = c.id
+      LEFT JOIN companies comp ON ua.company_id = comp.id
+      LEFT JOIN satellites sat ON JSON_UNQUOTE(JSON_EXTRACT(ua.satellite_ids, '$[0]')) = sat.id
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      WHERE er.user_id = ? 
+        AND er.lesson_id = ?
+        AND er.passed = 1
+        ${examResultId ? 'AND er.id = ?' : ''}
+      ORDER BY er.exam_date DESC
+      LIMIT 1
+    `, examResultId ? [userId, lessonId, examResultId] : [userId, lessonId]);
+
+    if (results.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '合格証明書データが見つかりません'
+      });
+    }
+
+    const certificateData = results[0];
+    
+    // 拠点管理者の複数人取得
+    let managerNames = [];
+    if (certificateData.manager_ids) {
+      try {
+        let managerIds = [];
+        
+        // manager_idsの形式を判定してパース
+        if (typeof certificateData.manager_ids === 'string') {
+          // JSON文字列の場合
+          if (certificateData.manager_ids.startsWith('[') || certificateData.manager_ids.startsWith('{')) {
+            const parsed = JSON.parse(certificateData.manager_ids);
+            managerIds = Array.isArray(parsed) ? parsed : [parsed];
+          } else {
+            // カンマ区切りの文字列の場合
+            managerIds = certificateData.manager_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+          }
+        } else if (Array.isArray(certificateData.manager_ids)) {
+          // 既に配列の場合
+          managerIds = certificateData.manager_ids;
+        } else if (typeof certificateData.manager_ids === 'number') {
+          // 単一の数値の場合
+          managerIds = [certificateData.manager_ids];
+        }
+        
+        // 数値に変換
+        managerIds = managerIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+        
+        if (managerIds.length > 0) {
+          const [managerResults] = await connection.execute(`
+            SELECT name FROM user_accounts 
+            WHERE id IN (${managerIds.map(() => '?').join(',')}) 
+            AND role = 5
+          `, managerIds);
+          managerNames = managerResults.map(manager => manager.name);
+        }
+      } catch (error) {
+        customLogger.warn('Failed to parse manager_ids', { 
+          error: error.message, 
+          manager_ids: certificateData.manager_ids,
+          type: typeof certificateData.manager_ids
+        });
+      }
+    }
+    
+    // 日本時間での日付フォーマット
+    const examDate = new Date(certificateData.exam_date);
+    const formattedDate = examDate.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'Asia/Tokyo'
+    });
+
+    // 証明書IDを生成
+    const certificateId = `CERT-${certificateData.lesson_id}-${certificateData.exam_result_id}`;
+
+    customLogger.info('Certificate data retrieved successfully', {
+      userId,
+      lessonId,
+      examResultId: certificateData.exam_result_id,
+      certificateId
+    });
+
+    res.json({
+      success: true,
+      data: {
+        certificateId,
+        lessonNumber: certificateData.lesson_id,
+        lessonTitle: certificateData.lesson_title,
+        courseTitle: certificateData.course_title,
+        score: certificateData.score,
+        totalQuestions: certificateData.total_questions,
+        percentage: certificateData.percentage,
+        studentName: certificateData.student_name,
+        studentId: certificateData.student_id,
+        completionDate: formattedDate,
+        examDate: certificateData.exam_date,
+        testType: certificateData.test_type,
+        sectionIndex: certificateData.section_index,
+        companyName: certificateData.company_name || '',
+        officeName: certificateData.office_name || '',
+        officeAddress: certificateData.office_address || '',
+        officePhone: certificateData.office_phone || '',
+        instructorName: certificateData.instructor_name || '',
+        managerNames: managerNames,
+        organization: certificateData.office_name || ''
+      }
+    });
+  } catch (error) {
+    customLogger.error('Failed to retrieve certificate data', {
+      error: error.message,
+      userId,
+      lessonId,
+      examResultId
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: '合格証明書データの取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// ユーザーの全終了証を取得
+const getUserCertificates = async (req, res) => {
+  console.log('=== getUserCertificates function called ===');
+  console.log('Request params:', req.params);
+  console.log('Request URL:', req.url);
+  
+  const { userId } = req.params;
+  
+  customLogger.info('getUserCertificates called', { userId });
+  
+  const connection = await pool.getConnection();
+  
+  try {
+    customLogger.info('Database connection established', { userId });
+    
+    console.log('=== getUserCertificates query parameters ===');
+    console.log('userId:', userId);
+    console.log('Searching for passed = 1 AND test_type = "lesson" records');
+    
+    // ユーザーの合格した試験結果を全て取得（指導員と拠点管理者の名前も含む）
+    const [results] = await connection.execute(`
+      SELECT 
+        er.id as exam_result_id,
+        er.lesson_id,
+        er.test_type,
+        er.section_index,
+        er.lesson_name,
+        er.passed,
+        er.score,
+        er.total_questions,
+        er.percentage,
+        er.exam_date,
+        er.created_at,
+        ua.id as user_id,
+        ua.name as student_name,
+        ua.login_code as student_id,
+        ua.instructor_id,
+        l.title as lesson_title,
+        c.title as course_title,
+        c.id as course_id,
+        comp.name as company_name,
+        sat.name as office_name,
+        sat.address as office_address,
+        sat.phone as office_phone,
+        sat.manager_ids,
+        instructor.name as instructor_name
+      FROM exam_results er
+      JOIN user_accounts ua ON er.user_id = ua.id
+      JOIN lessons l ON er.lesson_id = l.id
+      JOIN courses c ON l.course_id = c.id
+      LEFT JOIN companies comp ON ua.company_id = comp.id
+      LEFT JOIN satellites sat ON JSON_UNQUOTE(JSON_EXTRACT(ua.satellite_ids, '$[0]')) = sat.id
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      WHERE er.user_id = ? 
+        AND er.passed = 1
+        AND er.test_type = 'lesson'
+      ORDER BY er.exam_date DESC
+    `, [userId]);
+
+    customLogger.info('Query executed', { userId, resultCount: results.length });
+    
+    console.log('=== Raw query results ===');
+    console.log('results.length:', results.length);
+    console.log('results:', results);
+
+    // 終了証データを整形
+    const certificates = await Promise.all(results.map(async (certificateData) => {
+      // 拠点管理者の複数人取得
+      let managerNames = [];
+      if (certificateData.manager_ids) {
+        try {
+          let managerIds = [];
+          
+          // manager_idsの形式を判定してパース
+          if (typeof certificateData.manager_ids === 'string') {
+            // JSON文字列の場合
+            if (certificateData.manager_ids.startsWith('[') || certificateData.manager_ids.startsWith('{')) {
+              const parsed = JSON.parse(certificateData.manager_ids);
+              managerIds = Array.isArray(parsed) ? parsed : [parsed];
+            } else {
+              // カンマ区切りの文字列の場合
+              managerIds = certificateData.manager_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            }
+          } else if (Array.isArray(certificateData.manager_ids)) {
+            // 既に配列の場合
+            managerIds = certificateData.manager_ids;
+          } else if (typeof certificateData.manager_ids === 'number') {
+            // 単一の数値の場合
+            managerIds = [certificateData.manager_ids];
+          }
+          
+          // 数値に変換
+          managerIds = managerIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+          
+          if (managerIds.length > 0) {
+            const [managerResults] = await connection.execute(`
+              SELECT name FROM user_accounts 
+              WHERE id IN (${managerIds.map(() => '?').join(',')}) 
+              AND role = 5
+            `, managerIds);
+            managerNames = managerResults.map(manager => manager.name);
+          }
+        } catch (error) {
+          customLogger.warn('Failed to parse manager_ids', { 
+            error: error.message, 
+            manager_ids: certificateData.manager_ids,
+            type: typeof certificateData.manager_ids
+          });
+        }
+      }
+
+      // 日本時間での日付フォーマット
+      const examDate = new Date(certificateData.exam_date);
+      const formattedDate = examDate.toLocaleDateString('ja-JP', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'Asia/Tokyo'
+      });
+
+      // 証明書IDを生成
+      const certificateId = `CERT-${certificateData.lesson_id}-${certificateData.exam_result_id}`;
+
+      return {
+        certificateId,
+        examResultId: certificateData.exam_result_id,
+        lessonId: certificateData.lesson_id,
+        lessonTitle: certificateData.lesson_title,
+        courseId: certificateData.course_id,
+        courseTitle: certificateData.course_title,
+        score: certificateData.score,
+        totalQuestions: certificateData.total_questions,
+        percentage: certificateData.percentage,
+        studentName: certificateData.student_name,
+        studentId: certificateData.student_id,
+        completionDate: formattedDate,
+        examDate: certificateData.exam_date,
+        testType: certificateData.test_type,
+        sectionIndex: certificateData.section_index,
+        companyName: certificateData.company_name || '',
+        officeName: certificateData.office_name || '',
+        officeAddress: certificateData.office_address || '',
+        officePhone: certificateData.office_phone || '',
+        instructorName: certificateData.instructor_name || '',
+        managerNames: managerNames,
+        organization: certificateData.office_name || ''
+      };
+    }));
+
+    customLogger.info('User certificates retrieved successfully', {
+      userId,
+      certificateCount: certificates.length
+    });
+
+    console.log('=== getUserCertificates response ===');
+    console.log('userId:', userId);
+    console.log('certificates count:', certificates.length);
+    console.log('certificates data:', certificates);
+
+    res.json({
+      success: true,
+      data: certificates
+    });
+  } catch (error) {
+    customLogger.error('Failed to retrieve user certificates', {
+      error: error.message,
+      userId
+    });
+    
+    res.status(500).json({
+      success: false,
+      message: '終了証データの取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 // コース全体の進捗率を更新（内部関数）
 const updateCourseProgress = async (connection, userId, lessonId) => {
   try {
@@ -1229,5 +1577,7 @@ module.exports = {
   getCourseProgress,
   assignCourseToUser,
   getCurrentLesson,
-  approveLessonCompletion
+  approveLessonCompletion,
+  getCertificateData,
+  getUserCertificates
 };

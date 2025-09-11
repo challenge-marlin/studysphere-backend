@@ -164,6 +164,7 @@ const userCourseRoutes = require('./routes/userCourseRoutes');
 const supportPlanRoutes = require('./routes/supportPlanRoutes');
 const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
+const messageRoutes = require('./routes/messageRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
@@ -246,6 +247,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // デバッグ用：すべてのリクエストをログ出力
 app.use((req, res, next) => {
+  if (req.url.includes('/api/learning/certificates/')) {
+    console.log('=== DEBUG: Certificates API request detected ===');
+    console.log('Method:', req.method);
+    console.log('URL:', req.url);
+    console.log('Headers:', req.headers);
+  }
   if (req.method === 'DELETE' && req.url.includes('/api/users/')) {
     console.log('=== DEBUG: DELETE request detected ===');
     console.log('Method:', req.method);
@@ -311,6 +318,7 @@ app.use('/api/user-courses', userCourseRoutes);
 app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/learning', learningRoutes);
 

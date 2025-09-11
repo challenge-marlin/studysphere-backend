@@ -18,4 +18,10 @@ router.get('/admin', authenticateToken, AnnouncementController.getAdminAnnouncem
 // 管理者用：アナウンス詳細を取得
 router.get('/admin/:announcement_id', authenticateToken, AnnouncementController.getAnnouncementDetail);
 
+// 管理者用：アナウンス作成
+router.post('/admin/create', authenticateToken, AnnouncementController.createAnnouncement);
+
+// 管理者用：利用者一覧取得（アナウンス送信用）
+router.get('/admin/users', authenticateToken, AnnouncementController.getUsersForAnnouncement);
+
 module.exports = router;

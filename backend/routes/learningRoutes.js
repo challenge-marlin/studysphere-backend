@@ -11,7 +11,9 @@ const {
   getCourseProgress,
   assignCourseToUser,
   getCurrentLesson,
-  approveLessonCompletion
+  approveLessonCompletion,
+  getCertificateData,
+  getUserCertificates
 } = require('../scripts/learningController');
 const multer = require('multer');
 const { pool } = require('../utils/database');
@@ -27,11 +29,11 @@ console.log('=== Learning Routes File Loaded ===');
 console.log('Timestamp:', new Date().toISOString());
 
 
-// テスト用エンドポイント
-router.get('/test', (req, res) => {
-  console.log('=== テストエンドポイント呼び出し ===');
-  res.json({ message: 'Learning routes are working!', timestamp: new Date().toISOString() });
-});
+// テスト用エンドポイント（削除 - 競合の原因）
+// router.get('/test', (req, res) => {
+//   console.log('=== テストエンドポイント呼び出し ===');
+//   res.json({ message: 'Learning routes are working!', timestamp: new Date().toISOString() });
+// });
 
 
 // 基本的なヘルスチェック
@@ -552,6 +554,18 @@ router.put('/progress/lesson', authenticateToken, updateLessonProgress);
 
 // 現在受講中レッスン関連
 router.get('/current-lesson', authenticateToken, getCurrentLesson);
+
+
+// 合格証明書関連
+router.get('/certificate/:userId/:lessonId', authenticateToken, getCertificateData);
+router.get('/certificate/:userId/:lessonId/:examResultId', authenticateToken, getCertificateData);
+router.get('/certificates/:userId', authenticateToken, (req, res, next) => {
+  console.log('=== Certificates route hit ===');
+  console.log('URL:', req.url);
+  console.log('Params:', req.params);
+  console.log('User ID:', req.params.userId);
+  next();
+}, getUserCertificates);
 
 // テスト結果関連
 router.post('/test/submit', authenticateToken, submitTestResult);

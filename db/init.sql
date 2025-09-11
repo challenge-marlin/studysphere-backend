@@ -125,6 +125,24 @@ DO
     WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00') 
     AND `is_used` = 0;
 
+-- 個人メッセージの自動揮発用イベントスケジューラー
+-- 毎日午前0時30分（日本時間）に期限切れの個人メッセージを削除
+CREATE EVENT IF NOT EXISTS `cleanup_expired_personal_messages`
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+DO
+    DELETE FROM `personal_messages` 
+    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+
+-- アナウンスメッセージの自動揮発用イベントスケジューラー
+-- 毎日午前0時30分（日本時間）に期限切れのアナウンスメッセージを削除
+CREATE EVENT IF NOT EXISTS `cleanup_expired_announcements`
+ON SCHEDULE EVERY 1 DAY
+STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+DO
+    DELETE FROM `announcements` 
+    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+
 -- イベントスケジューラーを有効化
 SET GLOBAL event_scheduler = ON;
 
@@ -544,11 +562,13 @@ CREATE TABLE IF NOT EXISTS `announcements` (
     `title` VARCHAR(255) NOT NULL COMMENT 'アナウンスタイトル',
     `message` TEXT NOT NULL COMMENT 'アナウンスメッセージ',
     `created_by` INT NOT NULL COMMENT '作成者ID',
+    `expires_at` DATETIME NOT NULL COMMENT '有効期限（日本時間24:30）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     FOREIGN KEY (`created_by`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
     INDEX `idx_created_by` (`created_by`),
-    INDEX `idx_created_at` (`created_at`)
+    INDEX `idx_created_at` (`created_at`),
+    INDEX `idx_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='アナウンスメッセージテーブル';
 
 -- 利用者アナウンス関連付けテーブル
@@ -566,6 +586,26 @@ CREATE TABLE IF NOT EXISTS `user_announcements` (
     INDEX `idx_announcement_id` (`announcement_id`),
     INDEX `idx_is_read` (`is_read`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='利用者アナウンス関連付けテーブル';
+
+-- 個人メッセージテーブル
+CREATE TABLE IF NOT EXISTS `personal_messages` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT 'メッセージID',
+    `sender_id` INT NOT NULL COMMENT '送信者ID',
+    `receiver_id` INT NOT NULL COMMENT '受信者ID',
+    `message` TEXT NOT NULL COMMENT 'メッセージ内容',
+    `is_read` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '既読フラグ',
+    `read_at` TIMESTAMP NULL DEFAULT NULL COMMENT '既読日時',
+    `expires_at` DATETIME NOT NULL COMMENT '有効期限（日本時間24:30）',
+    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`sender_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`receiver_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    INDEX `idx_sender_id` (`sender_id`),
+    INDEX `idx_receiver_id` (`receiver_id`),
+    INDEX `idx_is_read` (`is_read`),
+    INDEX `idx_created_at` (`created_at`),
+    INDEX `idx_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='個人メッセージテーブル';
 
 -- テストの採点結果を保存するテーブル
 CREATE TABLE IF NOT EXISTS `exam_results` (
