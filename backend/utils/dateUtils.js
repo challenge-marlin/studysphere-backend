@@ -8,8 +8,21 @@
  */
 const getCurrentJapanTime = () => {
   const now = new Date();
-  const japanOffset = 9 * 60; // 日本時間はUTC+9
-  return new Date(now.getTime() + (japanOffset * 60 * 1000));
+  
+  // 日本時間の時刻を取得するために、日本時間の文字列から新しいDateオブジェクトを作成
+  const japanTimeString = now.toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  // 日本時間の文字列をDateオブジェクトに変換
+  return new Date(japanTimeString.replace(/\//g, '-'));
 };
 
 /**
@@ -34,11 +47,9 @@ const getTodayEndTime = () => {
  * @returns {Date} 日本時間の今日の終了時刻（日本時間のまま）
  */
 const getTodayEndTimeJapan = () => {
-  const now = new Date();
-  const japanOffset = 9 * 60; // 日本時間はUTC+9
+  const japanNow = getCurrentJapanTime();
   
   // 日本時間の今日の23:59:59を計算
-  const japanNow = new Date(now.getTime() + (japanOffset * 60 * 1000));
   const endOfDay = new Date(japanNow);
   endOfDay.setHours(23, 59, 59, 999);
   
@@ -86,9 +97,23 @@ const convertJapanTimeToUTC = (japanDate) => {
  */
 const isExpired = (expiryTime) => {
   if (!expiryTime) return true;
-  const now = getCurrentJapanTime();
-  const expiryDate = new Date(expiryTime);
-  return expiryDate <= now;
+  
+  try {
+    const now = getCurrentJapanTime();
+    const expiryDate = new Date(expiryTime);
+    
+    console.log('バックエンド isExpired チェック:', {
+      expiryTime,
+      expiryDate: expiryDate.toLocaleString('ja-JP'),
+      now: now.toLocaleString('ja-JP'),
+      isExpired: expiryDate <= now
+    });
+    
+    return expiryDate <= now;
+  } catch (error) {
+    console.error('バックエンド isExpired エラー:', error);
+    return true;
+  }
 };
 
 /**

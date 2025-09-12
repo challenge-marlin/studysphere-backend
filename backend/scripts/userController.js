@@ -140,10 +140,12 @@ const getUsers = async () => {
       const [tempPasswordRows] = await connection.execute(`
         SELECT user_id, temp_password, expires_at, is_used
         FROM user_temp_passwords 
-        WHERE is_used = 0
+        WHERE is_used = 0 AND expires_at > NOW()
+        ORDER BY issued_at DESC
       `);
       tempPasswords = tempPasswordRows;
       console.log('一時パスワード情報取得完了。件数:', tempPasswords.length);
+      console.log('一時パスワード情報サンプル:', tempPasswords.slice(0, 3));
     } catch (tempPasswordError) {
       console.error('一時パスワード情報取得エラー:', tempPasswordError);
       // 一時パスワード情報が取得できなくても続行
@@ -152,12 +154,14 @@ const getUsers = async () => {
     // 一時パスワード情報をマップ化
     const tempPasswordMap = {};
     tempPasswords.forEach(tp => {
+      console.log(`一時パスワード情報をマップ化: ユーザー${tp.user_id}`, tp);
       tempPasswordMap[tp.user_id] = {
         temp_password: tp.temp_password,
         expires_at: tp.expires_at,
         is_used: tp.is_used
       };
     });
+    console.log('一時パスワードマップ:', tempPasswordMap);
     
     // タグ情報を取得
     console.log('タグ情報を取得中...');
@@ -227,9 +231,12 @@ const getUsers = async () => {
       
       // 一時パスワード情報を追加
       if (tempPasswordMap[user.id]) {
+        console.log(`ユーザー${user.id} (${user.name}) の一時パスワード情報:`, tempPasswordMap[user.id]);
         user.temp_password = tempPasswordMap[user.id].temp_password;
         user.expires_at = tempPasswordMap[user.id].expires_at;
         user.is_used = tempPasswordMap[user.id].is_used;
+      } else {
+        console.log(`ユーザー${user.id} (${user.name}) には一時パスワード情報がありません`);
       }
       
       // satellite_idsから拠点情報を取得
@@ -297,7 +304,15 @@ const getUsers = async () => {
       processedRows.push(user);
     }
     
-    console.log('ユーザー情報処理完了');
+    console.log('=== ユーザー情報処理完了 ===');
+    console.log('処理されたユーザー数:', processedRows.length);
+    
+    // 一時パスワード情報が含まれているユーザーを確認
+    const usersWithTempPassword = processedRows.filter(user => user.temp_password);
+    console.log('一時パスワードを持つユーザー数:', usersWithTempPassword.length);
+    usersWithTempPassword.forEach(user => {
+      console.log(`ユーザー${user.id} (${user.name}): パスワード=${user.temp_password}, 有効期限=${user.expires_at}`);
+    });
     
     return {
       success: true,
@@ -723,11 +738,11 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
           tp.temp_password,
           tp.expires_at,
           tp.is_used
-        FROM temp_passwords tp
+        FROM user_temp_passwords tp
         JOIN user_accounts ua ON tp.user_id = ua.id
         WHERE JSON_CONTAINS(ua.satellite_ids, ?) AND ua.status = 1
           AND tp.is_used = 0 AND tp.expires_at > NOW()
-        ORDER BY tp.created_at DESC
+        ORDER BY tp.issued_at DESC
       `, [JSON.stringify(numericSatelliteId)]);
       
       // 最新の一時パスワードのみを取得（ユーザーごと）
@@ -784,9 +799,12 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
       
       // 一時パスワード情報を追加
       if (tempPasswordMap[user.id]) {
+        console.log(`拠点別ユーザー${user.id} (${user.name}) の一時パスワード情報:`, tempPasswordMap[user.id]);
         processedUser.temp_password = tempPasswordMap[user.id].temp_password;
         processedUser.expires_at = tempPasswordMap[user.id].expires_at;
         processedUser.is_used = tempPasswordMap[user.id].is_used;
+      } else {
+        console.log(`拠点別ユーザー${user.id} (${user.name}) には一時パスワード情報がありません`);
       }
       
       return processedUser;
@@ -1571,10 +1589,11 @@ const issueTemporaryPassword = async (userId) => {
     }
 
     // 既存の一時パスワードを無効化
-    await connection.execute(
+    const [updateResult] = await connection.execute(
       'UPDATE user_temp_passwords SET is_used = 1 WHERE user_id = ? AND is_used = 0',
       [userId]
     );
+    console.log(`ユーザー${userId}の既存一時パスワード無効化: ${updateResult.affectedRows}件`);
     
     // 新しい一時パスワードを生成
     const tempPassword = generateTemporaryPassword();
@@ -1585,7 +1604,7 @@ const issueTemporaryPassword = async (userId) => {
     
     console.log('=== 日本時間設定の詳細 ===');
     console.log('japanEndTime:', japanEndTime);
-    console.log('japanEndTime.toISOString():', japanEndTime.toISOString());
+    console.log('japanEndTime.toLocaleString(ja-JP):', japanEndTime.toLocaleString('ja-JP'));
     
     // 日本時間の文字列を生成（フロントエンド用）
     const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
@@ -1602,10 +1621,16 @@ const issueTemporaryPassword = async (userId) => {
     const expiryTimeString = japanTimeString.replace(/\//g, '-').replace(/,/g, '');
     console.log('保存する文字列:', expiryTimeString);
     
-    await connection.execute(
+    // 現在時刻も確認
+    const now = new Date();
+    console.log('現在時刻 (UTC):', now.toISOString());
+    console.log('現在時刻 (日本時間):', now.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }));
+    
+    const [insertResult] = await connection.execute(
       'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
       [userId, tempPassword, expiryTimeString]
     );
+    console.log(`ユーザー${userId}の一時パスワード保存完了: ID=${insertResult.insertId}, パスワード=${tempPassword}, 有効期限=${expiryTimeString}`);
 
     // 支援アプリに通知を送信（非同期で実行）
     notifySupportApp(user.login_code, tempPassword, user.name)
