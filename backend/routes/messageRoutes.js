@@ -3,6 +3,42 @@ const router = express.Router();
 const { pool } = require('../utils/database');
 const { authenticateToken } = require('../middleware/auth');
 
+// サニタイズ関数
+const sanitizeInput = (input) => {
+  if (typeof input !== 'string') {
+    return String(input);
+  }
+  
+  let sanitized = input;
+  
+  // 1. スクリプトとイベントハンドラーを除去
+  sanitized = sanitized.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  sanitized = sanitized.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '');
+  sanitized = sanitized.replace(/javascript:/gi, '');
+  
+  // 2. HTMLタグを除去
+  sanitized = sanitized.replace(/<[^>]*>/g, '');
+  
+  // 3. 特殊文字をエスケープ
+  const htmlEscapes = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+    '/': '&#x2F;'
+  };
+  sanitized = sanitized.replace(/[&<>"'/]/g, (match) => htmlEscapes[match]);
+  
+  // 4. 連続する空白を単一の空白に正規化
+  sanitized = sanitized.replace(/\s+/g, ' ');
+  
+  // 5. 前後の空白を除去
+  sanitized = sanitized.trim();
+  
+  return sanitized;
+};
+
 // 個人メッセージ送信
 router.post('/send', authenticateToken, async (req, res) => {
   try {
@@ -43,10 +79,11 @@ router.post('/send', authenticateToken, async (req, res) => {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 30, 0, 0); // 24:30（翌日の0:30）
     
-    // メッセージ送信
+    // メッセージ送信（サニタイズ処理を追加）
+    const sanitizedMessage = sanitizeInput(message.trim());
     const [result] = await pool.execute(
       'INSERT INTO personal_messages (sender_id, receiver_id, message, expires_at) VALUES (?, ?, ?, ?)',
-      [sender_id, receiver_id, message.trim(), tomorrow]
+      [sender_id, receiver_id, sanitizedMessage, tomorrow]
     );
 
     // 送信者と受信者の情報を取得
@@ -62,7 +99,7 @@ router.post('/send', authenticateToken, async (req, res) => {
         id: result.insertId,
         sender: senderRows[0],
         receiver: receiverRows[0],
-        message: message.trim(),
+        message: sanitizedMessage,
         created_at: new Date()
       }
     });
@@ -81,7 +118,7 @@ router.get('/conversations', authenticateToken, async (req, res) => {
   try {
     const user_id = req.user.user_id;
 
-    // ユーザーとの会話相手一覧を取得
+    // ユーザーとの会話相手一覧を取得（期限切れのメッセージは除外）
     const [conversations] = await pool.execute(`
       SELECT DISTINCT
         CASE 
@@ -99,7 +136,8 @@ router.get('/conversations', authenticateToken, async (req, res) => {
           ELSE pm.sender_id 
         END = u.id
       )
-      WHERE pm.sender_id = ? OR pm.receiver_id = ?
+      WHERE (pm.sender_id = ? OR pm.receiver_id = ?)
+        AND pm.expires_at > CONVERT_TZ(NOW(), '+00:00', '+09:00')
       GROUP BY other_user_id, u.name, u.role
       ORDER BY last_message_at DESC
     `, [user_id, user_id, user_id, user_id, user_id]);
@@ -131,7 +169,7 @@ router.get('/conversation/:other_user_id', authenticateToken, async (req, res) =
       });
     }
 
-    // メッセージ履歴を取得
+    // メッセージ履歴を取得（期限切れのメッセージは除外）
     const [messages] = await pool.execute(`
       SELECT 
         pm.id,
@@ -141,15 +179,19 @@ router.get('/conversation/:other_user_id', authenticateToken, async (req, res) =
         pm.is_read,
         pm.read_at,
         pm.created_at,
+        pm.expires_at,
         sender.name as sender_name,
         receiver.name as receiver_name
       FROM personal_messages pm
       JOIN user_accounts sender ON pm.sender_id = sender.id
       JOIN user_accounts receiver ON pm.receiver_id = receiver.id
-      WHERE (pm.sender_id = ? AND pm.receiver_id = ?) 
-         OR (pm.sender_id = ? AND pm.receiver_id = ?)
+      WHERE ((pm.sender_id = ? AND pm.receiver_id = ?) 
+         OR (pm.sender_id = ? AND pm.receiver_id = ?))
+         AND pm.expires_at > CONVERT_TZ(NOW(), '+00:00', '+09:00')
       ORDER BY pm.created_at ASC
     `, [user_id, other_user_id, other_user_id, user_id]);
+
+    // データベースから取得したタイムスタンプをそのまま送信（既に日本時間で保存されている）
 
     // 未読メッセージを既読に更新
     await pool.execute(
@@ -241,30 +283,123 @@ router.get('/students', authenticateToken, async (req, res) => {
   try {
     const user_id = req.user.user_id;
     const user_role = req.user.role;
+    const { 
+      instructor_filter = 'all', // 'my', 'other', 'none', 'all', 'specific'
+      instructor_ids = '', // 特定の指導員IDをカンマ区切りで指定
+      name_filter = '',
+      tag_filter = ''
+    } = req.query;
 
-    // 指導員（ロール4）のみアクセス可能
-    if (user_role !== 4) {
+
+    // 管理者（ロール5以上）または指導員（ロール4）のみアクセス可能
+    if (user_role < 4) {
       return res.status(403).json({
         success: false,
-        message: '指導員のみアクセス可能です'
+        message: '管理者または指導員のみアクセス可能です'
       });
     }
 
-    // 担当する利用者一覧を取得
-    const [students] = await pool.execute(`
+    // 現在のユーザーの企業・拠点情報を取得
+    const [currentUserRows] = await pool.execute(`
+      SELECT 
+        ua.company_id,
+        ua.satellite_ids
+      FROM user_accounts ua
+      WHERE ua.id = ? AND ua.status = 1
+    `, [user_id]);
+
+    if (currentUserRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ユーザー情報が見つかりません'
+      });
+    }
+
+    const currentUser = currentUserRows[0];
+    const currentCompanyId = currentUser.company_id;
+    const currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+
+
+    // WHERE条件を構築
+    let whereConditions = ['ua.role = 1', 'ua.status = 1'];
+    let queryParams = [];
+
+    // 企業・拠点フィルタ（現在選択中の企業・拠点に所属するロール1ユーザのみ）
+    if (currentCompanyId) {
+      whereConditions.push('ua.company_id = ?');
+      queryParams.push(currentCompanyId);
+    }
+
+    if (currentSatelliteIds.length > 0) {
+      whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
+      queryParams.push(JSON.stringify(currentSatelliteIds));
+    }
+
+    // 担当指導員フィルタ
+    switch (instructor_filter) {
+      case 'my':
+        whereConditions.push('ua.instructor_id = ?');
+        queryParams.push(user_id);
+        break;
+      case 'other':
+        whereConditions.push('ua.instructor_id IS NOT NULL AND ua.instructor_id != ?');
+        queryParams.push(user_id);
+        break;
+      case 'specific':
+        if (instructor_ids) {
+          const instructorIdList = instructor_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+          if (instructorIdList.length > 0) {
+            const placeholders = instructorIdList.map(() => '?').join(',');
+            whereConditions.push(`ua.instructor_id IN (${placeholders})`);
+            queryParams.push(...instructorIdList);
+          }
+        }
+        break;
+      case 'none':
+        whereConditions.push('ua.instructor_id IS NULL');
+        break;
+      case 'all':
+      default:
+        // 条件なし
+        break;
+    }
+
+    // 名前フィルタ
+    if (name_filter) {
+      whereConditions.push('ua.name LIKE ?');
+      queryParams.push(`%${name_filter}%`);
+    }
+
+    // タグフィルタ
+    if (tag_filter) {
+      whereConditions.push('EXISTS (SELECT 1 FROM user_tags ut WHERE ut.user_id = ua.id AND ut.tag_name LIKE ?)');
+      queryParams.push(`%${tag_filter}%`);
+    }
+
+    // 利用者一覧を取得（自分の担当利用者を優先表示）
+    const query = `
       SELECT 
         ua.id,
         ua.name,
         ua.email,
         ua.login_code,
+        ua.instructor_id,
         s.name as satellite_name,
-        c.name as company_name
+        c.name as company_name,
+        instructor.name as instructor_name,
+        CASE WHEN ua.instructor_id = ? THEN 1 ELSE 0 END as is_my_assigned,
+        GROUP_CONCAT(ut.tag_name) as tags
       FROM user_accounts ua
       LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
       LEFT JOIN companies c ON ua.company_id = c.id
-      WHERE ua.instructor_id = ? AND ua.role = 1 AND ua.status = 1
-      ORDER BY ua.name
-    `, [user_id]);
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      LEFT JOIN user_tags ut ON ua.id = ut.user_id
+      WHERE ${whereConditions.join(' AND ')}
+      GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
+      ORDER BY is_my_assigned DESC, ua.name ASC
+    `;
+
+    const [students] = await pool.execute(query, [user_id, ...queryParams]);
 
     res.json({
       success: true,
@@ -369,6 +504,81 @@ router.get('/instructors', authenticateToken, async (req, res) => {
         instructors,
         assigned_instructor_id: user.instructor_id
       }
+    });
+
+  } catch (error) {
+    console.error('指導員一覧取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '指導員一覧の取得に失敗しました'
+    });
+  }
+});
+
+// 拠点の指導員一覧取得（フィルター用）
+router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    const user_role = req.user.role;
+
+    // 指導員（ロール4）のみアクセス可能
+    if (user_role !== 4) {
+      return res.status(403).json({
+        success: false,
+        message: '指導員のみアクセス可能です'
+      });
+    }
+
+    // 現在のユーザーの企業・拠点情報を取得
+    const [currentUserRows] = await pool.execute(`
+      SELECT 
+        ua.company_id,
+        ua.satellite_ids
+      FROM user_accounts ua
+      WHERE ua.id = ? AND ua.status = 1
+    `, [user_id]);
+
+    if (currentUserRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ユーザー情報が見つかりません'
+      });
+    }
+
+    const currentUser = currentUserRows[0];
+    const currentCompanyId = currentUser.company_id;
+    const currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+
+    // 同じ拠点の他の指導員一覧を取得
+    let whereConditions = ['ua.role = 4', 'ua.status = 1', 'ua.id != ?'];
+    let queryParams = [user_id];
+
+    if (currentCompanyId) {
+      whereConditions.push('ua.company_id = ?');
+      queryParams.push(currentCompanyId);
+    }
+
+    if (currentSatelliteIds.length > 0) {
+      whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
+      queryParams.push(JSON.stringify(currentSatelliteIds));
+    }
+
+    const [instructors] = await pool.execute(`
+      SELECT 
+        ua.id,
+        ua.name,
+        s.name as satellite_name,
+        c.name as company_name
+      FROM user_accounts ua
+      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN companies c ON ua.company_id = c.id
+      WHERE ${whereConditions.join(' AND ')}
+      ORDER BY ua.name ASC
+    `, queryParams);
+
+    res.json({
+      success: true,
+      data: instructors
     });
 
   } catch (error) {

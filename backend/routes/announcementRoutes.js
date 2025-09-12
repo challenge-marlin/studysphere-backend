@@ -15,13 +15,16 @@ router.put('/user/read-all', authenticateToken, AnnouncementController.markAllAs
 // 管理者用：アナウンス一覧を取得
 router.get('/admin', authenticateToken, AnnouncementController.getAdminAnnouncements);
 
-// 管理者用：アナウンス詳細を取得
-router.get('/admin/:announcement_id', authenticateToken, AnnouncementController.getAnnouncementDetail);
+// 管理者用：利用者一覧取得（アナウンス送信用）
+router.get('/admin/users', authenticateToken, AnnouncementController.getUsersForAnnouncement);
+
+// 管理者用：指導員一覧取得（フィルター用）
+router.get('/admin/instructors-for-filter', authenticateToken, AnnouncementController.getInstructorsForFilter);
 
 // 管理者用：アナウンス作成
 router.post('/admin/create', authenticateToken, AnnouncementController.createAnnouncement);
 
-// 管理者用：利用者一覧取得（アナウンス送信用）
-router.get('/admin/users', authenticateToken, AnnouncementController.getUsersForAnnouncement);
+// 管理者用：アナウンス詳細を取得（動的パスは最後に配置）
+router.get('/admin/:announcement_id', authenticateToken, AnnouncementController.getAnnouncementDetail);
 
 module.exports = router;
