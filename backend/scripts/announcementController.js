@@ -158,7 +158,9 @@ class AnnouncementController {
     // 管理者用：アナウンス一覧を取得
     static async getAdminAnnouncements(req, res) {
         try {
-            customLogger.debug('管理者アナウンス一覧取得開始');
+            const { user_id, role } = req.user;
+            const { selected_satellite_id } = req.query; // 現在選択中の拠点ID
+            customLogger.debug('管理者アナウンス一覧取得開始', { user_id, role, selected_satellite_id });
 
             // まずテーブルの存在確認
             const [tableCheck] = await pool.execute("SHOW TABLES LIKE 'announcements'");
@@ -178,25 +180,113 @@ class AnnouncementController {
                 });
             }
 
-            const query = `
-                SELECT 
-                    a.id,
-                    a.title,
-                    a.message,
-                    a.created_at,
-                    a.updated_at,
-                    ua.name as created_by_name,
-                    COUNT(ua2.user_id) as recipient_count,
-                    COUNT(CASE WHEN ua2.is_read = 1 THEN 1 END) as read_count
-                FROM announcements a
-                LEFT JOIN user_accounts ua ON a.created_by = ua.id
-                LEFT JOIN user_announcements ua2 ON a.id = ua2.announcement_id
-                GROUP BY a.id
-                ORDER BY a.created_at DESC
-            `;
+            let query;
+            let queryParams = [];
 
-            customLogger.debug('アナウンス一覧クエリ実行');
-            const [announcements] = await pool.execute(query);
+            if (role >= 5) {
+                // ロール5以上：選択中の企業・拠点で送信したアナウンスメッセージを閲覧可能
+                customLogger.debug('ロール5以上：企業・拠点フィルタリング適用');
+                
+                // 現在のユーザーの企業・拠点情報を取得
+                const [currentUserRows] = await pool.execute(`
+                    SELECT 
+                        ua.company_id,
+                        ua.satellite_ids
+                    FROM user_accounts ua
+                    WHERE ua.id = ? AND ua.status = 1
+                `, [user_id]);
+
+                if (currentUserRows.length === 0) {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'ユーザー情報が見つかりません'
+                    });
+                }
+
+                const currentUser = currentUserRows[0];
+                const currentCompanyId = currentUser.company_id;
+                const currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+
+                customLogger.debug('現在のユーザー企業・拠点情報:', { currentCompanyId, currentSatelliteIds });
+
+                // 企業・拠点フィルタリング用のクエリ
+                query = `
+                    SELECT 
+                        a.id,
+                        a.title,
+                        a.message,
+                        a.created_at,
+                        a.updated_at,
+                        ua.name as created_by_name,
+                        ua.company_id as created_by_company_id,
+                        ua.satellite_ids as created_by_satellite_ids,
+                        COUNT(ua2.user_id) as recipient_count,
+                        COUNT(CASE WHEN ua2.is_read = 1 THEN 1 END) as read_count
+                    FROM announcements a
+                    LEFT JOIN user_accounts ua ON a.created_by = ua.id
+                    LEFT JOIN user_announcements ua2 ON a.id = ua2.announcement_id
+                    WHERE 1=1
+                `;
+
+                // 企業フィルタリング
+                if (currentCompanyId) {
+                    query += ` AND ua.company_id = ?`;
+                    queryParams.push(currentCompanyId);
+                }
+
+                // 拠点フィルタリング：選択中の拠点に所属する利用者に送信されたアナウンスを表示
+                if (selected_satellite_id) {
+                    // 選択中の拠点IDが指定されている場合は、その拠点に所属する利用者に送信されたアナウンスのみ表示
+                    customLogger.debug('選択中の拠点IDでフィルタリング:', selected_satellite_id);
+                    query += ` AND EXISTS (
+                        SELECT 1 FROM user_announcements ua3 
+                        JOIN user_accounts ua4 ON ua3.user_id = ua4.id 
+                        WHERE ua3.announcement_id = a.id 
+                        AND JSON_CONTAINS(ua4.satellite_ids, ?)
+                    )`;
+                    queryParams.push(JSON.stringify(parseInt(selected_satellite_id)));
+                } else if (currentSatelliteIds.length > 0) {
+                    // 選択中の拠点IDが指定されていない場合は、ユーザーの所属拠点に所属する利用者に送信されたアナウンスを表示
+                    customLogger.debug('ユーザー所属拠点でフィルタリング:', currentSatelliteIds);
+                    query += ` AND EXISTS (
+                        SELECT 1 FROM user_announcements ua3 
+                        JOIN user_accounts ua4 ON ua3.user_id = ua4.id 
+                        WHERE ua3.announcement_id = a.id 
+                        AND JSON_OVERLAPS(ua4.satellite_ids, ?)
+                    )`;
+                    queryParams.push(JSON.stringify(currentSatelliteIds));
+                }
+
+                query += ` GROUP BY a.id ORDER BY a.created_at DESC`;
+
+            } else {
+                // ロール4以下：自身の送ったアナウンスメッセージのみ閲覧可能
+                customLogger.debug('ロール4以下：自身の送信アナウンスのみ表示');
+                
+                query = `
+                    SELECT 
+                        a.id,
+                        a.title,
+                        a.message,
+                        a.created_at,
+                        a.updated_at,
+                        ua.name as created_by_name,
+                        ua.company_id as created_by_company_id,
+                        ua.satellite_ids as created_by_satellite_ids,
+                        COUNT(ua2.user_id) as recipient_count,
+                        COUNT(CASE WHEN ua2.is_read = 1 THEN 1 END) as read_count
+                    FROM announcements a
+                    LEFT JOIN user_accounts ua ON a.created_by = ua.id
+                    LEFT JOIN user_announcements ua2 ON a.id = ua2.announcement_id
+                    WHERE a.created_by = ?
+                    GROUP BY a.id
+                    ORDER BY a.created_at DESC
+                `;
+                queryParams.push(user_id);
+            }
+
+            customLogger.debug('アナウンス一覧クエリ実行', { query, queryParams });
+            const [announcements] = await pool.execute(query, queryParams);
 
             customLogger.debug('アナウンス一覧取得成功:', { count: announcements.length });
 

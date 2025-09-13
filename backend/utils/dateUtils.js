@@ -168,6 +168,16 @@ const formatJapanTimeOnly = (date) => {
 };
 
 /**
+ * MySQLのDATETIME形式に変換（YYYY-MM-DD HH:MM:SS）
+ * @param {Date|string} date - 日付
+ * @returns {string} MySQLのDATETIME形式
+ */
+const formatMySQLDateTime = (date) => {
+  const dateObj = new Date(date);
+  return dateObj.toISOString().slice(0, 19).replace('T', ' ');
+};
+
+/**
  * 指定された時間の日本時間での時刻を取得
  * @param {string} timeString - 時間文字列（HH:MM形式）
  * @returns {Date} 指定された時間の日本時間
@@ -197,5 +207,6 @@ module.exports = {
   formatJapanTime,
   formatJapanDate,
   formatJapanTimeOnly,
+  formatMySQLDateTime,
   getJapanTimeFromString
 };

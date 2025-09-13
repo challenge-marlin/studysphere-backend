@@ -401,6 +401,50 @@ router.get('/students', authenticateToken, async (req, res) => {
 
     const [students] = await pool.execute(query, [user_id, ...queryParams]);
 
+    // 各利用者の進捗率を計算
+    for (let student of students) {
+      try {
+        // 利用者が受講しているコースの全レッスン数を取得
+        const [totalLessonsResult] = await pool.execute(`
+          SELECT COUNT(l.id) as total_lessons
+          FROM user_courses uc
+          JOIN courses c ON uc.course_id = c.id
+          JOIN lessons l ON c.id = l.course_id
+          WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+        `, [student.id]);
+
+        const totalLessons = totalLessonsResult[0]?.total_lessons || 0;
+
+        if (totalLessons > 0) {
+          // 各レッスンの進捗状況を取得
+          const [lessonProgress] = await pool.execute(`
+            SELECT 
+              l.id,
+              COALESCE(ulp.status, 'not_started') as progress_status
+            FROM user_courses uc
+            JOIN courses c ON uc.course_id = c.id
+            JOIN lessons l ON c.id = l.course_id
+            LEFT JOIN user_lesson_progress ulp ON l.id = ulp.lesson_id AND ulp.user_id = uc.user_id
+            WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+            ORDER BY l.order_index ASC
+          `, [student.id]);
+
+          // 進捗率を計算（受講完了:1, 受講中:0.5, 未受講:0）
+          const completedLessons = lessonProgress.filter(l => l.progress_status === 'completed').length;
+          const inProgressLessons = lessonProgress.filter(l => l.progress_status === 'in_progress').length;
+          const weightedProgress = completedLessons + (inProgressLessons * 0.5);
+          const progressPercentage = Math.round((weightedProgress / totalLessons) * 10000) / 100; // 小数点第2位まで
+
+          student.progress = progressPercentage;
+        } else {
+          student.progress = 0;
+        }
+      } catch (error) {
+        console.error(`利用者ID ${student.id} の進捗率計算エラー:`, error);
+        student.progress = 0;
+      }
+    }
+
     res.json({
       success: true,
       data: students

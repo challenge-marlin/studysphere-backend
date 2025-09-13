@@ -2,7 +2,8 @@
 -- MySQL 8.0対応
 
 -- タイムゾーン設定（日本時間）
-SET time_zone = '+09:00';
+-- Docker環境では--default-time-zone=+09:00で設定済みのため、この設定は不要
+-- SET time_zone = '+09:00';
 
 
 CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'shinomoto926!';
@@ -562,7 +563,7 @@ CREATE TABLE IF NOT EXISTS `announcements` (
     `title` VARCHAR(255) NOT NULL COMMENT 'アナウンスタイトル',
     `message` TEXT NOT NULL COMMENT 'アナウンスメッセージ',
     `created_by` INT NOT NULL COMMENT '作成者ID',
-    `expires_at` DATETIME NOT NULL COMMENT '有効期限（日本時間24:30）',
+    `expires_at` DATETIME NOT NULL DEFAULT (DATE_ADD(CURDATE(), INTERVAL 1 DAY) + INTERVAL 30 MINUTE) COMMENT '有効期限（日本時間24:30）',
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
     `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     FOREIGN KEY (`created_by`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,

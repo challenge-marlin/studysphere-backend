@@ -2,7 +2,7 @@ const express = require('express');
 const { getCourses, createCourse } = require('../scripts/courseController');
 const { generateTestQuestions } = require('../scripts/testGenerator');
 const { s3Utils } = require('../config/s3');
-const { pool } = require('../config/database');
+const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
 const { authenticateToken } = require('../middleware/auth');
 
@@ -778,6 +778,182 @@ router.post('/instructor/student/:studentId/lesson/:lessonId/approve', async (re
     res.status(500).json({
       success: false,
       message: 'レッスン承認に失敗しました'
+    });
+  }
+});
+
+// 指導員用：未承認の合格テスト結果を取得
+router.get('/instructor/pending-approvals', authenticateToken, async (req, res) => {
+  try {
+    const instructorId = req.user.user_id;
+    const { satelliteId } = req.query;
+    
+    if (!satelliteId) {
+      return res.status(400).json({
+        success: false,
+        message: '拠点IDが必要です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // 未承認の合格テスト結果を取得
+      const [pendingApprovals] = await connection.execute(`
+        SELECT 
+          er.id as exam_result_id,
+          er.user_id,
+          er.lesson_id,
+          er.lesson_name,
+          er.test_type,
+          er.passed,
+          er.score,
+          er.total_questions,
+          er.percentage,
+          er.exam_date,
+          ua.name as student_name,
+          l.has_assignment,
+          ulp.instructor_approved,
+          ulp.assignment_submitted,
+          ulp.status as lesson_status
+        FROM exam_results er
+        JOIN user_accounts ua ON er.user_id = ua.id
+        JOIN lessons l ON er.lesson_id = l.id
+        LEFT JOIN user_lesson_progress ulp ON er.user_id = ulp.user_id AND er.lesson_id = ulp.lesson_id
+        WHERE er.passed = 1 
+        AND er.test_type = 'lesson'
+        AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))
+        AND (ulp.instructor_approved = 0 OR ulp.instructor_approved IS NULL)
+        AND ulp.status != 'completed'
+        ORDER BY er.exam_date DESC
+      `, [satelliteId]);
+      
+      res.json({
+        success: true,
+        data: pendingApprovals
+      });
+      
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('未承認合格テスト取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '未承認合格テストの取得に失敗しました'
+    });
+  }
+});
+
+// 指導員用：テスト合格承認
+router.post('/instructor/approve-test', authenticateToken, async (req, res) => {
+  try {
+    const instructorId = req.user.user_id;
+    const { examResultId, studentId, lessonId } = req.body;
+    
+    if (!examResultId || !studentId || !lessonId) {
+      return res.status(400).json({
+        success: false,
+        message: '必要なパラメータが不足しています'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      await connection.beginTransaction();
+      
+      // テスト結果とレッスン情報を取得（総合テストかどうかと提出物の有無を確認）
+      const [testAndLessonInfo] = await connection.execute(`
+        SELECT 
+          er.test_type,
+          l.has_assignment
+        FROM exam_results er
+        JOIN lessons l ON er.lesson_id = l.id
+        WHERE er.id = ? AND er.lesson_id = ? AND er.user_id = ?
+      `, [examResultId, lessonId, studentId]);
+      
+      if (testAndLessonInfo.length === 0) {
+        throw new Error('テスト結果またはレッスン情報が見つかりません');
+      }
+      
+      const { test_type, has_assignment } = testAndLessonInfo[0];
+      
+      // レッスンテストのみ承認可能
+      if (test_type !== 'lesson') {
+        throw new Error('セクションテストは承認の対象外です');
+      }
+      
+      
+      // 現在の進捗状況を取得
+      const [currentProgress] = await connection.execute(`
+        SELECT 
+          instructor_approved,
+          assignment_submitted,
+          status
+        FROM user_lesson_progress 
+        WHERE user_id = ? AND lesson_id = ?
+      `, [studentId, lessonId]);
+      
+      let shouldComplete = false;
+      
+      if (currentProgress.length === 0) {
+        // 進捗レコードが存在しない場合は作成
+        await connection.execute(`
+          INSERT INTO user_lesson_progress 
+          (user_id, lesson_id, status, instructor_approved, instructor_approved_at, instructor_id)
+          VALUES (?, ?, 'in_progress', 1, NOW(), ?)
+        `, [studentId, lessonId, instructorId]);
+      } else {
+        // 既存の進捗レコードを更新
+        const progress = currentProgress[0];
+        
+        if (has_assignment) {
+          // 提出物がある場合：テスト承認のみ
+          await connection.execute(`
+            UPDATE user_lesson_progress 
+            SET instructor_approved = 1, instructor_approved_at = NOW(), instructor_id = ?
+            WHERE user_id = ? AND lesson_id = ?
+          `, [instructorId, studentId, lessonId]);
+          
+          // 提出物も承認済みの場合は完了にする
+          if (progress.assignment_submitted) {
+            shouldComplete = true;
+          }
+        } else {
+          // 提出物がない場合：承認で完了
+          shouldComplete = true;
+        }
+      }
+      
+      // 完了処理
+      if (shouldComplete) {
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET status = 'completed', completed_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [studentId, lessonId]);
+      }
+      
+      await connection.commit();
+      
+      res.json({
+        success: true,
+        message: shouldComplete ? 'レッスンが完了しました' : 'テスト合格を承認しました',
+        completed: shouldComplete
+      });
+      
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('テスト承認エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'テスト承認に失敗しました'
     });
   }
 });

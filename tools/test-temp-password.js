@@ -63,10 +63,11 @@ const testIssueTemporaryPassword = async (userId) => {
     console.log('生成された一時パスワード:', tempPassword);
     console.log('有効期限:', expiryTime);
     
-    // 新しい一時パスワードを登録
+    // 新しい一時パスワードを登録（MySQLのDATETIME形式）
+    const expiryTimeString = expiryTime.toISOString().slice(0, 19).replace('T', ' ');
     await connection.execute(
       'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
-      [userId, tempPassword, expiryTime]
+      [userId, tempPassword, expiryTimeString]
     );
 
     return {

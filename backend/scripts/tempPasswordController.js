@@ -7,6 +7,7 @@ const {
   convertJapanTimeToUTC,
   isExpired,
   formatJapanTime,
+  formatMySQLDateTime,
   getJapanTimeFromString
 } = require('../utils/dateUtils');
 
@@ -212,7 +213,7 @@ class TempPasswordController {
     static async issueTempPasswords(req, res) {
         try {
             const { user_ids, expiry_time, announcement_title, announcement_message } = req.body;
-            const { id: admin_id, name: admin_name } = req.user;
+            const { user_id: admin_id, username: admin_name } = req.user;
 
             if (!user_ids || user_ids.length === 0) {
                 return res.status(400).json({
@@ -255,27 +256,20 @@ class TempPasswordController {
                 }
             } else {
                 // デフォルトは今日の23:59（日本時間）
-                const now = new Date();
+                // 日本時間の今日の23:59:59を直接計算
+                const japanNow = new Date();
                 const japanOffset = 9 * 60; // 日本時間はUTC+9
                 
-                // 現在の日本時間を取得
-                const japanNow = new Date(now.getTime() + (japanOffset * 60 * 1000));
+                // 日本時間の今日の23:59:59を計算
+                const japanToday = new Date(japanNow.getTime() + (japanOffset * 60 * 1000));
+                japanToday.setHours(23, 59, 59, 999);
                 
-                // 日本時間の今日の23:59:59を設定
-                japanEndTime = new Date(japanNow);
-                japanEndTime.setHours(23, 59, 59, 999);
+                // UTCに変換して返す（データベース保存用）
+                expiryDate = new Date(japanToday.getTime() - (japanOffset * 60 * 1000));
                 
-                // データベース保存用にUTCに変換（日本時間から9時間引く）
-                expiryDate = new Date(japanEndTime.getTime() - (japanOffset * 60 * 1000));
-                
-                console.log('=== 一括発行デバッグ ===');
-                console.log('now (UTC):', now);
-                console.log('now.toISOString():', now.toISOString());
-                console.log('japanNow:', japanNow);
-                console.log('japanNow.toISOString():', japanNow.toISOString());
-                console.log('japanEndTime:', japanEndTime);
-                console.log('japanEndTime.toISOString():', japanEndTime.toISOString());
-                console.log('expiryDate (UTC):', expiryDate);
+                console.log('=== 一括発行デバッグ（デフォルト時間） ===');
+                console.log('現在時刻 (UTC):', japanNow);
+                console.log('日本時間の今日23:59:59 (UTC):', expiryDate);
                 console.log('expiryDate.toISOString():', expiryDate.toISOString());
             }
 
@@ -290,26 +284,37 @@ class TempPasswordController {
 
                 // 選択された利用者にアナウンスを関連付け
                 const userAnnouncementValues = user_ids.map(user_id => [user_id, announcement_id]);
+                const placeholders = userAnnouncementValues.map(() => '(?, ?)').join(',');
+                const flatValues = userAnnouncementValues.flat();
+                
                 await pool.execute(
-                    'INSERT INTO user_announcements (user_id, announcement_id) VALUES ?',
-                    [userAnnouncementValues]
+                    `INSERT INTO user_announcements (user_id, announcement_id) VALUES ${placeholders}`,
+                    flatValues
                 );
             }
 
             // 一時パスワードを発行
             const tempPasswords = [];
             for (const user_id of user_ids) {
-                const tempPassword = this.generateTempPassword();
+                const tempPassword = TempPasswordController.generateTempPassword();
                 
-                customLogger.info(`Issuing temp password for user ${user_id}: ${tempPassword}, expires at: ${expiryDate}`);
+                // デバッグ情報を追加
+                const formattedExpiryDate = formatMySQLDateTime(expiryDate);
+                customLogger.info(`Issuing temp password for user ${user_id}: ${tempPassword}`);
+                customLogger.info(`Expiry date details: original=${expiryDate}, formatted=${formattedExpiryDate}, type=${typeof formattedExpiryDate}`);
+                
+                // フォーマットされた日付が有効かチェック
+                if (!formattedExpiryDate || formattedExpiryDate === 'Invalid Date') {
+                    throw new Error(`Invalid formatted expiry date: ${formattedExpiryDate}`);
+                }
                 
                 await pool.execute(
                     'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
-                    [user_id, tempPassword, expiryDate]
+                    [user_id, tempPassword, formattedExpiryDate]
                 );
 
                 // 日本時間の文字列を生成
-                const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+                const japanTimeString = expiryDate.toLocaleString('ja-JP', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',
@@ -338,7 +343,7 @@ class TempPasswordController {
             );
 
             // 日本時間の文字列を生成
-            const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+            const japanTimeString = expiryDate.toLocaleString('ja-JP', {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
@@ -360,9 +365,16 @@ class TempPasswordController {
 
         } catch (error) {
             customLogger.error('一時パスワード発行エラー:', error);
+            customLogger.error('エラー詳細:', {
+                message: error.message,
+                stack: error.stack,
+                code: error.code,
+                sqlState: error.sqlState
+            });
             res.status(500).json({
                 success: false,
-                message: '一時パスワードの発行に失敗しました'
+                message: '一時パスワードの発行に失敗しました',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }

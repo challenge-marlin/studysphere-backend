@@ -285,8 +285,47 @@ const getUsers = async () => {
       // コース情報を追加
       user.courses = courseMap[user.id] || [];
       
-      // 進行度は0に設定（計算しない）
-      user.progress = 0;
+      // 進捗率を計算（受講完了:1, 受講中:0.5, 未受講:0）
+      try {
+        // 利用者が受講しているコースの全レッスン数を取得
+        const [totalLessonsResult] = await connection.execute(`
+          SELECT COUNT(l.id) as total_lessons
+          FROM user_courses uc
+          JOIN courses c ON uc.course_id = c.id
+          JOIN lessons l ON c.id = l.course_id
+          WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+        `, [user.id]);
+
+        const totalLessons = totalLessonsResult[0]?.total_lessons || 0;
+
+        if (totalLessons > 0) {
+          // 各レッスンの進捗状況を取得
+          const [lessonProgress] = await connection.execute(`
+            SELECT 
+              l.id,
+              COALESCE(ulp.status, 'not_started') as progress_status
+            FROM user_courses uc
+            JOIN courses c ON uc.course_id = c.id
+            JOIN lessons l ON c.id = l.course_id
+            LEFT JOIN user_lesson_progress ulp ON l.id = ulp.lesson_id AND ulp.user_id = uc.user_id
+            WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+            ORDER BY l.order_index ASC
+          `, [user.id]);
+
+          // 進捗率を計算（受講完了:1, 受講中:0.5, 未受講:0）
+          const completedLessons = lessonProgress.filter(l => l.progress_status === 'completed').length;
+          const inProgressLessons = lessonProgress.filter(l => l.progress_status === 'in_progress').length;
+          const weightedProgress = completedLessons + (inProgressLessons * 0.5);
+          const progressPercentage = Math.round((weightedProgress / totalLessons) * 10000) / 100; // 小数点第2位まで
+
+          user.progress = progressPercentage;
+        } else {
+          user.progress = 0;
+        }
+      } catch (error) {
+        console.error(`利用者ID ${user.id} の進捗率計算エラー:`, error);
+        user.progress = 0;
+      }
       
       // 一時パスワードの有効期限を日本時間で返す
       if (user.expires_at) {
@@ -767,7 +806,8 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
     console.log('コースマップ:', courseMap);
     console.log('カリキュラムパスマップ:', curriculumPathMap);
     
-    const processedRows = rows.map(user => {
+    const processedRows = [];
+    for (const user of rows) {
       const processedUser = { ...user };
       
       // タグ情報を処理
@@ -807,8 +847,50 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
         console.log(`拠点別ユーザー${user.id} (${user.name}) には一時パスワード情報がありません`);
       }
       
-      return processedUser;
-    });
+      // 進捗率を計算（受講完了:1, 受講中:0.5, 未受講:0）
+      try {
+        // 利用者が受講しているコースの全レッスン数を取得
+        const [totalLessonsResult] = await connection.execute(`
+          SELECT COUNT(l.id) as total_lessons
+          FROM user_courses uc
+          JOIN courses c ON uc.course_id = c.id
+          JOIN lessons l ON c.id = l.course_id
+          WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+        `, [user.id]);
+
+        const totalLessons = totalLessonsResult[0]?.total_lessons || 0;
+
+        if (totalLessons > 0) {
+          // 各レッスンの進捗状況を取得
+          const [lessonProgress] = await connection.execute(`
+            SELECT 
+              l.id,
+              COALESCE(ulp.status, 'not_started') as progress_status
+            FROM user_courses uc
+            JOIN courses c ON uc.course_id = c.id
+            JOIN lessons l ON c.id = l.course_id
+            LEFT JOIN user_lesson_progress ulp ON l.id = ulp.lesson_id AND ulp.user_id = uc.user_id
+            WHERE uc.user_id = ? AND uc.status = 'active' AND c.status = 'active' AND l.status != 'deleted'
+            ORDER BY l.order_index ASC
+          `, [user.id]);
+
+          // 進捗率を計算（受講完了:1, 受講中:0.5, 未受講:0）
+          const completedLessons = lessonProgress.filter(l => l.progress_status === 'completed').length;
+          const inProgressLessons = lessonProgress.filter(l => l.progress_status === 'in_progress').length;
+          const weightedProgress = completedLessons + (inProgressLessons * 0.5);
+          const progressPercentage = Math.round((weightedProgress / totalLessons) * 10000) / 100; // 小数点第2位まで
+
+          processedUser.progress = progressPercentage;
+        } else {
+          processedUser.progress = 0;
+        }
+      } catch (error) {
+        console.error(`拠点別利用者ID ${user.id} の進捗率計算エラー:`, error);
+        processedUser.progress = 0;
+      }
+      
+      processedRows.push(processedUser);
+    }
     
     const successResponse = {
       success: true,
@@ -1563,7 +1645,13 @@ const notifySupportApp = async (loginCode, tempPassword, userName) => {
 const issueTemporaryPassword = async (userId) => {
   let connection;
   try {
+    console.log('=== 一時パスワード発行開始 ===');
+    console.log('userId:', userId);
+    console.log('pool._allConnections.length:', pool._allConnections?.length);
+    console.log('pool._freeConnections.length:', pool._freeConnections?.length);
+    
     connection = await pool.getConnection();
+    console.log('データベース接続取得成功');
     
     // ユーザーの存在確認
     const [userRows] = await connection.execute(
@@ -1598,28 +1686,29 @@ const issueTemporaryPassword = async (userId) => {
     // 新しい一時パスワードを生成
     const tempPassword = generateTemporaryPassword();
     
-    // 日本時間の今日の23:59:59を計算（dateUtilsを使用）
-    const { getTodayEndTimeJapan, formatJapanTime } = require('../utils/dateUtils');
-    const japanEndTime = getTodayEndTimeJapan();
+    // 日本時間の今日の23:59:59を計算（UTC変換版を使用）
+    const { getTodayEndTime, formatJapanTime, formatMySQLDateTime } = require('../utils/dateUtils');
+    const utcEndTime = getTodayEndTime();
     
     console.log('=== 日本時間設定の詳細 ===');
-    console.log('japanEndTime:', japanEndTime);
-    console.log('japanEndTime.toLocaleString(ja-JP):', japanEndTime.toLocaleString('ja-JP'));
+    console.log('utcEndTime (UTC):', utcEndTime);
+    console.log('utcEndTime.toISOString():', utcEndTime.toISOString());
     
     // 日本時間の文字列を生成（フロントエンド用）
-    const japanTimeString = japanEndTime.toLocaleString('ja-JP', {
+    const japanTimeString = utcEndTime.toLocaleString('ja-JP', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit'
+      second: '2-digit',
+      timeZone: 'Asia/Tokyo'
     });
     console.log('japanTimeString:', japanTimeString);
     
-    // データベース保存用の文字列を生成（日本時間で保存）
-    const expiryTimeString = japanTimeString.replace(/\//g, '-').replace(/,/g, '');
-    console.log('保存する文字列:', expiryTimeString);
+    // データベース保存用のMySQL DATETIME形式を生成（YYYY-MM-DD HH:MM:SS）
+    const expiryTimeString = formatMySQLDateTime(utcEndTime);
+    console.log('保存するMySQL DATETIME文字列:', expiryTimeString);
     
     // 現在時刻も確認
     const now = new Date();
@@ -1659,11 +1748,21 @@ const issueTemporaryPassword = async (userId) => {
       }
     };
   } catch (error) {
+    console.error('=== 一時パスワード発行エラーの詳細 ===');
     console.error('Error issuing temporary password:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('userId:', userId);
+    
     return {
       success: false,
       message: '一時パスワードの発行に失敗しました',
-      error: error.message
+      error: error.message,
+      details: {
+        name: error.name,
+        code: error.code
+      }
     };
   } finally {
     if (connection) {
