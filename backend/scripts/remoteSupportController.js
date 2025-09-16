@@ -650,16 +650,45 @@ class RemoteSupportController {
       const userId = users[0].id;
       customLogger.info(`User found: ID ${userId} for login code: ${loginCode}`);
 
-             // 有効な一時パスワードをチェック
+             // 有効な一時パスワードをチェック（日本時間での有効期限チェック）
+       // 現在の日本時間を計算
+       const now = new Date();
+       const japanTimeString = now.toLocaleString('ja-JP', {
+         timeZone: 'Asia/Tokyo',
+         year: 'numeric',
+         month: '2-digit',
+         day: '2-digit',
+         hour: '2-digit',
+         minute: '2-digit',
+         second: '2-digit',
+         hour12: false
+       });
+       const japanDate = new Date(japanTimeString.replace(/\//g, '-'));
+       const utcNow = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000));
+       const utcNowString = utcNow.toISOString().slice(0, 19).replace('T', ' ');
+       
+       customLogger.info(`一時パスワード確認: 現在時刻 (UTC): ${utcNowString}`);
+       
+       // デバッグ用：全ての一時パスワードを取得
+       const [allTempPasswords] = await pool.execute(
+         `SELECT temp_password, expires_at, is_used, issued_at 
+          FROM user_temp_passwords 
+          WHERE user_id = ? 
+          ORDER BY issued_at DESC`,
+         [userId]
+       );
+       
+       customLogger.info(`ユーザー${userId}の全一時パスワード:`, allTempPasswords);
+       
        const [tempPasswords] = await pool.execute(
          `SELECT temp_password, expires_at 
           FROM user_temp_passwords 
           WHERE user_id = ? 
-          AND expires_at > NOW() 
+          AND expires_at > ?
           AND is_used = 0 
           ORDER BY issued_at DESC 
           LIMIT 1`,
-         [userId]
+         [userId, utcNowString]
        );
 
       customLogger.info(`Found ${tempPasswords.length} valid temp passwords for user ${userId}`);

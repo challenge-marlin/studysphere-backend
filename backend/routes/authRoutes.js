@@ -163,6 +163,45 @@ router.post('/reauthenticate-satellite', authenticateToken, async (req, res) => 
   });
 });
 
+// 設定用認証エンドポイント（ロール4以上）
+router.post('/config', loginValidation, handleValidationErrors, async (req, res) => {
+  console.log('=== Config Auth Route Debug ===');
+  console.log('Request body:', req.body);
+  
+  const { username, password } = req.body;
+  
+  try {
+    const result = await adminLogin(username, password);
+    console.log('Config auth result:', result);
+    
+    if (result.success && result.data && result.data.role >= 4) {
+      res.status(200).json({
+        success: true,
+        message: '認証に成功しました',
+        role: result.data.role,
+        data: {
+          userId: result.data.userId,
+          userName: result.data.userName,
+          role: result.data.role
+        }
+      });
+    } else {
+      res.status(403).json({
+        success: false,
+        message: 'ロール4以上の権限が必要です',
+        role: result.data ? result.data.role : null
+      });
+    }
+  } catch (error) {
+    console.error('Config auth route error:', error);
+    res.status(500).json({
+      success: false,
+      message: '認証処理中にエラーが発生しました',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
 
 
