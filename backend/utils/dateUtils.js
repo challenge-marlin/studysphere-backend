@@ -2,6 +2,7 @@
  * 日本時間での時刻処理を統一するためのユーティリティ関数
  */
 
+
 /**
  * 現在の日本時間を取得
  * @returns {Date} 日本時間のDateオブジェクト
@@ -210,3 +211,4 @@ module.exports = {
   formatMySQLDateTime,
   getJapanTimeFromString
 };
+

@@ -45,13 +45,21 @@ async function debugSatelliteUsers() {
       LEFT JOIN user_accounts ua ON (
         (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
           CASE 
-            WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+            WHEN ua.satellite_ids LIKE '[%]' THEN (
+              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+              JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+              JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+            )
             ELSE ua.satellite_ids = s.id
           END
         ) AND ua.status = 1) OR
         (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
           CASE 
-            WHEN ua.satellite_ids LIKE '[%]' THEN JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+            WHEN ua.satellite_ids LIKE '[%]' THEN (
+              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+              JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+              JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+            )
             ELSE ua.satellite_ids = s.id
           END
         ) AND ua.status = 1)

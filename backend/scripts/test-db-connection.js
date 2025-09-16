@@ -5,7 +5,7 @@
  */
 
 const mysql = require('mysql2/promise');
-const dbConfig = require('../config/database');
+const { dbConfig } = require('../config/database');
 
 async function testDatabaseConnection() {
   console.log('=== データベース接続テスト開始 ===');

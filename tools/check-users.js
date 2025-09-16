@@ -1,4 +1,4 @@
-const { pool } = require('./backend/utils/database');
+const { pool } = require('../backend/utils/database');
 
 const checkUsers = async () => {
   let connection;

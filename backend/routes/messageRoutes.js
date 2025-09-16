@@ -390,7 +390,11 @@ router.get('/students', authenticateToken, async (req, res) => {
         CASE WHEN ua.instructor_id = ? THEN 1 ELSE 0 END as is_my_assigned,
         GROUP_CONCAT(ut.tag_name) as tags
       FROM user_accounts ua
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       LEFT JOIN companies c ON ua.company_id = c.id
       LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
       LEFT JOIN user_tags ut ON ua.id = ut.user_id
@@ -493,7 +497,11 @@ router.get('/instructors', authenticateToken, async (req, res) => {
         s.name as satellite_name,
         c.name as company_name
       FROM user_accounts ua
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       LEFT JOIN companies c ON ua.company_id = c.id
       WHERE ua.id = ? AND ua.status = 1
     `, [user_id]);
@@ -530,7 +538,11 @@ router.get('/instructors', authenticateToken, async (req, res) => {
         s.name as satellite_name,
         c.name as company_name
       FROM user_accounts ua
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       LEFT JOIN companies c ON ua.company_id = c.id
       WHERE ua.role = 4 
         AND ua.status = 1
@@ -614,7 +626,11 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
         s.name as satellite_name,
         c.name as company_name
       FROM user_accounts ua
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       LEFT JOIN companies c ON ua.company_id = c.id
       WHERE ${whereConditions.join(' AND ')}
       ORDER BY ua.name ASC

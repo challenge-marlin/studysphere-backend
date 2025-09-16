@@ -456,7 +456,11 @@ async function saveExamResult({ userId, lessonId, sectionIndex, testType, answer
       SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       WHERE ua.id = ?
     `, [userId]);
     console.log('ユーザー情報:', userInfo);
@@ -799,34 +803,81 @@ router.get('/instructor/pending-approvals', authenticateToken, async (req, res) 
     
     try {
       // 未承認の合格テスト結果を取得
-      const [pendingApprovals] = await connection.execute(`
-        SELECT 
-          er.id as exam_result_id,
-          er.user_id,
-          er.lesson_id,
-          er.lesson_name,
-          er.test_type,
-          er.passed,
-          er.score,
-          er.total_questions,
-          er.percentage,
-          er.exam_date,
-          ua.name as student_name,
-          l.has_assignment,
-          ulp.instructor_approved,
-          ulp.assignment_submitted,
-          ulp.status as lesson_status
-        FROM exam_results er
-        JOIN user_accounts ua ON er.user_id = ua.id
-        JOIN lessons l ON er.lesson_id = l.id
-        LEFT JOIN user_lesson_progress ulp ON er.user_id = ulp.user_id AND er.lesson_id = ulp.lesson_id
-        WHERE er.passed = 1 
-        AND er.test_type = 'lesson'
-        AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))
-        AND (ulp.instructor_approved = 0 OR ulp.instructor_approved IS NULL)
-        AND ulp.status != 'completed'
-        ORDER BY er.exam_date DESC
-      `, [satelliteId]);
+      // satelliteIdが数値か文字列かを判定して適切なクエリを実行
+      let pendingApprovals;
+      
+      // 数値かどうかをチェック
+      const isNumeric = !isNaN(satelliteId) && !isNaN(parseFloat(satelliteId));
+      console.log('satelliteId判定:', { satelliteId, isNumeric, type: typeof satelliteId });
+      
+      if (isNumeric) {
+        // 数値の場合
+        [pendingApprovals] = await connection.execute(`
+          SELECT 
+            er.id as exam_result_id,
+            er.user_id,
+            er.lesson_id,
+            er.lesson_name,
+            er.test_type,
+            er.passed,
+            er.score,
+            er.total_questions,
+            er.percentage,
+            er.exam_date,
+            ua.name as student_name,
+            l.has_assignment,
+            ulp.instructor_approved,
+            ulp.assignment_submitted,
+            ulp.status as lesson_status
+          FROM exam_results er
+          JOIN user_accounts ua ON er.user_id = ua.id
+          JOIN lessons l ON er.lesson_id = l.id
+          LEFT JOIN user_lesson_progress ulp ON er.user_id = ulp.user_id AND er.lesson_id = ulp.lesson_id
+          WHERE er.passed = 1 
+          AND er.test_type = 'lesson'
+          AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(?)) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+          )
+          AND (ulp.instructor_approved = 0 OR ulp.instructor_approved IS NULL)
+          AND ulp.status != 'completed'
+          ORDER BY er.exam_date DESC
+        `, [satelliteId, satelliteId, satelliteId]);
+      } else {
+        // 文字列の場合（office001など）
+        [pendingApprovals] = await connection.execute(`
+          SELECT 
+            er.id as exam_result_id,
+            er.user_id,
+            er.lesson_id,
+            er.lesson_name,
+            er.test_type,
+            er.passed,
+            er.score,
+            er.total_questions,
+            er.percentage,
+            er.exam_date,
+            ua.name as student_name,
+            l.has_assignment,
+            ulp.instructor_approved,
+            ulp.assignment_submitted,
+            ulp.status as lesson_status
+          FROM exam_results er
+          JOIN user_accounts ua ON er.user_id = ua.id
+          JOIN lessons l ON er.lesson_id = l.id
+          LEFT JOIN user_lesson_progress ulp ON er.user_id = ulp.user_id AND er.lesson_id = ulp.lesson_id
+          WHERE er.passed = 1 
+          AND er.test_type = 'lesson'
+          AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(?)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', ?) IS NOT NULL
+          )
+          AND (ulp.instructor_approved = 0 OR ulp.instructor_approved IS NULL)
+          AND ulp.status != 'completed'
+          ORDER BY er.exam_date DESC
+        `, [satelliteId, satelliteId]);
+      }
       
       res.json({
         success: true,

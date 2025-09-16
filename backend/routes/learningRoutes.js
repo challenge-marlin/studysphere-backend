@@ -300,9 +300,9 @@ router.post('/upload-assignment', authenticateToken, upload.single('file'), asyn
         
         const [deliverableResult] = await connection.execute(`
           INSERT INTO deliverables 
-          (user_id, curriculum_name, session_number, file_url, file_type, uploaded_at)
-          VALUES (?, ?, ?, ?, 'other', NOW())
-        `, [userId, lesson.course_title, lessonId, s3Key]);
+          (user_id, lesson_id, curriculum_name, session_number, file_url, file_type, file_name, file_size, uploaded_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        `, [userId, lessonId, lesson.course_title, lessonId, s3Key, 'other', file.originalname, file.size]);
         
         console.log('=== deliverablesテーブル挿入成功 ===');
         console.log('挿入結果:', deliverableResult);
@@ -386,9 +386,9 @@ router.get('/lesson/:lessonId/uploaded-files', authenticateToken, async (req, re
     const connection = await pool.getConnection();
     
     try {
-      // deliverablesテーブルからファイル情報を取得
+      // deliverablesテーブルからファイル情報を取得（承認状態も含む）
       const [fileRows] = await connection.execute(`
-        SELECT id, curriculum_name, session_number, file_url, file_type, uploaded_at
+        SELECT id, curriculum_name, session_number, file_url, file_type, uploaded_at, instructor_approved, instructor_approved_at
         FROM deliverables 
         WHERE user_id = ? AND session_number = ?
         ORDER BY uploaded_at DESC
@@ -404,7 +404,9 @@ router.get('/lesson/:lessonId/uploaded-files', authenticateToken, async (req, re
         status: 'uploaded',
         s3Key: file.file_url,
         curriculumName: file.curriculum_name,
-        sessionNumber: file.session_number
+        sessionNumber: file.session_number,
+        instructorApproved: file.instructor_approved, // 承認状態を追加
+        instructorApprovedAt: file.instructor_approved_at // 承認日時を追加
       }));
 
       res.json({

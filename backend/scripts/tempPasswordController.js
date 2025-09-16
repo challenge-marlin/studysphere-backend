@@ -51,7 +51,11 @@ class TempPasswordController {
                         'no_instructor' as user_type
                     FROM user_accounts ua
                     LEFT JOIN companies c ON ua.company_id = c.id
-                    LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                    LEFT JOIN satellites s ON (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                     WHERE ua.role = 1 
                     AND ua.status = 1
                     AND ua.instructor_id IS NULL
@@ -82,7 +86,11 @@ class TempPasswordController {
                             'selected_instructor' as user_type
                         FROM user_accounts ua
                         LEFT JOIN companies c ON ua.company_id = c.id
-                        LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                        LEFT JOIN satellites s ON (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                         WHERE ua.role = 1 
                         AND ua.status = 1
                         AND ua.instructor_id IN (${placeholders})
@@ -144,7 +152,11 @@ class TempPasswordController {
                     END as user_type
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 WHERE ua.role = 1 
                 AND ua.status = 1
                 AND (
@@ -177,7 +189,11 @@ class TempPasswordController {
                         'selected_instructor' as user_type
                     FROM user_accounts ua
                     LEFT JOIN companies c ON ua.company_id = c.id
-                    LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                    LEFT JOIN satellites s ON (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                     WHERE ua.role = 1 
                     AND ua.status = 1
                     AND ua.instructor_id IN (${placeholders})
@@ -535,7 +551,11 @@ class TempPasswordController {
                     FROM user_temp_passwords utp
                     JOIN user_accounts ua ON utp.user_id = ua.id
                     LEFT JOIN companies c ON ua.company_id = c.id
-                    LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                    LEFT JOIN satellites s ON (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                     ORDER BY utp.issued_at DESC
                     LIMIT ? OFFSET ?
                 `;
@@ -586,7 +606,11 @@ class TempPasswordController {
                 FROM user_temp_passwords utp
                 JOIN user_accounts ua ON utp.user_id = ua.id
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 WHERE ua.instructor_id = ?
                 ORDER BY utp.issued_at DESC
                 LIMIT ? OFFSET ?
@@ -742,7 +766,11 @@ class TempPasswordController {
                     END as user_type
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 WHERE ua.role = 1 
                 AND ua.status = 1
                 AND (

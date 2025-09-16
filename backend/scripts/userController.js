@@ -517,7 +517,11 @@ const getUserSatellites = async (userId) => {
         s.status,
         c.name as company_name
       FROM user_accounts ua
-      JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       JOIN companies c ON s.company_id = c.id
       WHERE ua.id = ?
     `, [userId]);

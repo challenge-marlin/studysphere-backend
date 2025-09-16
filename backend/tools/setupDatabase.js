@@ -1,7 +1,7 @@
 const mysql = require('mysql2/promise');
 const fs = require('fs').promises;
 const path = require('path');
-const dbConfig = require('../config/database');
+const { dbConfig } = require('../config/database');
 
 async function setupDatabase() {
   let connection;

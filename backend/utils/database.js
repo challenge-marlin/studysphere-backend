@@ -1,24 +1,22 @@
 const mysql = require('mysql2/promise');
-const dbConfig = require('../config/database');
+const { dbConfig } = require('../config/database');
 const { customLogger } = require('./logger');
 
 // MySQL接続プールの作成
 let pool = mysql.createPool({
-  ...dbConfig,
+  host: dbConfig.host,
+  user: dbConfig.user,
+  password: dbConfig.password,
+  database: dbConfig.database,
+  port: dbConfig.port,
+  charset: dbConfig.charset,
+  ssl: dbConfig.ssl,
   // 接続プールの設定を最適化
   // 接続プールのサイズ制限
   connectionLimit: 10, // 接続数を適切に制限（メモリ使用量を削減）
   queueLimit: 5, // キュー制限を設定
   // 接続の再利用設定
-  waitForConnections: true, // 接続を待機
-  // 接続タイムアウト設定
-  acquireTimeout: 60000, // 60秒
-  timeout: 60000, // 60秒
-  // アイドル接続のタイムアウト
-  idleTimeout: 300000, // 5分
-  // 接続の最大生存時間
-  maxReconnects: 3,
-  reconnectDelay: 2000
+  waitForConnections: true // 接続を待機
 });
 
 // 接続プールの状態監視（簡素化）

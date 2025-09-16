@@ -378,7 +378,11 @@ const submitTestResult = async (req, res) => {
       SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id
-      LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+      LEFT JOIN satellites s ON (
+        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+      )
       WHERE ua.id = ?
     `, [userId]);
     console.log('ユーザー情報:', userInfo);

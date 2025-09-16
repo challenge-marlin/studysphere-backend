@@ -362,7 +362,11 @@ class AnnouncementController {
                 FROM user_announcements ua2
                 JOIN user_accounts ua ON ua2.user_id = ua.id
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 WHERE ua2.announcement_id = ?
                 ORDER BY ua.name
             `, [announcement_id]);
@@ -599,7 +603,11 @@ class AnnouncementController {
                     GROUP_CONCAT(ut.tag_name) as tags
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
                 LEFT JOIN user_tags ut ON ua.id = ut.user_id
                 WHERE ${whereConditions.join(' AND ')}
@@ -685,7 +693,11 @@ class AnnouncementController {
                     s.name as satellite_name,
                     c.name as company_name
                 FROM user_accounts ua
-                LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+                LEFT JOIN satellites s ON (
+                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                )
                 LEFT JOIN companies c ON ua.company_id = c.id
                 WHERE ${whereConditions.join(' AND ')}
                 ORDER BY ua.name ASC

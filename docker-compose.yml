@@ -43,7 +43,7 @@ services:
     command: >
       sh -c "
         echo 'Waiting for database to be ready...' &&
-        while ! mysql --skip-ssl -h$$DB_HOST -P$$DB_PORT -u$$DB_USER -p$$DB_PASSWORD -e 'SELECT 1;' --silent; do
+        while ! mariadb --skip-ssl -h$$DB_HOST -P$$DB_PORT -u$$DB_USER -p$$DB_PASSWORD -e 'SELECT 1;' --silent; do
           echo 'Database is not ready yet. Waiting...' &&
           sleep 2
         done &&

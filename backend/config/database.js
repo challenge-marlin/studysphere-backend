@@ -21,10 +21,7 @@ const dbConfig = {
   // MySQL2で有効な設定オプションのみ使用
   charset: 'utf8mb4',
   // SSL設定を無効化（開発環境用）
-  ssl: false,
-  // 接続タイムアウトを設定
-  acquireTimeout: 60000,
-  timeout: 60000
+  ssl: false
 };
 
-module.exports = dbConfig; 
+module.exports = { dbConfig }; 

@@ -1,5 +1,5 @@
 const mysql = require('mysql2/promise');
-const dbConfig = require('../config/database');
+const { dbConfig } = require('../config/database');
 
 /**
  * ファイルタイプを修正するスクリプト

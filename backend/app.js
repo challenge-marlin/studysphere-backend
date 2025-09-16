@@ -170,6 +170,7 @@ const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
 const remoteSupportRoutes = require('./routes/remoteSupportRoutes');
 const learningRoutes = require('./routes/learningRoutes');
+const submissionRoutes = require('./routes/submissionRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
 // AIルートの条件付き読み込み（環境変数が設定されている場合のみ）
 let aiRoutes;
@@ -321,6 +322,7 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/learning', learningRoutes);
+app.use('/api/submissions', submissionRoutes);
 
 app.use('/api/remote-support', remoteSupportRoutes);
 app.use('/api/pdf', pdfRoutes);

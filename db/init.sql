@@ -350,13 +350,27 @@ CREATE TABLE `support_plans` (
 CREATE TABLE `deliverables` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '成果物ID',
     `user_id` INT NOT NULL COMMENT 'ユーザーID',
+    `lesson_id` INT NOT NULL COMMENT 'レッスンID',
     `curriculum_name` VARCHAR(100) NOT NULL COMMENT 'カリキュラム名（例：カリキュラム1）',
     `session_number` INT NOT NULL COMMENT '第◯回（数値）',
     `file_url` TEXT NOT NULL COMMENT 'S3ファイルパス（署名なし相対URL）',
     `file_type` ENUM('image', 'pdf', 'other') DEFAULT 'other' COMMENT 'ファイルタイプ',
+    `file_name` VARCHAR(255) NOT NULL COMMENT '元のファイル名',
+    `file_size` BIGINT NOT NULL COMMENT 'ファイルサイズ（バイト）',
     `uploaded_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT 'アップロード日時',
+    `instructor_approved` BOOLEAN NOT NULL DEFAULT FALSE COMMENT '指導員承認フラグ',
+    `instructor_approved_at` DATETIME DEFAULT NULL COMMENT '指導員承認日時',
+    `instructor_id` INT DEFAULT NULL COMMENT '承認した指導員ID',
+    `instructor_comment` TEXT DEFAULT NULL COMMENT '指導員コメント',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
-    INDEX (`user_id`, `curriculum_name`, `session_number`)
+    FOREIGN KEY (`lesson_id`) REFERENCES `lessons`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`instructor_id`) REFERENCES `user_accounts`(`id`) ON DELETE SET NULL,
+    INDEX (`user_id`, `curriculum_name`, `session_number`),
+    INDEX `idx_lesson_id` (`lesson_id`),
+    INDEX `idx_instructor_approved` (`instructor_approved`),
+    INDEX `idx_uploaded_at` (`uploaded_at`)
 ) COMMENT = 'カリキュラム成果物ファイル情報';
 
 -- 指導者専門分野テーブル
