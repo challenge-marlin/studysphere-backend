@@ -67,6 +67,30 @@ const getAdmins = async (includeDeleted = false) => {
 const createAdmin = async (adminData) => {
   let connection;
   try {
+    // バリデーション
+    if (!adminData.username) {
+      return {
+        success: false,
+        message: 'ログインIDは必須です'
+      };
+    }
+    
+    // ログインIDの文字種チェック
+    if (!/^[a-zA-Z0-9_/.-]+$/.test(adminData.username)) {
+      return {
+        success: false,
+        message: 'ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'
+      };
+    }
+    
+    // パスワードの長さチェック
+    if (!adminData.password || adminData.password.length < 6) {
+      return {
+        success: false,
+        message: 'パスワードは6文字以上で入力してください'
+      };
+    }
+    
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -169,6 +193,24 @@ const createAdmin = async (adminData) => {
 const updateAdmin = async (adminId, updateData) => {
   let connection;
   try {
+    // ログインIDのバリデーション
+    if (updateData.username) {
+      if (!/^[a-zA-Z0-9_/.-]+$/.test(updateData.username)) {
+        return {
+          success: false,
+          message: 'ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'
+        };
+      }
+    }
+    
+    // パスワードの長さチェック（パスワードが提供された場合のみ）
+    if (updateData.password && updateData.password.length < 6) {
+      return {
+        success: false,
+        message: 'パスワードは6文字以上で入力してください'
+      };
+    }
+    
     connection = await pool.getConnection();
     await connection.beginTransaction();
 

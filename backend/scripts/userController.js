@@ -1085,6 +1085,25 @@ const createUser = async (userData) => {
     // ロール4以上（指導員・管理者）の場合、usernameの一意性チェック
     if (userData.role >= 4 && userData.username) {
       console.log('username一意性チェック開始:', userData.username);
+      
+      // 文字種チェック
+      if (!/^[a-zA-Z0-9_/.-]+$/.test(userData.username)) {
+        console.log('username文字種エラー:', userData.username);
+        return {
+          success: false,
+          message: 'ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'
+        };
+      }
+      
+      // パスワードの長さチェック
+      if (!userData.password || userData.password.length < 6) {
+        console.log('password長さエラー:', userData.password);
+        return {
+          success: false,
+          message: 'パスワードは6文字以上で入力してください'
+        };
+      }
+      
       const [existingUsers] = await connection.execute(
         'SELECT id FROM admin_credentials WHERE username = ?',
         [userData.username]
@@ -1238,6 +1257,22 @@ const updateUser = async (userId, updateData) => {
     
     // usernameの更新がある場合、一意性チェック
     if (updateData.username) {
+      // 文字種チェック
+      if (!/^[a-zA-Z0-9_/.-]+$/.test(updateData.username)) {
+        return {
+          success: false,
+          message: 'ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'
+        };
+      }
+      
+      // パスワードの長さチェック（パスワードが提供された場合のみ）
+      if (updateData.password && updateData.password.length < 6) {
+        return {
+          success: false,
+          message: 'パスワードは6文字以上で入力してください'
+        };
+      }
+      
       const [existingUsers] = await connection.execute(
         'SELECT id FROM admin_credentials WHERE username = ? AND user_id != ?',
         [updateData.username, userId]
@@ -1620,7 +1655,8 @@ const notifySupportApp = async (loginCode, tempPassword, userName) => {
     // axiosを使用してHTTPリクエストを送信
     const axios = require('axios');
     
-    const response = await axios.post('http://localhost:5000/api/remote-support/notify-temp-password', {
+    // 正しいポート番号（5050）を使用
+    const response = await axios.post('http://localhost:5050/api/remote-support/notify-temp-password', {
       loginCode,
       tempPassword,
       userName,
@@ -1812,14 +1848,6 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
     }
 
     const user = rows[0];
-
-    // 有効期限チェック
-    if (!isPasswordValid(user.expires_at)) {
-      return {
-        success: false,
-        message: 'パスワードの有効期限が切れています'
-      };
-    }
 
     // 使用済みチェック
     if (user.is_used) {

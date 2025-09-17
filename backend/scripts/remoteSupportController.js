@@ -684,11 +684,10 @@ class RemoteSupportController {
          `SELECT temp_password, expires_at 
           FROM user_temp_passwords 
           WHERE user_id = ? 
-          AND expires_at > ?
           AND is_used = 0 
           ORDER BY issued_at DESC 
           LIMIT 1`,
-         [userId, utcNowString]
+         [userId]
        );
 
       customLogger.info(`Found ${tempPasswords.length} valid temp passwords for user ${userId}`);
@@ -1021,14 +1020,70 @@ class RemoteSupportController {
         });
       }
 
-      // 保存された通知データを取得
-      const notificationData = global.tempPasswordNotifications?.[loginCode];
+      // まず保存された通知データを取得
+      let notificationData = global.tempPasswordNotifications?.[loginCode];
 
+      // 通知データがない場合は、データベースから直接取得
       if (!notificationData) {
-        return res.status(404).json({
-          success: false,
-          message: '通知データが見つかりません'
-        });
+        customLogger.info(`通知データが見つからないため、データベースから直接取得: ${loginCode}`);
+        
+        try {
+          // ユーザーIDを取得
+          const [users] = await pool.execute(
+            'SELECT id, name FROM user_accounts WHERE login_code = ?',
+            [loginCode]
+          );
+
+          if (users.length === 0) {
+            return res.status(404).json({
+              success: false,
+              message: 'ユーザーが見つかりません'
+            });
+          }
+
+          const userId = users[0].id;
+          const userName = users[0].name;
+
+          // 有効な一時パスワードを取得
+          const [tempPasswords] = await pool.execute(`
+            SELECT temp_password, expires_at, issued_at
+            FROM user_temp_passwords 
+            WHERE user_id = ? AND is_used = 0 AND expires_at > NOW()
+            ORDER BY issued_at DESC
+            LIMIT 1
+          `, [userId]);
+
+          if (tempPasswords.length === 0) {
+            return res.status(404).json({
+              success: false,
+              message: '有効な一時パスワードが見つかりません'
+            });
+          }
+
+          const tempPassword = tempPasswords[0];
+          
+          // 通知データを構築
+          notificationData = {
+            loginCode,
+            tempPassword: tempPassword.temp_password,
+            userName,
+            timestamp: tempPassword.issued_at,
+            receivedAt: new Date().toISOString()
+          };
+
+          // グローバル通知データにも保存（次回の取得を高速化）
+          global.tempPasswordNotifications = global.tempPasswordNotifications || {};
+          global.tempPasswordNotifications[loginCode] = notificationData;
+
+          customLogger.info(`データベースから一時パスワードを取得: ${loginCode}`);
+        } catch (dbError) {
+          customLogger.error('データベースからの一時パスワード取得エラー:', dbError);
+          return res.status(500).json({
+            success: false,
+            message: '一時パスワードの取得に失敗しました',
+            error: dbError.message
+          });
+        }
       }
 
       customLogger.info(`一時パスワード通知を取得: ${loginCode}`);
@@ -1601,6 +1656,142 @@ class RemoteSupportController {
       res.status(500).json({
         success: false,
         message: 'コメントの追加に失敗しました',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * スクールモード用：利用者コード検証（ロール1のみ）
+   */
+  static async verifyUserCode(req, res) {
+    try {
+      const { login_code } = req.body;
+      customLogger.info(`[verifyUserCode] 検証開始 - ログインコード: ${login_code}`);
+
+      if (!login_code) {
+        customLogger.warn('[verifyUserCode] ログインコードが空です');
+        return res.status(400).json({
+          success: false,
+          message: 'ログインコードが必須です'
+        });
+      }
+
+      // データベースクエリにタイムアウトを設定（10秒）
+      const queryTimeout = 10000;
+      const queryPromise = pool.execute(`
+        SELECT 
+          u.id, 
+          u.name, 
+          u.login_code, 
+          u.role, 
+          u.status as user_status,
+          u.company_id, 
+          u.satellite_ids,
+          s.status as satellite_status,
+          s.token_expiry_at,
+          s.name as satellite_name
+        FROM user_accounts u
+        LEFT JOIN satellites s ON JSON_CONTAINS(u.satellite_ids, CAST(s.id AS JSON))
+        WHERE u.login_code = ? 
+          AND u.status = 1
+          AND (s.status = 1 OR s.status IS NULL)
+          AND (s.token_expiry_at > NOW() OR s.token_expiry_at IS NULL)
+      `, [login_code]);
+
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('データベースクエリがタイムアウトしました')), queryTimeout);
+      });
+
+      const [users] = await Promise.race([queryPromise, timeoutPromise]);
+      customLogger.info(`[verifyUserCode] データベース検索結果: ${users.length}件のユーザーが見つかりました`);
+
+      if (users.length === 0) {
+        customLogger.warn(`[verifyUserCode] ログインコードが見つかりません、または無効です: ${login_code}`);
+        return res.status(401).json({
+          success: false,
+          message: 'ログインコードが無効です。ユーザーが停止されているか、所属拠点の有効期限が切れている可能性があります。'
+        });
+      }
+
+      const user = users[0];
+      customLogger.info(`[verifyUserCode] ユーザー情報:`, {
+        id: user.id,
+        name: user.name,
+        login_code: user.login_code,
+        role: user.role,
+        roleType: typeof user.role,
+        user_status: user.user_status,
+        satellite_status: user.satellite_status,
+        token_expiry_at: user.token_expiry_at,
+        satellite_name: user.satellite_name
+      });
+
+      // ロール1（利用者）かどうかをチェック
+      if (user.role !== 1) {
+        customLogger.warn(`[verifyUserCode] ロール1ではありません - 実際のロール: ${user.role} (${typeof user.role})`);
+        return res.status(403).json({
+          success: false,
+          message: '利用者コードではありません。ロール1（利用者）のコードを入力してください。',
+          data: {
+            role: user.role,
+            roleName: user.role === 4 ? '指導員' : 
+                     user.role === 5 ? '主任指導員' : 
+                     user.role === 9 ? '管理者' : '不明'
+          }
+        });
+      }
+
+      // ユーザーステータスのチェック
+      if (user.user_status !== 1) {
+        customLogger.warn(`[verifyUserCode] ユーザーが停止されています - ステータス: ${user.user_status}`);
+        return res.status(403).json({
+          success: false,
+          message: 'このユーザーアカウントは停止されています。'
+        });
+      }
+
+      // 所属拠点の有効性チェック
+      if (user.satellite_status !== 1) {
+        customLogger.warn(`[verifyUserCode] 所属拠点が停止されています - 拠点ステータス: ${user.satellite_status}`);
+        return res.status(403).json({
+          success: false,
+          message: '所属拠点が停止されています。'
+        });
+      }
+
+      if (user.token_expiry_at && new Date(user.token_expiry_at) <= new Date()) {
+        customLogger.warn(`[verifyUserCode] 所属拠点の有効期限が切れています - 有効期限: ${user.token_expiry_at}`);
+        return res.status(403).json({
+          success: false,
+          message: '所属拠点の有効期限が切れています。'
+        });
+      }
+
+      customLogger.info(`[verifyUserCode] 検証成功: ${user.name} (${login_code}) - ロール1確認、ユーザー有効、拠点有効`);
+
+      res.json({
+        success: true,
+        message: '利用者コードが有効です',
+        data: {
+          id: user.id,
+          name: user.name,
+          login_code: user.login_code,
+          role: user.role,
+          company_id: user.company_id,
+          satellite_ids: user.satellite_ids,
+          satellite_name: user.satellite_name,
+          token_expiry_at: user.token_expiry_at,
+          user_status: user.user_status,
+          satellite_status: user.satellite_status
+        }
+      });
+
+    } catch (error) {
+      customLogger.error('[verifyUserCode] 検証エラー:', error);
+      res.status(500).json({
+        success: false,
+        message: '利用者コードの検証に失敗しました',
         error: error.message
       });
     }

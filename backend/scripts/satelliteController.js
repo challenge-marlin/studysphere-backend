@@ -36,35 +36,24 @@ const getSatellites = async () => {
       ORDER BY s.created_at DESC
     `);
     
-    // 2. 各拠点の利用者数を取得
+    // 2. 各拠点の利用者数（ロール1のみ）を取得
     const [userCounts] = await connection.execute(`
       SELECT 
         s.id as satellite_id,
         COUNT(DISTINCT ua.id) as current_users
       FROM satellites s
       LEFT JOIN user_accounts ua ON (
-        (ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
+        ua.role = 1 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
           CASE 
             WHEN ua.satellite_ids LIKE '[%]' THEN (
-              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
               JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
               JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
             )
             WHEN ua.satellite_ids LIKE '%,%' THEN FIND_IN_SET(s.id, ua.satellite_ids)
             ELSE ua.satellite_ids = s.id
           END
-        ) AND ua.status = 1) OR
-        (ua.role >= 4 AND ua.satellite_ids IS NOT NULL AND ua.satellite_ids != 'null' AND ua.satellite_ids != '[]' AND (
-          CASE 
-            WHEN ua.satellite_ids LIKE '[%]' THEN (
-              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-              JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-              JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-            )
-            WHEN ua.satellite_ids LIKE '%,%' THEN FIND_IN_SET(s.id, ua.satellite_ids)
-            ELSE ua.satellite_ids = s.id
-          END
-        ) AND ua.status = 1)
+        ) AND ua.status = 1
       )
       GROUP BY s.id
     `);

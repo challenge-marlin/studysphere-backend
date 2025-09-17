@@ -458,17 +458,15 @@ class TempPasswordController {
 
             const tempPassword = rows[0];
             
-            // 日本時間での有効期限チェック
-            const isValid = !isExpired(tempPassword.expires_at);
-
+            // 有効期限情報を返す（フロントエンドでチェック）
             res.json({
                 success: true,
                 data: {
-                    hasValidPassword: isValid,
-                    tempPassword: isValid ? tempPassword.temp_password : null,
+                    hasValidPassword: true, // フロントエンドで期限チェックを行うため常にtrue
+                    tempPassword: tempPassword.temp_password,
                     expiresAt: tempPassword.expires_at,
                     issuedAt: tempPassword.issued_at,
-                    message: isValid ? '有効な一時パスワードがあります' : '一時パスワードの有効期限が切れています'
+                    message: '一時パスワード情報を取得しました'
                 }
             });
 

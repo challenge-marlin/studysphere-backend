@@ -1,5 +1,5 @@
-const { pool } = require('./backend/utils/database');
-const { customLogger } = require('./backend/utils/logger');
+const { pool } = require('../backend/utils/database');
+const { customLogger } = require('../backend/utils/logger');
 
 async function fixLesson1VideoStatus() {
   const connection = await pool.getConnection();

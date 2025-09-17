@@ -5,7 +5,9 @@ const loginValidation = [
   body('username')
     .trim()
     .isLength({ min: 1, max: 50 })
-    .withMessage('ユーザー名は1文字以上50文字以下で入力してください'),
+    .withMessage('ユーザー名は1文字以上50文字以下で入力してください')
+    .matches(/^[a-zA-Z0-9_/.-]+$/)
+    .withMessage('ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'),
   body('password')
     .isLength({ min: 1 })
     .withMessage('パスワードは1文字以上で入力してください')

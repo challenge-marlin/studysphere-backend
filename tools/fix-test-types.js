@@ -1,4 +1,4 @@
-const { pool } = require('./backend/utils/database');
+const { pool } = require('../backend/utils/database');
 
 async function fixTestTypes() {
   const connection = await pool.getConnection();

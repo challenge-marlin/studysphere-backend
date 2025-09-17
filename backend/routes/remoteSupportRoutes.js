@@ -45,6 +45,9 @@ router.post('/notify-temp-password', RemoteSupportController.notifyTempPassword)
 // 一時パスワード通知取得
 router.get('/get-temp-password-notification/:loginCode', RemoteSupportController.getTempPasswordNotification);
 
+// スクールモード用：利用者コード検証
+router.post('/verify-user-code', RemoteSupportController.verifyUserCode);
+
 // 日報関連のエンドポイント
 router.get('/daily-reports', RemoteSupportController.getDailyReports);
 router.get('/daily-reports/:id', RemoteSupportController.getDailyReport);
