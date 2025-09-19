@@ -43,7 +43,7 @@ CREATE TABLE `satellites` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '拠点ID',
     `company_id` INT NOT NULL COMMENT '所属企業ID',
     `name` VARCHAR(255) NOT NULL COMMENT '拠点名',
-    `address` TEXT NOT NULL COMMENT '拠点住所',
+    `address` TEXT DEFAULT NULL COMMENT '拠点住所',
     `phone` VARCHAR(20) DEFAULT NULL COMMENT '拠点電話番号',
     `office_type_id` INT DEFAULT NULL COMMENT '事業所タイプID',
     `token` VARCHAR(14) DEFAULT NULL COMMENT '拠点トークン（形式：XXXX-XXXX-XXXX）',
@@ -97,8 +97,8 @@ CREATE TABLE `admin_credentials` (
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
     `last_login_at` DATETIME DEFAULT NULL COMMENT '最終ログイン日時',
     UNIQUE KEY `unique_user_id` (`user_id`),
-    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
-    INDEX `idx_username` (`username`)
+    UNIQUE KEY `unique_username` (`username`),
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE
 ) COMMENT = '管理者認証テーブル（ロール4以上専用）';
 
 -- 利用者一時パスワード管理テーブル（ロール1専用）

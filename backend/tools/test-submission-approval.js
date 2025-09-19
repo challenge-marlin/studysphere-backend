@@ -44,9 +44,11 @@ async function testSubmissionApproval() {
         JOIN lessons l ON d.lesson_id = l.id
         JOIN courses c ON l.course_id = c.id
         JOIN satellites s ON (
-          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-          JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-          JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          )
         )
         WHERE s.id = ? 
         AND d.instructor_approved = FALSE

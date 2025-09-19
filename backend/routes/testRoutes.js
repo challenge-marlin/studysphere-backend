@@ -28,40 +28,75 @@ router.get('/learning/extract-text/:s3Key', async (req, res) => {
     
     console.log('テキスト抽出リクエスト:', { s3Key });
     
-    // セッションストレージからコンテキストを取得するロジックを実装
-    // 実際の実装では、S3からファイルを取得してテキストを抽出する必要があります
+    // 実際のPDFテキスト抽出APIを呼び出し
+    const { s3, s3Utils } = require('../config/s3');
     
-    // 現在はモックデータを返す
-    const mockTextContent = `これは${s3Key}から抽出されたテキストコンテンツのサンプルです。
+    // S3からファイルをダウンロード
+    const s3Result = await s3Utils.downloadFile(s3Key);
     
-具体的な学習内容：
-- Windows 11の基本操作について
-- デスクトップの使い方
-- ファイルとフォルダの管理
-- アプリケーションの起動と終了
-- 設定の変更方法
-
-詳細な手順：
-1. スタートメニューをクリック
-2. アプリケーションを選択
-3. 右クリックでコンテキストメニューを表示
-4. プロパティを選択して設定を変更
-
-重要なポイント：
-- ショートカットキーの活用
-- タスクバーのカスタマイズ
-- ウィンドウの管理方法
-- ファイルの検索機能
-
-この内容に基づいて具体的な問題を作成してください。`;
+    if (!s3Result.success) {
+      console.error('S3ファイルダウンロード失敗:', s3Result.error);
+      return res.status(404).json({
+        success: false,
+        message: 'ファイルが見つかりません: ' + s3Result.error
+      });
+    }
     
-    res.json({
-      success: true,
-      data: {
-        text: mockTextContent,
-        s3Key: s3Key
+    // PDFファイルの場合はテキスト抽出を実行
+    if (s3Key.toLowerCase().endsWith('.pdf')) {
+      console.log('PDFファイルのテキスト抽出を開始:', s3Key);
+      
+      const startTime = Date.now();
+      
+      // PDFテキスト抽出のためのライブラリを使用
+      const pdf = require('pdf-parse');
+      
+      try {
+        const pdfData = await pdf(s3Result.data);
+        const extractedText = pdfData.text;
+        const processingTime = Date.now() - startTime;
+        
+        console.log('PDFテキスト抽出完了:', {
+          s3Key,
+          textLength: extractedText.length,
+          textPreview: extractedText.substring(0, 200) + '...',
+          processingTime: processingTime
+        });
+        
+        res.json({
+          success: true,
+          data: {
+            text: extractedText,
+            s3Key: s3Key,
+            processingTime: processingTime
+          }
+        });
+      } catch (pdfError) {
+        console.error('PDFテキスト抽出エラー:', pdfError);
+        res.status(500).json({
+          success: false,
+          message: 'PDFテキスト抽出に失敗しました: ' + pdfError.message
+        });
       }
-    });
+    } else {
+      // テキストファイルの場合は直接返す
+      const textContent = s3Result.data.toString('utf8');
+      
+      console.log('テキストファイル読み込み完了:', {
+        s3Key,
+        textLength: textContent.length,
+        textPreview: textContent.substring(0, 200) + '...'
+      });
+      
+      res.json({
+        success: true,
+        data: {
+          text: textContent,
+          s3Key: s3Key,
+          processingTime: 0
+        }
+      });
+    }
   } catch (error) {
     console.error('テキスト抽出エラー:', error);
     res.status(500).json({
@@ -74,7 +109,19 @@ router.get('/learning/extract-text/:s3Key', async (req, res) => {
 // 学習効果テスト生成API
 router.post('/learning/generate-test', async (req, res) => {
   try {
-    const { type, lessonId, sectionIndex, sectionTitle, sectionDescription, lessonTitle, lessonDescription, textContent, questionCount } = req.body;
+    const { 
+      type, 
+      lessonId, 
+      sectionIndex, 
+      sectionTitle, 
+      sectionDescription, 
+      lessonTitle, 
+      lessonDescription, 
+      textContent, 
+      fileType,
+      fileName,
+      questionCount 
+    } = req.body;
     
     console.log('テスト生成リクエスト:', {
       type,
@@ -86,24 +133,23 @@ router.post('/learning/generate-test', async (req, res) => {
       lessonDescription,
       textContentLength: textContent?.length || 0,
       textContentPreview: textContent?.substring(0, 300) + '...',
+      textContentEnd: textContent ? textContent.substring(textContent.length - 300) : 'null',
+      fileType,
+      fileName,
       questionCount
     });
     
-    // テキストコンテンツが空の場合は警告
+    // テキストコンテンツが空の場合は警告（PDFファイルの場合は処理を続行）
     if (!textContent || textContent.trim().length === 0) {
-      console.warn('⚠️ テキストコンテンツが空です。フォールバック用のモックデータを返します。');
-      const fallbackData = generateFallbackTestData({
-        type,
-        lessonId,
-        sectionIndex,
-        sectionTitle,
-        lessonTitle,
-        questionCount
-      });
-      return res.json({
-        success: true,
-        data: fallbackData
-      });
+      if (fileType === 'pdf' || fileType === 'application/pdf') {
+        console.warn('⚠️ PDFファイルのテキストコンテンツが空です。PDFProcessorでテキスト化を試行します。');
+      } else {
+        console.warn('⚠️ テキストコンテンツが空です。');
+        return res.status(400).json({
+          success: false,
+          message: 'テキストコンテンツが不足しています。'
+        });
+      }
     }
 
     const testData = await generateTestQuestions({
@@ -115,6 +161,8 @@ router.post('/learning/generate-test', async (req, res) => {
       lessonTitle,
       lessonDescription,
       textContent,
+      fileType,
+      fileName,
       questionCount
     });
 
@@ -456,11 +504,13 @@ async function saveExamResult({ userId, lessonId, sectionIndex, testType, answer
       SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id
-      LEFT JOIN satellites s ON (
-        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-      )
+        LEFT JOIN satellites s ON (
+          s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          )
+        )
       WHERE ua.id = ?
     `, [userId]);
     console.log('ユーザー情報:', userInfo);

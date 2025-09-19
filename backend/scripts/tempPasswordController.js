@@ -16,7 +16,16 @@ class TempPasswordController {
     static async getUsersForTempPassword(req, res) {
         try {
             const { user_id, role } = req.user;
-            const { selected_instructor_id, selected_instructor_ids } = req.query;
+            const { selected_instructor_id, selected_instructor_ids, satellite_id } = req.query;
+            
+            console.log('一時パスワード対象利用者取得リクエスト:', {
+                user_id,
+                role,
+                selected_instructor_id,
+                selected_instructor_ids,
+                satellite_id,
+                req_query: req.query
+            });
             
             // 複数の指導員IDを処理
             let selectedInstructorIds = [];
@@ -38,6 +47,38 @@ class TempPasswordController {
 
             // 管理者の場合は、担当なしでパスワード未発行の利用者を取得
             if (role === 9) {
+                // デバッグ用：まず全ての利用者を確認
+                console.log('管理者用デバッグ: 全ての利用者を確認');
+                const [allUsers] = await pool.execute(`
+                    SELECT 
+                        ua.id,
+                        ua.name,
+                        ua.login_code,
+                        ua.instructor_id,
+                        ua.company_id,
+                        ua.satellite_ids,
+                        c.name as company_name
+                    FROM user_accounts ua
+                    LEFT JOIN companies c ON ua.company_id = c.id
+                    WHERE ua.role = 1 
+                    AND ua.status = 1
+                    ${satellite_id ? 'AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))' : ''}
+                    ORDER BY ua.id
+                    LIMIT 10
+                `, satellite_id ? [satellite_id] : []);
+                
+                console.log('管理者用デバッグ: 全利用者数:', allUsers.length);
+                console.log('管理者用デバッグ: 利用者サンプル:', allUsers.slice(0, 3));
+                
+                // 一時パスワード未発行の利用者を確認
+                const [tempPasswordUsers] = await pool.execute(`
+                    SELECT user_id, temp_password, expires_at, is_used
+                    FROM user_temp_passwords 
+                    WHERE expires_at > NOW()
+                    AND is_used = 0
+                    LIMIT 5
+                `);
+                console.log('管理者用デバッグ: 有効な一時パスワード数:', tempPasswordUsers.length);
                 let query = `
                     SELECT 
                         ua.id,
@@ -47,27 +88,38 @@ class TempPasswordController {
                         ua.company_id,
                         ua.satellite_ids,
                         c.name as company_name,
-                        s.name as satellite_name,
-                        'no_instructor' as user_type
+                        NULL as satellite_name,
+                        CASE 
+                            WHEN ua.instructor_id IS NULL THEN 'no_instructor'
+                            ELSE 'with_instructor'
+                        END as user_type
                     FROM user_accounts ua
                     LEFT JOIN companies c ON ua.company_id = c.id
-                    LEFT JOIN satellites s ON (
-                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                    )
                     WHERE ua.role = 1 
                     AND ua.status = 1
-                    AND ua.instructor_id IS NULL
-                    AND NOT EXISTS (
-                        SELECT 1 FROM user_temp_passwords utp 
-                        WHERE utp.user_id = ua.id 
-                        AND utp.expires_at > NOW()
-                        AND utp.is_used = 0
+                    ${satellite_id ? 'AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))' : ''}
+                    AND (
+                        -- 一時パスワード未発行の場合
+                        NOT EXISTS (
+                            SELECT 1 FROM user_temp_passwords utp 
+                            WHERE utp.user_id = ua.id 
+                            AND utp.expires_at > NOW()
+                            AND utp.is_used = 0
+                        )
+                        -- または、一時パスワードが発行されているが使用済みの場合
+                        OR EXISTS (
+                            SELECT 1 FROM user_temp_passwords utp 
+                            WHERE utp.user_id = ua.id 
+                            AND utp.expires_at > NOW()
+                            AND utp.is_used = 1
+                        )
                     )
                 `;
 
                 const params = [];
+                if (satellite_id) {
+                    params.push(satellite_id);
+                }
 
                 // 別担当者を選択した場合、その指導員のパスワード未発行担当利用者も追加
                 if (selectedInstructorIds.length > 0) {
@@ -82,31 +134,49 @@ class TempPasswordController {
                             ua.company_id,
                             ua.satellite_ids,
                             c.name as company_name,
-                            s.name as satellite_name,
+                            NULL as satellite_name,
                             'selected_instructor' as user_type
                         FROM user_accounts ua
                         LEFT JOIN companies c ON ua.company_id = c.id
-                        LEFT JOIN satellites s ON (
-                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                    )
                         WHERE ua.role = 1 
                         AND ua.status = 1
                         AND ua.instructor_id IN (${placeholders})
-                        AND NOT EXISTS (
-                            SELECT 1 FROM user_temp_passwords utp 
-                            WHERE utp.user_id = ua.id 
-                            AND utp.expires_at > NOW()
-                            AND utp.is_used = 0
+                        ${satellite_id ? 'AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))' : ''}
+                        AND (
+                            -- 一時パスワード未発行の場合
+                            NOT EXISTS (
+                                SELECT 1 FROM user_temp_passwords utp 
+                                WHERE utp.user_id = ua.id 
+                                AND utp.expires_at > NOW()
+                                AND utp.is_used = 0
+                            )
+                            -- または、一時パスワードが発行されているが使用済みの場合
+                            OR EXISTS (
+                                SELECT 1 FROM user_temp_passwords utp 
+                                WHERE utp.user_id = ua.id 
+                                AND utp.expires_at > NOW()
+                                AND utp.is_used = 1
+                            )
                         )
                     `;
                     params.push(...selectedInstructorIds);
+                    if (satellite_id) {
+                        params.push(satellite_id);
+                    }
                 }
 
                 query += ' ORDER BY user_type, name';
 
                 const [users] = await pool.execute(query, params);
+                
+                console.log('管理者用一時パスワード対象利用者取得結果:', {
+                    query: query.substring(0, 200) + '...',
+                    params,
+                    userCount: users.length,
+                    users: users.slice(0, 3), // 最初の3件のみログ出力
+                    satelliteId: satellite_id,
+                    selectedInstructorIds: selectedInstructorIds
+                });
 
                 res.json({
                     success: true,
@@ -115,7 +185,7 @@ class TempPasswordController {
                 return;
             }
 
-            // 指導員の場合は、従来の処理
+            // 指導員の場合は、1対1メッセージと同じロジックを使用
             if (role === 4 || role === 5) {
                 if (!instructor_id) {
                     return res.status(400).json({
@@ -130,49 +200,108 @@ class TempPasswordController {
                 });
             }
 
+            // 現在のユーザーの企業・拠点情報を取得（1対1メッセージと同じロジック）
+            const [currentUserRows] = await pool.execute(`
+                SELECT 
+                    ua.company_id,
+                    ua.satellite_ids
+                FROM user_accounts ua
+                WHERE ua.id = ? AND ua.status = 1
+            `, [user_id]);
+
+            if (currentUserRows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'ユーザー情報が見つかりません'
+                });
+            }
+
+            const currentUser = currentUserRows[0];
+            const currentCompanyId = currentUser.company_id;
+            let currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+
+            // フロントエンドから送信された拠点IDがある場合は、それを使用
+            if (satellite_id) {
+                console.log('Using satellite_id from frontend for temp password users:', satellite_id);
+                currentSatelliteIds = [parseInt(satellite_id)];
+            }
+
+            // WHERE条件を構築（1対1メッセージと同じロジック）
+            let whereConditions = ['ua.role = 1', 'ua.status = 1'];
+            let queryParams = [];
+
+            // 企業・拠点フィルタ（現在選択中の企業・拠点に所属するロール1ユーザのみ）
+            if (currentCompanyId) {
+                whereConditions.push('ua.company_id = ?');
+                queryParams.push(currentCompanyId);
+            }
+
+            if (currentSatelliteIds.length > 0) {
+                whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
+                queryParams.push(JSON.stringify(currentSatelliteIds));
+            }
+
+            // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
+            let satelliteJoin = '';
+            let satelliteSelect = 'NULL as satellite_name';
+            
+            if (satellite_id) {
+                satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
+                satelliteSelect = 's.name as satellite_name';
+                queryParams.unshift(parseInt(satellite_id)); // 先頭に追加
+            } else {
+                satelliteJoin = `LEFT JOIN satellites s ON (
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
+                )`;
+            }
+
+            // 一時パスワード未発行の条件を追加
+            whereConditions.push(`(
+                -- 一時パスワード未発行の場合
+                NOT EXISTS (
+                    SELECT 1 FROM user_temp_passwords utp 
+                    WHERE utp.user_id = ua.id 
+                    AND utp.expires_at > NOW()
+                    AND utp.is_used = 0
+                )
+                -- または、一時パスワードが発行されているが使用済みの場合
+                OR EXISTS (
+                    SELECT 1 FROM user_temp_passwords utp 
+                    WHERE utp.user_id = ua.id 
+                    AND utp.expires_at > NOW()
+                    AND utp.is_used = 1
+                )
+            )`);
+
+            // 利用者一覧を取得（自分の担当利用者を優先表示、1対1メッセージと同じロジック + 一時パスワード条件）
             let query = `
                 SELECT 
                     ua.id,
                     ua.name,
+                    ua.email,
                     ua.login_code,
                     ua.instructor_id,
-                    ua.company_id,
-                    ua.satellite_ids,
+                    ${satelliteSelect},
                     c.name as company_name,
-                    s.name as satellite_name,
-                    CASE 
-                        WHEN ua.instructor_id = ? THEN 'my_user'
-                        WHEN ua.instructor_id IS NULL AND NOT EXISTS (
-                            SELECT 1 FROM user_temp_passwords utp 
-                            WHERE utp.user_id = ua.id 
-                            AND utp.expires_at > NOW()
-                            AND utp.is_used = 0
-                        ) THEN 'no_instructor_no_temp'
-                        ELSE 'other'
-                    END as user_type
+                    instructor.name as instructor_name,
+                    CASE WHEN ua.instructor_id = ? THEN 1 ELSE 0 END as is_my_assigned,
+                    GROUP_CONCAT(ut.tag_name) as tags
                 FROM user_accounts ua
+                ${satelliteJoin}
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                )
-                WHERE ua.role = 1 
-                AND ua.status = 1
-                AND (
-                    ua.instructor_id = ? 
-                    OR (ua.instructor_id IS NULL AND NOT EXISTS (
-                        SELECT 1 FROM user_temp_passwords utp 
-                        WHERE utp.user_id = ua.id 
-                        AND utp.expires_at > NOW()
-                        AND utp.is_used = 0
-                    ))
-                )
+                LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+                LEFT JOIN user_tags ut ON ua.id = ut.user_id
+                WHERE ${whereConditions.join(' AND ')}
+                GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
             `;
 
-            const params = [instructor_id, instructor_id];
+            const params = [user_id, ...queryParams];
 
-            // 別担当者を選択した場合、その指導員のパスワード未発行担当利用者も追加
+            // 選択された指導員の利用者も含める場合のUNIONクエリを追加
             if (selectedInstructorIds.length > 0) {
                 const placeholders = selectedInstructorIds.map(() => '?').join(',');
                 query += `
@@ -180,36 +309,42 @@ class TempPasswordController {
                     SELECT 
                         ua.id,
                         ua.name,
+                        ua.email,
                         ua.login_code,
                         ua.instructor_id,
-                        ua.company_id,
-                        ua.satellite_ids,
+                        ${satelliteSelect},
                         c.name as company_name,
-                        s.name as satellite_name,
-                        'selected_instructor' as user_type
+                        instructor.name as instructor_name,
+                        CASE WHEN ua.instructor_id IN (${placeholders}) THEN 1 ELSE 0 END as is_my_assigned,
+                        GROUP_CONCAT(ut.tag_name) as tags
                     FROM user_accounts ua
+                    ${satelliteJoin}
                     LEFT JOIN companies c ON ua.company_id = c.id
-                    LEFT JOIN satellites s ON (
-                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                    )
-                    WHERE ua.role = 1 
-                    AND ua.status = 1
+                    LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+                    LEFT JOIN user_tags ut ON ua.id = ut.user_id
+                    WHERE ${whereConditions.join(' AND ')}
                     AND ua.instructor_id IN (${placeholders})
-                    AND NOT EXISTS (
-                        SELECT 1 FROM user_temp_passwords utp 
-                        WHERE utp.user_id = ua.id 
-                        AND utp.expires_at > NOW()
-                        AND utp.is_used = 0
-                    )
+                    GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
                 `;
+                params.push(...selectedInstructorIds);
                 params.push(...selectedInstructorIds);
             }
 
-            query += ' ORDER BY user_type, name';
+            // UNIONクエリの後にORDER BY句を追加
+            query += ' ORDER BY is_my_assigned DESC, name ASC';
+
+            console.log('実行するSQLクエリ:', query);
+            console.log('パラメータ:', params);
+            console.log('パラメータ数:', params.length);
 
             const [users] = await pool.execute(query, params);
+            
+            console.log('一時パスワード対象利用者取得結果:', {
+                query: query.substring(0, 200) + '...',
+                params,
+                userCount: users.length,
+                users: users.slice(0, 3) // 最初の3件のみログ出力
+            });
 
             res.json({
                 success: true,
@@ -217,10 +352,12 @@ class TempPasswordController {
             });
 
         } catch (error) {
+            console.error('一時パスワード対象利用者取得エラー詳細:', error);
             customLogger.error('一時パスワード対象利用者取得エラー:', error);
             res.status(500).json({
                 success: false,
-                message: '利用者一覧の取得に失敗しました'
+                message: '利用者一覧の取得に失敗しました',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
@@ -484,13 +621,16 @@ class TempPasswordController {
         try {
             const { user_id, role } = req.user;
             
-            // 指導員の場合、自分自身を除外
+            console.log('指導員一覧取得リクエスト:', { user_id, role, satellite_id: req.query.satellite_id });
+            
+            // シンプルなクエリに修正
             let query = `
                 SELECT 
                     ua.id,
                     ua.name,
                     ua.email,
                     ua.company_id,
+                    ua.satellite_ids,
                     c.name as company_name
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
@@ -500,6 +640,21 @@ class TempPasswordController {
             
             const params = [];
             
+            // 拠点での絞り込みを追加
+            if (req.query.satellite_id) {
+                query += ` AND (
+                    ua.satellite_ids IS NOT NULL 
+                    AND ua.satellite_ids != 'null' 
+                    AND ua.satellite_ids != '[]'
+                    AND (
+                        JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(?)) OR
+                        JSON_SEARCH(ua.satellite_ids, 'one', ?) IS NOT NULL
+                    )
+                )`;
+                params.push(req.query.satellite_id, req.query.satellite_id, req.query.satellite_id);
+            }
+            
             // 指導員の場合は自分自身を除外
             if (role === 4 || role === 5) {
                 query += ` AND ua.id != ?`;
@@ -508,7 +663,15 @@ class TempPasswordController {
             
             query += ` ORDER BY ua.name`;
 
+            console.log('実行するクエリ:', query);
+            console.log('パラメータ:', params);
+
             const [instructors] = await pool.execute(query, params);
+            
+            console.log('指導員一覧取得結果:', {
+                instructorCount: instructors.length,
+                instructors: instructors.slice(0, 3) // 最初の3件のみログ出力
+            });
 
             res.json({
                 success: true,
@@ -516,10 +679,12 @@ class TempPasswordController {
             });
 
         } catch (error) {
+            console.error('指導員一覧取得エラー詳細:', error);
             customLogger.error('指導員一覧取得エラー:', error);
             res.status(500).json({
                 success: false,
-                message: '指導員一覧の取得に失敗しました'
+                message: '指導員一覧の取得に失敗しました',
+                error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
         }
     }
@@ -550,7 +715,7 @@ class TempPasswordController {
                     JOIN user_accounts ua ON utp.user_id = ua.id
                     LEFT JOIN companies c ON ua.company_id = c.id
                     LEFT JOIN satellites s ON (
-                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
                       JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
                       JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
                     )
@@ -605,9 +770,11 @@ class TempPasswordController {
                 JOIN user_accounts ua ON utp.user_id = ua.id
                 LEFT JOIN companies c ON ua.company_id = c.id
                 LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                  s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                    JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
+                    JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                    JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                  )
                 )
                 WHERE ua.instructor_id = ?
                 ORDER BY utp.issued_at DESC
@@ -694,9 +861,23 @@ class TempPasswordController {
                     satellites: companySatellites.map(satellite => {
                         const satelliteInstructors = companyInstructors.filter(instructor => {
                             try {
-                                const instructorSatelliteIds = instructor.satellite_ids;
-                                return Array.isArray(instructorSatelliteIds) && instructorSatelliteIds.includes(satellite.id.toString());
+                                let instructorSatelliteIds = instructor.satellite_ids;
+                                
+                                // JSON文字列の場合はパース
+                                if (typeof instructorSatelliteIds === 'string') {
+                                    instructorSatelliteIds = JSON.parse(instructorSatelliteIds);
+                                }
+                                
+                                // 配列でない場合はfalse
+                                if (!Array.isArray(instructorSatelliteIds)) {
+                                    return false;
+                                }
+                                
+                                // 数値として比較
+                                return instructorSatelliteIds.includes(satellite.id) || 
+                                       instructorSatelliteIds.includes(satellite.id.toString());
                             } catch (error) {
+                                customLogger.error('指導員拠点ID処理エラー:', error);
                                 return false;
                             }
                         });
@@ -736,16 +917,42 @@ class TempPasswordController {
     static async getUsersByHierarchy(req, res) {
         try {
             const { user_id, role } = req.user;
-            const { selected_companies, selected_satellites, selected_instructors } = req.query;
+            const { selected_companies, selected_satellites, selected_instructors, satellite_id } = req.query;
             
             // パラメータを配列に変換
             const companyIds = selected_companies ? (Array.isArray(selected_companies) ? selected_companies : [selected_companies]) : [];
-            const satelliteIds = selected_satellites ? (Array.isArray(selected_satellites) ? selected_satellites : [selected_satellites]) : [];
+            let satelliteIds = selected_satellites ? (Array.isArray(selected_satellites) ? selected_satellites : [selected_satellites]) : [];
             const instructorIds = selected_instructors ? (Array.isArray(selected_instructors) ? selected_instructors : [selected_instructors]) : [];
+            
+            // フロントエンドから送信された拠点IDがある場合は、それを使用
+            if (satellite_id) {
+                console.log('Using satellite_id from frontend for temp passwords:', satellite_id);
+                satelliteIds = [satellite_id];
+            }
             
             // 担当者IDから'none'を除外して実際のIDのみを取得
             const actualInstructorIds = instructorIds.filter(id => id !== 'none');
             const hasNoneInstructor = instructorIds.includes('none');
+            
+            // 初期状態（選択条件なし）の場合は、担当なし＋自担当の利用者を表示
+            const isInitialState = companyIds.length === 0 && satelliteIds.length === 0 && instructorIds.length === 0;
+
+            // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
+            let satelliteJoin = '';
+            let satelliteSelect = 'NULL as satellite_name';
+            
+            if (satellite_id) {
+                satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
+                satelliteSelect = 's.name as satellite_name';
+            } else {
+                satelliteJoin = `LEFT JOIN satellites s ON (
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
+                        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
+                )`;
+            }
 
             let query = `
                 SELECT 
@@ -756,47 +963,70 @@ class TempPasswordController {
                     ua.company_id,
                     ua.satellite_ids,
                     c.name as company_name,
-                    s.name as satellite_name,
+                    ${satelliteSelect},
                     CASE 
                         WHEN ua.instructor_id IS NULL THEN 'no_instructor'
-                        WHEN ua.instructor_id IN (${actualInstructorIds.length > 0 ? actualInstructorIds.map(() => '?').join(',') : 'NULL'}) THEN 'selected_instructor'
+                        ${actualInstructorIds.length > 0 ? `WHEN ua.instructor_id IN (${actualInstructorIds.map(() => '?').join(',')}) THEN 'selected_instructor'` : ''}
                         ELSE 'other_instructor'
                     END as user_type
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                )
+                ${satelliteJoin}
                 WHERE ua.role = 1 
                 AND ua.status = 1
                 AND (
-                    ${companyIds.length > 0 ? 'ua.company_id IN (' + companyIds.map(() => '?').join(',') + ')' : '1=1'}
-                    ${satelliteIds.length > 0 ? 'AND JSON_CONTAINS(ua.satellite_ids, JSON_ARRAY(' + satelliteIds.map(() => '?').join(',') + '))' : ''}
-                    ${actualInstructorIds.length > 0 ? 'AND ua.instructor_id IN (' + actualInstructorIds.map(() => '?').join(',') + ')' : ''}
-                    ${hasNoneInstructor ? 'AND ua.instructor_id IS NULL' : ''}
+                    ${isInitialState ? 
+                        // 初期状態：担当なし＋自担当の利用者
+                        `(ua.instructor_id IS NULL OR ua.instructor_id = ?)` :
+                        // 選択条件ありの場合
+                        `${companyIds.length > 0 ? 'ua.company_id IN (' + companyIds.map(() => '?').join(',') + ')' : '1=1'}
+                        ${satelliteIds.length > 0 ? ' AND JSON_CONTAINS(ua.satellite_ids, JSON_ARRAY(' + satelliteIds.map(() => '?').join(',') + '))' : ''}
+                        ${actualInstructorIds.length > 0 ? ' AND ua.instructor_id IN (' + actualInstructorIds.map(() => '?').join(',') + ')' : ''}
+                        ${hasNoneInstructor ? ' AND ua.instructor_id IS NULL' : ''}`
+                    }
                 )
-                AND NOT EXISTS (
-                    SELECT 1 FROM user_temp_passwords utp 
-                    WHERE utp.user_id = ua.id 
-                    AND utp.expires_at > NOW()
-                    AND utp.is_used = 0
+                AND (
+                    -- 一時パスワード未発行の場合
+                    NOT EXISTS (
+                        SELECT 1 FROM user_temp_passwords utp 
+                        WHERE utp.user_id = ua.id 
+                        AND utp.expires_at > NOW()
+                        AND utp.is_used = 0
+                    )
+                    -- または、一時パスワードが発行されているが使用済みの場合
+                    OR EXISTS (
+                        SELECT 1 FROM user_temp_passwords utp 
+                        WHERE utp.user_id = ua.id 
+                        AND utp.expires_at > NOW()
+                        AND utp.is_used = 1
+                    )
                 )
             `;
 
             const params = [];
-            if (companyIds.length > 0) {
-                params.push(...companyIds);
+            
+            // フロントエンドから送信された拠点IDがある場合は、先頭に追加
+            if (satellite_id) {
+                params.unshift(parseInt(satellite_id));
             }
-            if (satelliteIds.length > 0) {
-                params.push(...satelliteIds);
-            }
-            if (actualInstructorIds.length > 0) {
-                params.push(...actualInstructorIds);
-            }
-            if (hasNoneInstructor) {
-                // hasNoneInstructorの場合はパラメータを追加しない（条件はua.instructor_id IS NULL）
+            
+            if (isInitialState) {
+                // 初期状態：自担当の指導員IDを追加
+                params.push(user_id);
+            } else {
+                // 選択条件ありの場合
+                if (companyIds.length > 0) {
+                    params.push(...companyIds);
+                }
+                if (satelliteIds.length > 0) {
+                    params.push(...satelliteIds);
+                }
+                if (actualInstructorIds.length > 0) {
+                    params.push(...actualInstructorIds);
+                }
+                if (hasNoneInstructor) {
+                    // hasNoneInstructorの場合はパラメータを追加しない（条件はua.instructor_id IS NULL）
+                }
             }
 
             query += ' ORDER BY user_type, company_name, satellite_name, name';

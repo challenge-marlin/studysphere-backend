@@ -7,7 +7,15 @@ const loginValidation = [
     .isLength({ min: 1, max: 50 })
     .withMessage('ユーザー名は1文字以上50文字以下で入力してください')
     .matches(/^[a-zA-Z0-9_/.-]+$/)
-    .withMessage('ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です'),
+    .withMessage('ログインIDは半角英数字、アンダースコア、ハイフン、スラッシュ、ドットのみ使用可能です')
+    .custom((value) => {
+      console.log('=== ログインバリデーション デバッグ ===');
+      console.log('入力されたusername:', value);
+      console.log('username type:', typeof value);
+      console.log('username length:', value ? value.length : 'undefined');
+      console.log('正規表現テスト:', /^[a-zA-Z0-9_/.-]+$/.test(value));
+      return true;
+    }),
   body('password')
     .isLength({ min: 1 })
     .withMessage('パスワードは1文字以上で入力してください')
@@ -23,9 +31,10 @@ const satelliteValidation = [
     .isLength({ min: 1, max: 255 })
     .withMessage('拠点名は1文字以上255文字以下で入力してください'),
   body('address')
+    .optional()
     .trim()
-    .isLength({ min: 1, max: 65535 })
-    .withMessage('住所は1文字以上65535文字以下で入力してください'),
+    .isLength({ min: 0, max: 65535 })
+    .withMessage('住所は65535文字以下で入力してください'),
   body('phone')
     .optional()
     .trim()
@@ -270,14 +279,19 @@ const lessonValidation = [
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('=== バリデーションエラー詳細 ===');
+    console.log('エラー数:', errors.array().length);
     console.log('バリデーションエラー:', errors.array());
     console.log('リクエストボディ:', req.body);
     console.log('リクエストボディの型:', {
+      username: typeof req.body.username,
+      password: typeof req.body.password,
       name: typeof req.body.name,
       address: typeof req.body.address,
       phone: typeof req.body.phone,
       office_type_id: typeof req.body.office_type_id
     });
+    console.log('=== バリデーションエラー終了 ===');
     return res.status(400).json({
       success: false,
       message: '入力データにエラーがあります',

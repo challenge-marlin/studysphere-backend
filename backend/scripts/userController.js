@@ -518,9 +518,11 @@ const getUserSatellites = async (userId) => {
         c.name as company_name
       FROM user_accounts ua
       JOIN satellites s ON (
-        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+        s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+          JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+          JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+        )
       )
       JOIN companies c ON s.company_id = c.id
       WHERE ua.id = ?
@@ -1233,6 +1235,16 @@ const createUser = async (userData) => {
       await connection.rollback();
     }
     console.error('Error creating user:', error);
+    
+    // ユニーク制約エラーの場合
+    if (error.code === 'ER_DUP_ENTRY') {
+      return {
+        success: false,
+        message: '指定されたログインIDは既に使用されています',
+        error: 'DUPLICATE_USERNAME'
+      };
+    }
+    
     return {
       success: false,
       message: 'ユーザーの作成に失敗しました',
@@ -1408,6 +1420,16 @@ const updateUser = async (userId, updateData) => {
     };
   } catch (error) {
     console.error('Error updating user:', error);
+    
+    // ユニーク制約エラーの場合
+    if (error.code === 'ER_DUP_ENTRY') {
+      return {
+        success: false,
+        message: '指定されたログインIDは既に使用されています',
+        error: 'DUPLICATE_USERNAME'
+      };
+    }
+    
     return {
       success: false,
       message: 'ユーザーの更新に失敗しました',

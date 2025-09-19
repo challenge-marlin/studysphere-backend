@@ -179,6 +179,16 @@ const createAdmin = async (adminData) => {
   } catch (error) {
     if (connection) await connection.rollback();
     console.error('管理者作成エラー:', error);
+    
+    // ユニーク制約エラーの場合
+    if (error.code === 'ER_DUP_ENTRY') {
+      return {
+        success: false,
+        message: '指定されたログインIDは既に使用されています',
+        error: 'DUPLICATE_USERNAME'
+      };
+    }
+    
     return {
       success: false,
       message: '管理者の作成に失敗しました',
@@ -280,6 +290,16 @@ const updateAdmin = async (adminId, updateData) => {
   } catch (error) {
     if (connection) await connection.rollback();
     console.error('管理者更新エラー:', error);
+    
+    // ユニーク制約エラーの場合
+    if (error.code === 'ER_DUP_ENTRY') {
+      return {
+        success: false,
+        message: '指定されたログインIDは既に使用されています',
+        error: 'DUPLICATE_USERNAME'
+      };
+    }
+    
     return {
       success: false,
       message: '管理者の更新に失敗しました',

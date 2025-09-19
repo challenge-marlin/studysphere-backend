@@ -362,11 +362,13 @@ class AnnouncementController {
                 FROM user_announcements ua2
                 JOIN user_accounts ua ON ua2.user_id = ua.id
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                )
+        LEFT JOIN satellites s ON (
+          s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          )
+        )
                 WHERE ua2.announcement_id = ?
                 ORDER BY ua.name
             `, [announcement_id]);
@@ -503,10 +505,10 @@ class AnnouncementController {
                 instructor_filter = 'all', // 'my', 'other', 'none', 'all', 'specific'
                 instructor_ids = '', // 特定の指導員IDをカンマ区切りで指定
                 name_filter = '',
-                tag_filter = ''
+                tag_filter = '',
+                satellite_id = null // フロントエンドから送信される拠点ID
             } = req.query;
             const current_user = req.user;
-
 
             // 現在のユーザーの企業・拠点情報を取得（管理者・指導員共通）
             let currentCompanyId = null;
@@ -530,6 +532,12 @@ class AnnouncementController {
                 console.log('Current user company/satellite info:', { currentCompanyId, currentSatelliteIds });
             } else {
                 console.log('No current user found for user_id:', current_user.user_id);
+            }
+
+            // フロントエンドから送信された拠点IDがある場合は、それを使用
+            if (satellite_id) {
+                console.log('Using satellite_id from frontend:', satellite_id);
+                currentSatelliteIds = [parseInt(satellite_id)];
             }
 
             // WHERE条件を構築
@@ -588,6 +596,24 @@ class AnnouncementController {
                 queryParams.push(`%${tag_filter}%`);
             }
 
+            // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
+            let satelliteJoin = '';
+            let satelliteSelect = 'NULL as satellite_name';
+            
+            if (satellite_id) {
+                satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
+                satelliteSelect = 's.name as satellite_name';
+                queryParams.unshift(parseInt(satellite_id)); // 先頭に追加
+            } else {
+                satelliteJoin = `LEFT JOIN satellites s ON (
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
+                )`;
+            }
+
             const query = `
                 SELECT 
                     ua.id,
@@ -597,17 +623,13 @@ class AnnouncementController {
                     ua.role,
                     ua.instructor_id,
                     c.name as company_name,
-                    s.name as satellite_name,
+                    ${satelliteSelect},
                     instructor.name as instructor_name,
                     CASE WHEN ua.instructor_id = ? THEN 1 ELSE 0 END as is_my_assigned,
                     GROUP_CONCAT(ut.tag_name) as tags
                 FROM user_accounts ua
                 LEFT JOIN companies c ON ua.company_id = c.id
-                LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                )
+                ${satelliteJoin}
                 LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
                 LEFT JOIN user_tags ut ON ua.id = ut.user_id
                 WHERE ${whereConditions.join(' AND ')}
@@ -643,6 +665,7 @@ class AnnouncementController {
         try {
             const user_id = req.user.user_id;
             const user_role = req.user.role;
+            const { satellite_id = null } = req.query; // フロントエンドから送信される拠点ID
 
             // 管理者（ロール5以上）または指導員（ロール4）のみアクセス可能
             if (user_role < 4) {
@@ -670,7 +693,13 @@ class AnnouncementController {
 
             const currentUser = currentUserRows[0];
             const currentCompanyId = currentUser.company_id;
-            const currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+            let currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+
+            // フロントエンドから送信された拠点IDがある場合は、それを使用
+            if (satellite_id) {
+                console.log('Using satellite_id from frontend for instructors:', satellite_id);
+                currentSatelliteIds = [parseInt(satellite_id)];
+            }
 
             // 同じ拠点の他の指導員一覧を取得
             let whereConditions = ['ua.role = 4', 'ua.status = 1', 'ua.id != ?'];
@@ -686,18 +715,32 @@ class AnnouncementController {
                 queryParams.push(JSON.stringify(currentSatelliteIds));
             }
 
+            // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
+            let satelliteJoin = '';
+            let satelliteSelect = 'NULL as satellite_name';
+            
+            if (satellite_id) {
+                satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
+                satelliteSelect = 's.name as satellite_name';
+                queryParams.unshift(parseInt(satellite_id)); // 先頭に追加
+            } else {
+                satelliteJoin = `LEFT JOIN satellites s ON (
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
+                )`;
+            }
+
             const [instructors] = await pool.execute(`
                 SELECT 
                     ua.id,
                     ua.name,
-                    s.name as satellite_name,
+                    ${satelliteSelect},
                     c.name as company_name
                 FROM user_accounts ua
-                LEFT JOIN satellites s ON (
-                  JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                  JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                  JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-                )
+                ${satelliteJoin}
                 LEFT JOIN companies c ON ua.company_id = c.id
                 WHERE ${whereConditions.join(' AND ')}
                 ORDER BY ua.name ASC

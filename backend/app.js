@@ -172,6 +172,7 @@ const remoteSupportRoutes = require('./routes/remoteSupportRoutes');
 const learningRoutes = require('./routes/learningRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
+const usernameValidationRoutes = require('./routes/usernameValidationRoutes');
 // AIルートの条件付き読み込み（環境変数が設定されている場合のみ）
 let aiRoutes;
 try {
@@ -327,6 +328,7 @@ app.use('/api/submissions', submissionRoutes);
 app.use('/api/remote-support', remoteSupportRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/username', usernameValidationRoutes);
 // AIルートの条件付きマウント
 if (aiRoutes) {
   app.use('/api/ai', aiRoutes);

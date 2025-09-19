@@ -14,7 +14,6 @@ const processingStatus = new Map();
 
 // PDF処理ライブラリ
 const pdfParse = require('pdf-parse');
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.mjs');
 
 class PDFProcessor {
   /**
@@ -175,8 +174,20 @@ class PDFProcessor {
    */
   static async parsePDFWithLibrary(pdfBuffer) {
     try {
+      console.log('pdf-parseライブラリを使用してPDFを解析中...', {
+        bufferSize: pdfBuffer.length,
+        bufferType: typeof pdfBuffer
+      });
+      
       // pdf-parseライブラリを使用してPDFを解析
       const data = await pdfParse(pdfBuffer);
+      
+      console.log('pdf-parse解析結果:', {
+        hasData: !!data,
+        hasText: !!data?.text,
+        textLength: data?.text?.length || 0,
+        textPreview: data?.text?.substring(0, 100) + '...'
+      });
       
       if (!data || !data.text) {
         throw new Error('PDFからテキストを抽出できませんでした');
@@ -184,46 +195,16 @@ class PDFProcessor {
       
       return data.text;
     } catch (error) {
-      // pdf-parseで失敗した場合、pdfjs-distを試行
-      try {
-        console.log('pdf-parseで失敗、pdfjs-distを試行中...');
-        return await this.parseWithPdfJs(pdfBuffer);
-      } catch (pdfJsError) {
-        throw new Error(`PDF解析エラー: ${error.message} (pdf-parse), ${pdfJsError.message} (pdfjs-dist)`);
-      }
+      console.error('pdf-parse解析エラー:', {
+        error: error.message,
+        stack: error.stack
+      });
+      
+      // pdf-parseで失敗した場合は、エラーをそのまま投げる
+      throw new Error(`PDF解析エラー: ${error.message}`);
     }
   }
 
-  /**
-   * pdfjs-distを使用してPDFを解析（フォールバック）
-   * @param {Buffer} pdfBuffer - PDFファイルのバッファ
-   * @returns {Promise<string>} 抽出されたテキスト
-   */
-  static async parseWithPdfJs(pdfBuffer) {
-    try {
-      // pdfjs-distのワーカーを設定
-      const pdfjsWorker = require('pdfjs-dist/legacy/build/pdf.worker.mjs');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-
-      // PDFドキュメントを読み込み
-      const loadingTask = pdfjsLib.getDocument({ data: pdfBuffer });
-      const pdf = await loadingTask.promise;
-      
-      let fullText = '';
-      
-      // 各ページからテキストを抽出
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(item => item.str).join(' ');
-        fullText += pageText + '\n';
-      }
-      
-      return fullText;
-    } catch (error) {
-      throw new Error(`pdfjs-dist解析エラー: ${error.message}`);
-    }
-  }
 
   /**
    * 抽出されたテキストを後処理

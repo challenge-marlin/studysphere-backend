@@ -378,11 +378,13 @@ const submitTestResult = async (req, res) => {
       SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
       FROM user_accounts ua
       LEFT JOIN companies c ON ua.company_id = c.id
-      LEFT JOIN satellites s ON (
-        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-        JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-        JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
-      )
+        LEFT JOIN satellites s ON (
+          s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          )
+        )
       WHERE ua.id = ?
     `, [userId]);
     console.log('ユーザー情報:', userInfo);
@@ -892,13 +894,47 @@ const getLessonContent = async (req, res) => {
         console.log('S3ダウンロード結果:', s3Result);
         
         if (s3Result.success) {
-          // ファイルの内容をテキストとして取得
-          const fileContent = s3Result.data.toString('utf8');
-          lesson.textContent = fileContent;
-          
-          // PDFの場合は、S3の署名付きURLを生成
+          // PDFの場合は、S3の署名付きURLを生成し、テキストコンテンツも取得する
           if (lesson.s3_key.toLowerCase().endsWith('.pdf')) {
-            console.log('PDFファイルのため、署名付きURLを生成中...');
+            console.log('PDFファイルのため、署名付きURLを生成し、テキストコンテンツも取得中...');
+            
+            // PDFファイルのテキストコンテンツを取得
+            try {
+              console.log('PDFProcessorを読み込み中...');
+              const PDFProcessor = require('./pdfProcessor');
+              console.log('PDFProcessor読み込み完了、テキスト抽出開始...', {
+                s3DataSize: s3Result.data?.length || 0,
+                s3DataType: typeof s3Result.data
+              });
+              
+              const extractedText = await PDFProcessor.extractTextFromPDF(s3Result.data);
+              console.log('PDFテキスト抽出完了:', {
+                extractedTextLength: extractedText?.length || 0,
+                extractedTextType: typeof extractedText,
+                extractedTextPreview: extractedText?.substring(0, 200) + '...'
+              });
+              
+              if (extractedText && extractedText.trim().length > 0) {
+                lesson.textContent = extractedText;
+                console.log('PDFファイルのテキスト抽出成功:', {
+                  textLength: extractedText.length,
+                  textPreview: extractedText.substring(0, 200) + '...'
+                });
+              } else {
+                lesson.textContent = null;
+                console.warn('PDFファイルからテキストを抽出できませんでした:', {
+                  extractedText: extractedText,
+                  extractedTextLength: extractedText?.length || 0
+                });
+              }
+            } catch (pdfError) {
+              console.error('PDFファイルのテキスト抽出エラー:', {
+                error: pdfError.message,
+                stack: pdfError.stack,
+                s3DataSize: s3Result.data?.length || 0
+              });
+              lesson.textContent = null;
+            }
             
             // S3設定の確認
             if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY || !process.env.AWS_S3_BUCKET) {
@@ -928,6 +964,11 @@ const getLessonContent = async (req, res) => {
                 lesson.pdfUrl = null;
               }
             }
+          } else {
+            // テキストファイルの場合は、そのままテキストコンテンツとして使用
+            console.log('テキストファイルのため、内容をそのまま使用');
+            const fileContent = s3Result.data.toString('utf8');
+            lesson.textContent = fileContent;
           }
         } else {
           console.warn('S3ダウンロード失敗:', s3Result.message);

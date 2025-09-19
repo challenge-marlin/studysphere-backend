@@ -74,9 +74,11 @@ const getSystemOverview = async () => {
               AND (
                 CASE 
                   WHEN ua.satellite_ids LIKE '[%]' THEN (
-                    JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                    JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                    JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                   )
                   ELSE ua.satellite_ids = s.id
                 END
@@ -104,9 +106,11 @@ const getSystemOverview = async () => {
               AND (
                 CASE 
                   WHEN ua.satellite_ids LIKE '[%]' THEN (
-                    JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
-                    JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
-                    JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+                      JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                      JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+                      JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+                    )
                   )
                   ELSE ua.satellite_ids = s.id
                 END
