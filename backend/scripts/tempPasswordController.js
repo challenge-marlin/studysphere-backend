@@ -364,6 +364,7 @@ class TempPasswordController {
 
     // 一時パスワードを一括発行
     static async issueTempPasswords(req, res) {
+        let connection;
         try {
             const { user_ids, expiry_time, announcement_title, announcement_message } = req.body;
             const { user_id: admin_id, username: admin_name } = req.user;
@@ -374,6 +375,10 @@ class TempPasswordController {
                     message: '利用者が選択されていません'
                 });
             }
+
+            // トランザクション開始
+            connection = await pool.getConnection();
+            await connection.beginTransaction();
 
             // 有効期限を計算
             const now = new Date();
@@ -429,7 +434,7 @@ class TempPasswordController {
             // アナウンスメッセージを作成（指定された場合）
             let announcement_id = null;
             if (announcement_title && announcement_message) {
-                const [announcementResult] = await pool.execute(
+                const [announcementResult] = await connection.execute(
                     'INSERT INTO announcements (title, message, created_by) VALUES (?, ?, ?)',
                     [announcement_title, announcement_message, admin_id]
                 );
@@ -440,7 +445,7 @@ class TempPasswordController {
                 const placeholders = userAnnouncementValues.map(() => '(?, ?)').join(',');
                 const flatValues = userAnnouncementValues.flat();
                 
-                await pool.execute(
+                await connection.execute(
                     `INSERT INTO user_announcements (user_id, announcement_id) VALUES ${placeholders}`,
                     flatValues
                 );
@@ -449,6 +454,12 @@ class TempPasswordController {
             // 一時パスワードを発行
             const tempPasswords = [];
             for (const user_id of user_ids) {
+                // 既存の一時パスワードを無効化
+                await connection.execute(
+                    'UPDATE user_temp_passwords SET is_used = 1 WHERE user_id = ? AND is_used = 0',
+                    [user_id]
+                );
+                
                 const tempPassword = TempPasswordController.generateTempPassword();
                 
                 // デバッグ情報を追加
@@ -461,7 +472,7 @@ class TempPasswordController {
                     throw new Error(`Invalid formatted expiry date: ${formattedExpiryDate}`);
                 }
                 
-                await pool.execute(
+                await connection.execute(
                     'INSERT INTO user_temp_passwords (user_id, temp_password, expires_at) VALUES (?, ?, ?)',
                     [user_id, tempPassword, formattedExpiryDate]
                 );
@@ -485,7 +496,7 @@ class TempPasswordController {
             }
 
             // 操作ログを記録
-            await pool.execute(
+            await connection.execute(
                 'INSERT INTO operation_logs (admin_id, admin_name, action, details) VALUES (?, ?, ?, ?)',
                 [
                     admin_id,
@@ -494,6 +505,9 @@ class TempPasswordController {
                     `対象利用者数: ${user_ids.length}, 有効期限: ${expiryDate.toLocaleString('ja-JP')}${announcement_id ? ', アナウンス送信あり' : ''}`
                 ]
             );
+
+            // トランザクションコミット
+            await connection.commit();
 
             // 日本時間の文字列を生成
             const japanTimeString = expiryDate.toLocaleString('ja-JP', {
@@ -517,6 +531,15 @@ class TempPasswordController {
             });
 
         } catch (error) {
+            // トランザクションロールバック
+            if (connection) {
+                try {
+                    await connection.rollback();
+                } catch (rollbackError) {
+                    customLogger.error('ロールバックエラー:', rollbackError);
+                }
+            }
+            
             customLogger.error('一時パスワード発行エラー:', error);
             customLogger.error('エラー詳細:', {
                 message: error.message,
@@ -529,6 +552,15 @@ class TempPasswordController {
                 message: '一時パスワードの発行に失敗しました',
                 error: process.env.NODE_ENV === 'development' ? error.message : undefined
             });
+        } finally {
+            // 接続を解放
+            if (connection) {
+                try {
+                    connection.release();
+                } catch (releaseError) {
+                    customLogger.error('接続解放エラー:', releaseError);
+                }
+            }
         }
     }
 
