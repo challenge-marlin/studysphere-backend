@@ -186,18 +186,34 @@ router.post('/:userId/issue-temp-password', async (req, res) => {
 // 一時パスワード検証
 router.post('/verify-temp-password', async (req, res) => {
   try {
+    console.log('verify-temp-password API: リクエスト受信', {
+      body: req.body,
+      headers: req.headers,
+      method: req.method,
+      url: req.url
+    });
+    
     const { loginCode, tempPassword } = req.body;
     
     if (!loginCode || !tempPassword) {
+      console.error('verify-temp-password API: パラメータ不足', { loginCode: !!loginCode, tempPassword: !!tempPassword });
       return res.status(400).json({
         success: false,
         message: 'ログインコードとパスワードは必須です'
       });
     }
     
+    console.log('verify-temp-password API: 認証処理開始', { loginCode, tempPassword: tempPassword ? '***' : 'なし' });
     const result = await verifyTemporaryPassword(loginCode, tempPassword);
+    console.log('verify-temp-password API: 認証処理結果', { success: result.success, message: result.message });
+    
     res.status(result.success ? 200 : 400).json(result);
   } catch (error) {
+    console.error('verify-temp-password API: エラー発生', {
+      error: error.message,
+      stack: error.stack,
+      body: req.body
+    });
     res.status(500).json({ success: false, message: 'パスワード検証に失敗しました', error: error.message });
   }
 });

@@ -831,14 +831,24 @@ class RemoteSupportController {
    */
   static async autoLogin(req, res) {
     try {
-      const { login_code, target } = req.body;
+      customLogger.info('Auto login request received:', {
+        body: req.body,
+        headers: req.headers,
+        method: req.method,
+        url: req.url
+      });
+
+      const { login_code, target = 'prod' } = req.body;
 
       if (!login_code) {
+        customLogger.warn('Auto login failed: login_code is required');
         return res.status(400).json({
           success: false,
           message: 'ログインコードが必須です'
         });
       }
+
+      customLogger.info('Auto login: searching for user with login_code:', login_code);
 
       // ユーザー情報を取得
       const [users] = await pool.execute(
@@ -846,7 +856,13 @@ class RemoteSupportController {
         [login_code]
       );
 
+      customLogger.info('Auto login: database query result:', {
+        userCount: users.length,
+        users: users.map(u => ({ id: u.id, name: u.name, login_code: u.login_code }))
+      });
+
       if (users.length === 0) {
+        customLogger.warn('Auto login failed: user not found for login_code:', login_code);
         return res.status(404).json({
           success: false,
           message: 'ユーザーが見つかりません'
@@ -854,11 +870,18 @@ class RemoteSupportController {
       }
 
       const user = users[0];
+      customLogger.info('Auto login: user found:', {
+        id: user.id,
+        name: user.name,
+        login_code: user.login_code
+      });
 
       // 環境に応じたURLを設定
       const baseUrl = target === 'prod' 
-        ? 'https://studysphere-frontend.vercel.app/studysphere'
+        ? 'https://studysphere.ayatori-inc.co.jp'
         : 'http://localhost:3000/studysphere';
+
+      customLogger.info('Auto login: redirect URL:', baseUrl);
 
       // 自動ログイン用のHTMLを生成
       const html = `
@@ -870,6 +893,7 @@ class RemoteSupportController {
         </head>
         <body>
           <script>
+            console.log('Auto login: redirecting to', '${baseUrl}/student-dashboard');
             // ローカルストレージにログイン情報を保存
             localStorage.setItem('autoLoginCode', '${user.login_code}');
             localStorage.setItem('autoLoginUser', '${user.name}');
@@ -883,11 +907,17 @@ class RemoteSupportController {
         </html>
       `;
 
+      customLogger.info('Auto login: sending HTML response');
       res.setHeader('Content-Type', 'text/html');
       res.send(html);
 
     } catch (error) {
-      customLogger.error('Auto login error:', error);
+      customLogger.error('Auto login error:', {
+        error: error.message,
+        stack: error.stack,
+        body: req.body,
+        url: req.url
+      });
       res.status(500).json({
         success: false,
         message: '自動ログインに失敗しました',

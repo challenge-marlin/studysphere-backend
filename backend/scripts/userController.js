@@ -1841,9 +1841,22 @@ const issueTemporaryPassword = async (userId) => {
 const verifyTemporaryPassword = async (loginCode, tempPassword) => {
   let connection;
   try {
+    console.log('verifyTemporaryPassword: 開始', { loginCode, tempPassword: tempPassword ? '***' : 'なし' });
+    
+    // パラメータの検証
+    if (!loginCode || !tempPassword) {
+      console.error('verifyTemporaryPassword: パラメータ不足', { loginCode: !!loginCode, tempPassword: !!tempPassword });
+      return {
+        success: false,
+        message: 'ログインコードとパスワードは必須です'
+      };
+    }
+    
     connection = await pool.getConnection();
+    console.log('verifyTemporaryPassword: データベース接続成功');
     
     // ユーザーと一時パスワードの存在確認（指導員名も取得）
+    console.log('verifyTemporaryPassword: データベースクエリ実行開始');
     const [rows] = await connection.execute(`
       SELECT 
         ua.id, 
@@ -1861,6 +1874,8 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
       ORDER BY utp.issued_at DESC
       LIMIT 1
     `, [loginCode, tempPassword]);
+    
+    console.log('verifyTemporaryPassword: データベースクエリ結果', { rowCount: rows.length });
 
     if (rows.length === 0) {
       return {
@@ -1916,7 +1931,12 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
       }
     };
   } catch (error) {
-    console.error('Error verifying temporary password:', error);
+    console.error('verifyTemporaryPassword: エラー発生', {
+      error: error.message,
+      stack: error.stack,
+      loginCode,
+      tempPassword: tempPassword ? '***' : 'なし'
+    });
     return {
       success: false,
       message: 'パスワード検証に失敗しました',
@@ -1926,8 +1946,9 @@ const verifyTemporaryPassword = async (loginCode, tempPassword) => {
     if (connection) {
       try {
         connection.release();
+        console.log('verifyTemporaryPassword: データベース接続を解放');
       } catch (releaseError) {
-        console.error('接続の解放に失敗:', releaseError);
+        console.error('verifyTemporaryPassword: 接続解放エラー:', releaseError);
       }
     }
   }
