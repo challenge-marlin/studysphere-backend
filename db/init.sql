@@ -118,9 +118,10 @@ CREATE TABLE `user_temp_passwords` (
 
 -- 一時パスワードの自動揮発用イベントスケジューラー
 -- 毎日午前0時10分（日本時間）に期限切れの一時パスワードを削除
+-- UTC時間では前日15時10分に実行（日本時間午前0時10分 = UTC前日15時10分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_temp_passwords`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 10 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 10 MINUTE)
 DO
     DELETE FROM `user_temp_passwords` 
     WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00') 
@@ -128,18 +129,20 @@ DO
 
 -- 個人メッセージの自動揮発用イベントスケジューラー
 -- 毎日午前0時30分（日本時間）に期限切れの個人メッセージを削除
+-- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_personal_messages`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `personal_messages` 
     WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
 
 -- アナウンスメッセージの自動揮発用イベントスケジューラー
 -- 毎日午前0時30分（日本時間）に期限切れのアナウンスメッセージを削除
+-- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_announcements`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `announcements` 
     WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');

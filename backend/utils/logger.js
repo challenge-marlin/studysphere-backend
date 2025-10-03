@@ -96,10 +96,24 @@ const logFormat = winston.format.combine(
       }).replace(/\//g, '-');
     }
     
-    let log = `${jstTime} [${level.toUpperCase()}]: ${message}`;
+    // 統一されたログフォーマット
+    const environment = process.env.NODE_ENV || 'development';
+    const service = meta.service || 'studysphere-backend';
     
+    let log = `${jstTime} [${level.toUpperCase()}] [${environment}] [${service}]: ${message}`;
+    
+    // メタデータの整形（機密情報を除外）
     if (Object.keys(meta).length > 0) {
-      log += ` ${JSON.stringify(meta, null, 2)}`;
+      const safeMeta = { ...meta };
+      // 機密情報を除外
+      delete safeMeta.password;
+      delete safeMeta.token;
+      delete safeMeta.authorization;
+      delete safeMeta.cookie;
+      
+      if (Object.keys(safeMeta).length > 0) {
+        log += ` | ${JSON.stringify(safeMeta, null, 0)}`;
+      }
     }
     
     return log;
@@ -156,8 +170,8 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// ログレベルの設定（強制的にinfo以上を設定）
-const logLevel = process.env.LOG_LEVEL || 'info';
+// ログレベルの設定（本番環境では適切なレベルを設定）
+const logLevel = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug');
 const effectiveLogLevel = ['error', 'warn', 'info', 'debug'].includes(logLevel) ? logLevel : 'info';
 
 console.log(`Logger initialized with level: ${effectiveLogLevel}`);
@@ -194,6 +208,18 @@ const logger = winston.createLogger({
         level: 'debug',
         maxsize: 5242880, // 5MB
         maxFiles: 3,
+        handleExceptions: true,
+        handleRejections: true,
+      })
+    ] : []),
+    
+    // 本番環境用の追加ログファイル
+    ...(process.env.NODE_ENV === 'production' ? [
+      new winston.transports.File({
+        filename: path.join(getLogDir(), 'production.log'),
+        level: 'info',
+        maxsize: 10485760, // 10MB
+        maxFiles: 7,
         handleExceptions: true,
         handleRejections: true,
       })
