@@ -252,7 +252,7 @@ class AnnouncementController {
                         SELECT 1 FROM user_announcements ua3 
                         JOIN user_accounts ua4 ON ua3.user_id = ua4.id 
                         WHERE ua3.announcement_id = a.id 
-                        AND JSON_OVERLAPS(ua4.satellite_ids, ?)
+                        AND JSON_CONTAINS(ua4.satellite_ids, ?)
                     )`;
                     queryParams.push(JSON.stringify(currentSatelliteIds));
                 }
@@ -364,7 +364,7 @@ class AnnouncementController {
                 LEFT JOIN companies c ON ua.company_id = c.id
         LEFT JOIN satellites s ON (
           s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
             JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
             JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
           )
@@ -551,8 +551,12 @@ class AnnouncementController {
             }
 
             if (currentSatelliteIds.length > 0) {
-                whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
-                queryParams.push(JSON.stringify(currentSatelliteIds));
+                // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+                const satelliteConditions = currentSatelliteIds.map(() => 
+                    'JSON_CONTAINS(ua.satellite_ids, ?)'
+                ).join(' OR ');
+                whereConditions.push(`(${satelliteConditions})`);
+                queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
             }
 
             // 担当指導員フィルタ（管理者・指導員共通）
@@ -607,7 +611,7 @@ class AnnouncementController {
             } else {
                 satelliteJoin = `LEFT JOIN satellites s ON (
                     s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
                         JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
                         JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
                     )
@@ -711,8 +715,12 @@ class AnnouncementController {
             }
 
             if (currentSatelliteIds.length > 0) {
-                whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
-                queryParams.push(JSON.stringify(currentSatelliteIds));
+                // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+                const satelliteConditions = currentSatelliteIds.map(() => 
+                    'JSON_CONTAINS(ua.satellite_ids, ?)'
+                ).join(' OR ');
+                whereConditions.push(`(${satelliteConditions})`);
+                queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
             }
 
             // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
@@ -726,7 +734,7 @@ class AnnouncementController {
             } else {
                 satelliteJoin = `LEFT JOIN satellites s ON (
                     s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+                        JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
                         JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
                         JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
                     )

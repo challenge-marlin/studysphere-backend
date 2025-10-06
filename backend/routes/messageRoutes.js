@@ -337,8 +337,12 @@ router.get('/students', authenticateToken, async (req, res) => {
     }
 
     if (currentSatelliteIds.length > 0) {
-      whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
-      queryParams.push(JSON.stringify(currentSatelliteIds));
+      // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+      const satelliteConditions = currentSatelliteIds.map(() => 
+        'JSON_CONTAINS(ua.satellite_ids, ?)'
+      ).join(' OR ');
+      whereConditions.push(`(${satelliteConditions})`);
+      queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
     }
 
     // 担当指導員フィルタ
@@ -393,7 +397,7 @@ router.get('/students', authenticateToken, async (req, res) => {
     } else {
       satelliteJoin = `LEFT JOIN satellites s ON (
           s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
             JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
             JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
           )
@@ -483,14 +487,189 @@ router.get('/students', authenticateToken, async (req, res) => {
   }
 });
 
+// 最小限テスト用エンドポイント（デバッグ用）
+router.get('/instructors-test', authenticateToken, async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    console.log('=== 最小限テスト開始 ===');
+    console.log('user_id:', user_id);
+    
+    // 最もシンプルなユーザー情報取得
+    const [userRows] = await pool.execute(
+      'SELECT id, name, instructor_id, satellite_ids, company_id FROM user_accounts WHERE id = ? AND status = 1',
+      [user_id]
+    );
+    
+    console.log('クエリ結果:', userRows);
+    
+    if (userRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ユーザー情報が見つかりません'
+      });
+    }
+    
+    const user = userRows[0];
+    console.log('ユーザー情報取得成功:', user);
+    
+    res.json({
+      success: true,
+      message: '最小限テスト成功',
+      user_data: user
+    });
+    
+  } catch (error) {
+    console.error('最小限テストエラー:', error);
+    console.error('エラー詳細:', {
+      message: error.message,
+      stack: error.stack,
+      sql: error.sql,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
+    res.status(500).json({
+      success: false,
+      message: '最小限テストエラー',
+      error: error.message,
+      sql: error.sql
+    });
+  }
+});
+
+// データベース接続テスト用エンドポイント
+router.get('/db-test', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== データベース接続テスト開始 ===');
+    
+    // 最もシンプルなクエリ
+    const [result] = await pool.execute('SELECT 1 as test');
+    console.log('データベース接続テスト結果:', result);
+    
+    res.json({
+      success: true,
+      message: 'データベース接続テスト成功',
+      result: result
+    });
+    
+  } catch (error) {
+    console.error('データベース接続テストエラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'データベース接続テスト失敗',
+      error: error.message
+    });
+  }
+});
+
+// JSON関数テスト用エンドポイント
+router.get('/json-test', authenticateToken, async (req, res) => {
+  try {
+    console.log('=== JSON関数テスト開始 ===');
+    
+    // MySQLバージョン確認
+    const [version] = await pool.execute('SELECT VERSION() as version');
+    console.log('MySQLバージョン:', version[0].version);
+    
+    // JSON関数の動作確認
+    const [jsonTest] = await pool.execute(`
+      SELECT 
+        JSON_CONTAINS('[1,2,3]', '1') as json_contains_test,
+        JSON_QUOTE('test') as json_quote_test,
+        JSON_SEARCH('[1,2,3]', 'one', '1') as json_search_test
+    `);
+    console.log('JSON関数テスト結果:', jsonTest[0]);
+    
+    res.json({
+      success: true,
+      message: 'JSON関数テスト成功',
+      mysql_version: version[0].version,
+      json_test_results: jsonTest[0]
+    });
+    
+  } catch (error) {
+    console.error('JSON関数テストエラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'JSON関数テスト失敗',
+      error: error.message,
+      sql: error.sql
+    });
+  }
+});
+
+// ユーザーデータ構造テスト用エンドポイント
+router.get('/user-data-test', authenticateToken, async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    console.log('=== ユーザーデータ構造テスト開始 ===');
+    console.log('user_id:', user_id);
+    
+    // ユーザー情報を取得（satellite_idsの内容を詳しく確認）
+    const [userRows] = await pool.execute(`
+      SELECT 
+        id, 
+        name, 
+        instructor_id, 
+        satellite_ids,
+        company_id,
+        TYPEOF(satellite_ids) as satellite_ids_type,
+        JSON_TYPE(satellite_ids) as satellite_ids_json_type,
+        JSON_VALID(satellite_ids) as satellite_ids_valid
+      FROM user_accounts 
+      WHERE id = ? AND status = 1
+    `, [user_id]);
+    
+    if (userRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ユーザー情報が見つかりません'
+      });
+    }
+    
+    const user = userRows[0];
+    console.log('ユーザーデータ構造:', user);
+    
+    // satellite_idsが有効なJSONの場合、パースを試行
+    let parsedSatelliteIds = null;
+    if (user.satellite_ids) {
+      try {
+        parsedSatelliteIds = JSON.parse(user.satellite_ids);
+        console.log('パースされたsatellite_ids:', parsedSatelliteIds);
+      } catch (parseError) {
+        console.error('satellite_idsのパースエラー:', parseError);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'ユーザーデータ構造テスト成功',
+      user_data: user,
+      parsed_satellite_ids: parsedSatelliteIds
+    });
+    
+  } catch (error) {
+    console.error('ユーザーデータ構造テストエラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'ユーザーデータ構造テスト失敗',
+      error: error.message,
+      sql: error.sql
+    });
+  }
+});
+
 // 利用者が所属拠点の指導員一覧取得（メッセージ送信用）
 router.get('/instructors', authenticateToken, async (req, res) => {
   try {
     const user_id = req.user.user_id;
     const user_role = req.user.role;
 
+    console.log('=== 指導員一覧取得開始 ===');
+    console.log('user_id:', user_id, 'user_role:', user_role);
+
     // 利用者（ロール1-3）のみアクセス可能
     if (user_role < 1 || user_role > 3) {
+      console.log('アクセス拒否: ロールが不正', user_role);
       return res.status(403).json({
         success: false,
         message: '利用者のみアクセス可能です'
@@ -519,7 +698,7 @@ router.get('/instructors', authenticateToken, async (req, res) => {
       FROM user_accounts ua
       LEFT JOIN satellites s ON (
         s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
           JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
           JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
         )
@@ -547,9 +726,30 @@ router.get('/instructors', authenticateToken, async (req, res) => {
     // パラメータの検証
     const instructorId = user.instructor_id || null;
     const companyId = user.company_id || null;
-    const satelliteIdsJson = JSON.stringify(satelliteIds);
 
     // 所属拠点の指導員一覧を取得（担当指導員を最上位に表示）
+    let whereConditions = ['ua.role = 4', 'ua.status = 1'];
+    let queryParams = [];
+
+    // 企業条件
+    if (companyId) {
+      whereConditions.push('ua.company_id = ?');
+      queryParams.push(companyId);
+    }
+
+    // 拠点IDの条件（複数拠点対応）
+    if (satelliteIds.length > 0) {
+      const satelliteConditions = satelliteIds.map(() => 
+        'JSON_CONTAINS(ua.satellite_ids, ?)'
+      ).join(' OR ');
+      whereConditions.push(`(${satelliteConditions})`);
+      queryParams.push(...satelliteIds.map(id => JSON.stringify(id)));
+    }
+
+    console.log('Debug: whereConditions =', whereConditions);
+    console.log('Debug: queryParams =', queryParams);
+    console.log('データベースクエリ実行前');
+
     const [instructors] = await pool.execute(`
       SELECT 
         ua.id,
@@ -562,35 +762,49 @@ router.get('/instructors', authenticateToken, async (req, res) => {
       FROM user_accounts ua
       LEFT JOIN satellites s ON (
         s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+          JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
           JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
           JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
         )
       )
       LEFT JOIN companies c ON ua.company_id = c.id
-      WHERE ua.role = 4 
-        AND ua.status = 1
-        AND (
-          ua.id = ? OR 
-          ua.company_id = ? OR
-          JSON_OVERLAPS(ua.satellite_ids, ?)
-        )
+      WHERE ${whereConditions.join(' AND ')}
       ORDER BY is_assigned DESC, ua.name ASC
-    `, [instructorId, instructorId, companyId, satelliteIdsJson]);
+    `, [user.instructor_id || 0, ...queryParams]);
+
+    console.log('データベースクエリ実行完了');
+    console.log('取得した指導員数:', instructors.length);
+    console.log('取得した指導員一覧:', instructors.map(i => ({ id: i.id, name: i.name, company_id: i.company_id, satellite_ids: i.satellite_name })));
 
     res.json({
       success: true,
       data: {
         instructors,
-        assigned_instructor_id: user.instructor_id
+        assigned_instructor_id: user.instructor_id,
+        debug_info: {
+          user_id: user_id,
+          user_company_id: user.company_id,
+          user_satellite_ids: satelliteIds,
+          user_instructor_id: user.instructor_id,
+          query_conditions: whereConditions,
+          query_params: queryParams
+        }
       }
     });
 
   } catch (error) {
     console.error('指導員一覧取得エラー:', error);
+    console.error('エラー詳細:', {
+      message: error.message,
+      stack: error.stack,
+      sql: error.sql,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
     res.status(500).json({
       success: false,
-      message: '指導員一覧の取得に失敗しました'
+      message: '指導員一覧の取得に失敗しました',
+      error: error.message
     });
   }
 });
@@ -647,8 +861,12 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
     }
 
     if (currentSatelliteIds.length > 0) {
-      whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
-      queryParams.push(JSON.stringify(currentSatelliteIds));
+      // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+      const satelliteConditions = currentSatelliteIds.map(() => 
+        'JSON_CONTAINS(ua.satellite_ids, ?)'
+      ).join(' OR ');
+      whereConditions.push(`(${satelliteConditions})`);
+      queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
     }
 
     // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
@@ -662,7 +880,7 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
     } else {
       satelliteJoin = `LEFT JOIN satellites s ON (
           s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
             JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
             JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
           )
