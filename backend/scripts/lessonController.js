@@ -539,11 +539,48 @@ const updateLesson = async (req, res) => {
       if (existingLesson.s3_key) {
         try {
           await s3Utils.deleteFile(existingLesson.s3_key);
+          customLogger.info('Old lesson file deleted successfully', {
+            s3Key: existingLesson.s3_key,
+            lessonId: id
+          });
         } catch (deleteError) {
           customLogger.warn('Failed to delete old file', {
             error: deleteError.message,
             s3Key: existingLesson.s3_key
           });
+        }
+
+        // 同じレッスンフォルダ内の他の古いファイルも削除（オプション）
+        // これにより、ファイル名を変更した際に古いファイルが残らないようにする
+        try {
+          const folderPrefix = existingLesson.s3_key.substring(0, existingLesson.s3_key.lastIndexOf('/'));
+          const listResult = await s3Utils.listFiles(folderPrefix);
+          
+          if (listResult.success && listResult.files.length > 0) {
+            // 既に削除したファイル以外の古いファイルを削除
+            for (const file of listResult.files) {
+              if (file.Key !== existingLesson.s3_key) {
+                try {
+                  await s3Utils.deleteFile(file.Key);
+                  customLogger.info('Additional old file deleted from lesson folder', {
+                    s3Key: file.Key,
+                    lessonId: id
+                  });
+                } catch (additionalDeleteError) {
+                  customLogger.warn('Failed to delete additional old file', {
+                    error: additionalDeleteError.message,
+                    s3Key: file.Key
+                  });
+                }
+              }
+            }
+          }
+        } catch (folderCleanupError) {
+          customLogger.warn('Failed to cleanup lesson folder', {
+            error: folderCleanupError.message,
+            lessonId: id
+          });
+          // フォルダクリーンアップエラーでもレッスン更新は続行
         }
       }
 
@@ -571,12 +608,43 @@ const updateLesson = async (req, res) => {
           fileName
         );
         
+        const newS3Key = uploadResult.key;
+        
         updateFields.push('s3_key = ?');
         updateFields.push('file_type = ?');
         updateFields.push('file_size = ?');
-        updateValues.push(uploadResult.key);
+        updateValues.push(newS3Key);
         updateValues.push(newFileType);
         updateValues.push(newFileSize);
+        
+        // lesson_text_video_linksテーブルの古いtext_file_keyも新しいS3キーに更新
+        if (existingLesson.s3_key && existingLesson.s3_key !== newS3Key) {
+          try {
+            const [updateResult] = await connection.execute(
+              `UPDATE lesson_text_video_links 
+               SET text_file_key = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE lesson_id = ? AND text_file_key = ?`,
+              [newS3Key, req.user?.user_id || null, id, existingLesson.s3_key]
+            );
+            
+            if (updateResult.affectedRows > 0) {
+              customLogger.info('lesson_text_video_links updated with new S3 key', {
+                lessonId: id,
+                oldS3Key: existingLesson.s3_key,
+                newS3Key: newS3Key,
+                affectedRows: updateResult.affectedRows
+              });
+            }
+          } catch (linkUpdateError) {
+            customLogger.warn('Failed to update lesson_text_video_links', {
+              error: linkUpdateError.message,
+              lessonId: id,
+              oldS3Key: existingLesson.s3_key,
+              newS3Key: newS3Key
+            });
+            // リンクテーブルの更新に失敗してもレッスン更新は続行
+          }
+        }
       } catch (uploadError) {
         customLogger.warn('S3 upload failed, continuing without file upload', {
           error: uploadError.message,
@@ -596,6 +664,30 @@ const updateLesson = async (req, res) => {
           updateValues.push(null);
           updateValues.push(null);
           updateValues.push(null);
+          
+          // lesson_text_video_linksテーブルから該当レコードを削除
+          try {
+            const [deleteResult] = await connection.execute(
+              `DELETE FROM lesson_text_video_links 
+               WHERE lesson_id = ? AND text_file_key = ?`,
+              [id, existingLesson.s3_key]
+            );
+            
+            if (deleteResult.affectedRows > 0) {
+              customLogger.info('lesson_text_video_links deleted for removed file', {
+                lessonId: id,
+                oldS3Key: existingLesson.s3_key,
+                affectedRows: deleteResult.affectedRows
+              });
+            }
+          } catch (linkDeleteError) {
+            customLogger.warn('Failed to delete lesson_text_video_links', {
+              error: linkDeleteError.message,
+              lessonId: id,
+              oldS3Key: existingLesson.s3_key
+            });
+            // リンクテーブルの削除に失敗してもレッスン更新は続行
+          }
         } catch (deleteError) {
           customLogger.warn('Failed to delete file during remove request', {
             error: deleteError.message,
@@ -1166,7 +1258,7 @@ const downloadLessonFile = async (req, res) => {
     
     try {
       const [rows] = await connection.execute(`
-        SELECT l.s3_key, l.title, c.title as course_title
+        SELECT l.s3_key, l.file_type, l.file_size, l.title, c.title as course_title
         FROM lessons l
         JOIN courses c ON l.course_id = c.id
         WHERE l.id = ? AND l.status != 'deleted'
@@ -1188,50 +1280,14 @@ const downloadLessonFile = async (req, res) => {
         });
       }
 
-      // S3キーからフォルダプレフィックスを抽出
-      const folderPrefix = lesson.s3_key.substring(0, lesson.s3_key.lastIndexOf('/'));
+      // lessonsテーブルの現在のs3_keyに対応する単一ファイルのみを返す
+      // これにより、古いファイルとの混同を防ぐ
+      const fileName = lesson.s3_key.split('/').pop();
+      const fileExtension = fileName.split('.').pop().toLowerCase();
       
-      // S3からフォルダ内のファイル一覧を取得
-      let listResult;
-      try {
-        listResult = await s3Utils.listFiles(folderPrefix);
-      } catch (s3Error) {
-        customLogger.error('S3ファイル一覧取得エラー:', {
-          error: s3Error.message,
-          lessonId: id,
-          folderPrefix: folderPrefix
-        });
-        
-        // S3エラーの場合は空のファイルリストを返す
-        return res.json({
-          success: true,
-          data: []
-        });
-      }
-
-      if (!listResult.success) {
-        customLogger.warn('S3ファイル一覧取得失敗:', {
-          lessonId: id,
-          folderPrefix: folderPrefix,
-          error: listResult.message
-        });
-        
-        // S3エラーの場合は空のファイルリストを返す
-        return res.json({
-          success: true,
-          data: []
-        });
-      }
-
-      // ファイル情報を整形
-      const files = listResult.files.map(file => {
-        const fileName = file.Key.split('/').pop();
-        const fileSize = file.Size;
-        const lastModified = file.LastModified;
-        const fileExtension = fileName.split('.').pop().toLowerCase();
-        
-        // ファイル拡張子からMIMEタイプを推定
-        let mimeType = fileExtension;
+      // ファイル拡張子からMIMEタイプを推定
+      let mimeType = lesson.file_type || fileExtension;
+      if (!lesson.file_type) {
         switch (fileExtension) {
           case 'pdf':
             mimeType = 'application/pdf';
@@ -1248,22 +1304,25 @@ const downloadLessonFile = async (req, res) => {
           default:
             mimeType = fileExtension;
         }
-        
-        return {
-          key: file.Key,
-          file_name: fileName,
-          file_type: mimeType,
-          file_extension: fileExtension,
-          size: fileSize,
-          lastModified: lastModified,
-          sizeFormatted: formatFileSize(fileSize)
-        };
-      });
+      }
+      
+      // 現在のファイル情報のみを配列で返す
+      const files = [{
+        key: lesson.s3_key,
+        file_name: fileName,
+        file_type: mimeType,
+        file_extension: fileExtension,
+        size: lesson.file_size || 0,
+        lastModified: null, // DB上の更新日時を使用する場合は追加可能
+        sizeFormatted: lesson.file_size ? formatFileSize(lesson.file_size) : '不明'
+      }];
 
       customLogger.info('Lesson files retrieved successfully', {
         lessonId: id,
         fileCount: files.length,
-      userId: req.user?.user_id || null
+        currentS3Key: lesson.s3_key,
+        fileType: mimeType,
+        userId: req.user?.user_id || null
       });
 
       res.json({
@@ -1274,7 +1333,7 @@ const downloadLessonFile = async (req, res) => {
       customLogger.error('Failed to retrieve lesson files', {
         error: error.message,
         lessonId: id,
-      userId: req.user?.user_id || null
+        userId: req.user?.user_id || null
       });
       
       res.status(500).json({

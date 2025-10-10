@@ -506,7 +506,7 @@ async function saveExamResult({ userId, lessonId, sectionIndex, testType, answer
       LEFT JOIN companies c ON ua.company_id = c.id
         LEFT JOIN satellites s ON (
           s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
             JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
             JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
           )
@@ -553,6 +553,13 @@ async function saveExamResult({ userId, lessonId, sectionIndex, testType, answer
     console.log('S3アップロード開始...');
     const fileBuffer = Buffer.from(markdownContent, 'utf8');
     
+    // 詳細データをメタデータとして保存
+    const detailedData = {
+      testData: updatedTestData,
+      answers: answers,
+      shuffledQuestions: shuffledQuestions || []
+    };
+    
     const { s3 } = require('../config/s3');
     const uploadParams = {
       Bucket: process.env.AWS_S3_BUCKET || 'studysphere',
@@ -565,7 +572,8 @@ async function saveExamResult({ userId, lessonId, sectionIndex, testType, answer
         'lesson-id': lessonId.toString(),
         'user-id': userId.toString(),
         'test-type': testType,
-        'exam-result': 'true'
+        'exam-result': 'true',
+        'detailed-data': JSON.stringify(detailedData)
       }
     };
 
@@ -692,7 +700,11 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
     hasQuestions: !!testData?.questions,
     questionsLength: testData?.questions?.length,
     testDataKeys: testData ? Object.keys(testData) : null,
-    firstQuestion: testData?.questions?.[0]
+    firstQuestion: testData?.questions?.[0],
+    answers: answers,
+    answersKeys: Object.keys(answers || {}),
+    score: score,
+    percentage: percentage
   });
   
   if (testData?.questions && testData.questions.length > 0) {
@@ -714,14 +726,15 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
     
     markdown += `**選択肢**:\n`;
     question.options.forEach((option, optionIndex) => {
+      const optionNumber = optionIndex + 1;
       let marker = '';
       if (optionIndex === question.correctAnswer) {
         marker = ' ✅ (正答)';
       }
-      if (optionIndex === userAnswer) {
-        marker += ' 👤 (解答)';
+      if (userAnswer === optionIndex) {
+        marker += isCorrect ? ' ✅ (あなたの回答)' : ' ❌ (あなたの回答)';
       }
-      markdown += `${optionIndex + 1}. ${option}${marker}\n`;
+      markdown += `${optionNumber}. ${option}${marker}\n`;
     });
     
     markdown += `\n**結果**: ${isCorrect ? '正解' : '不正解'}\n\n`;
@@ -1055,6 +1068,283 @@ router.post('/instructor/approve-test', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'テスト承認に失敗しました'
+    });
+  }
+});
+
+// 試験結果一覧取得API（指定レッスンIDの試験結果一覧をS3から取得）
+router.get('/learning/exam-results/:lessonId', authenticateToken, async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.user_id;
+
+    console.log('試験結果一覧取得リクエスト:', { userId, lessonId });
+
+    // ユーザー情報を取得（企業トークン、拠点トークン、利用者トークンを取得）
+    const connection = await pool.getConnection();
+    try {
+      const [userInfo] = await connection.execute(`
+        SELECT ua.id, ua.name, ua.login_code, c.token as company_token, s.token as satellite_token
+        FROM user_accounts ua
+        LEFT JOIN companies c ON ua.company_id = c.id
+        LEFT JOIN satellites s ON (
+          s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
+            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(s.id AS CHAR))) OR 
+            JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
+            JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+          )
+        )
+        WHERE ua.id = ?
+      `, [userId]);
+
+      if (userInfo.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザー情報が見つかりません'
+        });
+      }
+
+      const user = userInfo[0];
+      const companyToken = user.company_token || 'UNKNOWN';
+      const satelliteToken = user.satellite_token || 'UNKNOWN';
+      const userToken = user.login_code;
+
+      // S3のプレフィックスを生成
+      const s3Prefix = `doc/${companyToken}/${satelliteToken}/${userToken}/exam-result/`;
+      
+      console.log('S3プレフィックス:', s3Prefix);
+
+      // S3からファイル一覧を取得
+      console.log('S3設定確認:', {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID ? '設定済み' : '未設定',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ? '設定済み' : '未設定',
+        bucket: process.env.AWS_S3_BUCKET || 'studysphere'
+      });
+      
+      const listResult = await s3Utils.listFiles(s3Prefix);
+      console.log('S3 listFiles結果:', listResult);
+      
+      if (!listResult.success || listResult.files.length === 0) {
+        return res.json({
+          success: true,
+          data: [],
+          message: '試験結果がまだありません'
+        });
+      }
+
+      // 指定レッスンIDに該当するファイルをフィルタリング
+      const lessonResults = listResult.files
+        .filter(file => {
+          const fileName = file.Key.split('/').pop();
+          // exam-result-{lessonId}-{testType}-{timestamp}.md の形式
+          const match = fileName.match(/^exam-result-(\d+)-(lesson|section)-(.+)\.md$/);
+          return match && match[1] === lessonId.toString();
+        })
+        .map(file => {
+          const fileName = file.Key.split('/').pop();
+          const match = fileName.match(/^exam-result-(\d+)-(lesson|section)-(.+)\.md$/);
+          const timestamp = match[3];
+          
+          // タイムスタンプを日本時間に変換
+          // ファイル名の形式: 2025-10-08T05-31-08-388Z
+          // これを ISO 形式に変換: 2025-10-08T05:31:08.388Z
+          let isoTimestamp = timestamp;
+          try {
+            // Tの後の時刻部分のハイフンをコロンに変換
+            const timePart = timestamp.split('T')[1];
+            if (timePart) {
+              const timeParts = timePart.split('-');
+              if (timeParts.length >= 3) {
+                // 時:分:秒.ミリ秒Z の形式に変換
+                const formattedTime = `${timeParts[0]}:${timeParts[1]}:${timeParts[2]}`;
+                isoTimestamp = timestamp.replace(/T.*/, `T${formattedTime}`);
+              }
+            }
+          } catch (err) {
+            console.warn('タイムスタンプ変換エラー:', err);
+          }
+          
+          let displayTime = '';
+          try {
+            const date = new Date(isoTimestamp);
+            if (!isNaN(date.getTime())) {
+              displayTime = date.toLocaleString('ja-JP', {
+                timeZone: 'Asia/Tokyo',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              });
+            } else {
+              displayTime = timestamp; // 変換に失敗した場合は元の値を表示
+            }
+          } catch (err) {
+            console.warn('日時変換エラー:', err);
+            displayTime = timestamp;
+          }
+
+          return {
+            key: file.Key,
+            fileName: fileName,
+            lessonId: match[1],
+            testType: match[2],
+            timestamp: timestamp,
+            displayTime: displayTime,
+            size: file.Size,
+            lastModified: file.LastModified
+          };
+        })
+        .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified)); // 新しい順
+
+      console.log('取得した試験結果:', lessonResults.length);
+
+      res.json({
+        success: true,
+        data: lessonResults,
+        count: lessonResults.length
+      });
+
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('試験結果一覧取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '試験結果一覧の取得に失敗しました: ' + error.message
+    });
+  }
+});
+
+// 特定レッスンのテスト結果詳細データ取得API
+router.get('/learning/test-results/:lessonId', authenticateToken, async (req, res) => {
+  try {
+    const { lessonId } = req.params;
+    const userId = req.user.user_id;
+    
+    console.log('テスト結果詳細取得リクエスト:', { lessonId, userId });
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // 指定レッスンの最新のテスト結果を取得
+      const [results] = await connection.execute(`
+        SELECT 
+          er.*,
+          l.title as lesson_title
+        FROM exam_results er
+        JOIN lessons l ON er.lesson_id = l.id
+        WHERE er.user_id = ? 
+          AND er.lesson_id = ?
+          AND er.test_type = 'lesson'
+        ORDER BY er.exam_date DESC
+        LIMIT 1
+      `, [userId, lessonId]);
+
+      if (results.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'テスト結果が見つかりません'
+        });
+      }
+
+      const examResult = results[0];
+      
+      // S3から詳細データを取得
+      let detailedData = null;
+      if (examResult.s3_key) {
+        try {
+          const s3Result = await s3Utils.downloadFile(examResult.s3_key);
+          if (s3Result.success) {
+            // MDファイルからJSONデータを抽出（メタデータから）
+            const metadata = s3Result.metadata;
+            if (metadata && metadata['detailed-data']) {
+              detailedData = JSON.parse(metadata['detailed-data']);
+            }
+          }
+        } catch (s3Error) {
+          console.warn('S3からの詳細データ取得に失敗:', s3Error);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          examResult: {
+            id: examResult.id,
+            lessonId: examResult.lesson_id,
+            testType: examResult.test_type,
+            score: examResult.score,
+            totalQuestions: examResult.total_questions,
+            percentage: examResult.percentage,
+            passed: examResult.passed,
+            examDate: examResult.exam_date,
+            lessonTitle: examResult.lesson_title
+          },
+          detailedData: detailedData || {
+            testData: { questions: [] },
+            answers: {},
+            shuffledQuestions: []
+          }
+        }
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('テスト結果詳細取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'テスト結果の取得に失敗しました: ' + error.message
+    });
+  }
+});
+
+// 試験結果詳細取得API（MDファイルの内容を取得）
+router.get('/learning/exam-result-detail', authenticateToken, async (req, res) => {
+  try {
+    const { key } = req.query;
+    
+    if (!key) {
+      return res.status(400).json({
+        success: false,
+        message: 'S3キーが指定されていません'
+      });
+    }
+
+    console.log('試験結果詳細取得リクエスト:', { key });
+
+    // S3からファイルをダウンロード
+    const downloadResult = await s3Utils.downloadFile(key);
+    
+    if (!downloadResult.success) {
+      return res.status(404).json({
+        success: false,
+        message: 'ファイルが見つかりません'
+      });
+    }
+
+    // MDファイルの内容をテキストとして返す
+    const markdownContent = downloadResult.data.toString('utf8');
+
+    res.json({
+      success: true,
+      data: {
+        content: markdownContent,
+        contentType: downloadResult.contentType,
+        metadata: downloadResult.metadata
+      }
+    });
+
+  } catch (error) {
+    console.error('試験結果詳細取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '試験結果の取得に失敗しました: ' + error.message
     });
   }
 });

@@ -79,7 +79,7 @@ async function getCurrentSectionText(lessonId) {
       
       throw new Error('PDF処理がタイムアウトしました');
       
-    } else if (lesson.file_type === 'text/plain' || lesson.file_type === 'text/markdown') {
+    } else if (lesson.file_type === 'text/plain' || lesson.file_type === 'text/markdown' || lesson.file_type === 'md') {
       // テキストファイルの場合はそのまま返す
       return fileData.data.toString('utf-8');
       

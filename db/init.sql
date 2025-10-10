@@ -124,8 +124,7 @@ ON SCHEDULE EVERY 1 DAY
 STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 10 MINUTE)
 DO
     DELETE FROM `user_temp_passwords` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00') 
-    AND `is_used` = 0;
+    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
 
 -- 個人メッセージの自動揮発用イベントスケジューラー
 -- 毎日午前0時30分（日本時間）に期限切れの個人メッセージを削除

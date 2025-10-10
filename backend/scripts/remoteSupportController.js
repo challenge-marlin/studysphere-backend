@@ -663,8 +663,9 @@ class RemoteSupportController {
          second: '2-digit',
          hour12: false
        });
-       const japanDate = new Date(japanTimeString.replace(/\//g, '-'));
-       const utcNow = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000));
+       const { getCurrentJapanTime } = require('../utils/dateUtils');
+       const japanNow = getCurrentJapanTime();
+       const utcNow = new Date(japanNow.getTime() - (9 * 60 * 60 * 1000));
        const utcNowString = utcNow.toISOString().slice(0, 19).replace('T', ' ');
        
        customLogger.info(`一時パスワード確認: 現在時刻 (UTC): ${utcNowString}`);
