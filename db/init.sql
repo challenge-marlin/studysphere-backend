@@ -127,24 +127,24 @@ DO
     WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
 
 -- 個人メッセージの自動揮発用イベントスケジューラー
--- 毎日午前0時30分（日本時間）に期限切れの個人メッセージを削除
+-- 毎日午前0時30分（日本時間）に60日経過した個人メッセージを削除
 -- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_personal_messages`
 ON SCHEDULE EVERY 1 DAY
 STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `personal_messages` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+    WHERE `created_at` < DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+09:00'), INTERVAL 60 DAY);
 
 -- アナウンスメッセージの自動揮発用イベントスケジューラー
--- 毎日午前0時30分（日本時間）に期限切れのアナウンスメッセージを削除
+-- 毎日午前0時30分（日本時間）に60日経過したアナウンスメッセージを削除
 -- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_announcements`
 ON SCHEDULE EVERY 1 DAY
 STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `announcements` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+    WHERE `created_at` < DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+09:00'), INTERVAL 60 DAY);
 
 -- イベントスケジューラーを有効化
 SET GLOBAL event_scheduler = ON;
