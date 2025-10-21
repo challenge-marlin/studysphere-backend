@@ -118,31 +118,33 @@ CREATE TABLE `user_temp_passwords` (
 
 -- 一時パスワードの自動揮発用イベントスケジューラー
 -- 毎日午前0時10分（日本時間）に期限切れの一時パスワードを削除
+-- UTC時間では前日15時10分に実行（日本時間午前0時10分 = UTC前日15時10分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_temp_passwords`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 10 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 10 MINUTE)
 DO
     DELETE FROM `user_temp_passwords` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00') 
-    AND `is_used` = 0;
+    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
 
 -- 個人メッセージの自動揮発用イベントスケジューラー
--- 毎日午前0時30分（日本時間）に期限切れの個人メッセージを削除
+-- 毎日午前0時30分（日本時間）に60日経過した個人メッセージを削除
+-- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_personal_messages`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `personal_messages` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+    WHERE `created_at` < DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+09:00'), INTERVAL 60 DAY);
 
 -- アナウンスメッセージの自動揮発用イベントスケジューラー
--- 毎日午前0時30分（日本時間）に期限切れのアナウンスメッセージを削除
+-- 毎日午前0時30分（日本時間）に60日経過したアナウンスメッセージを削除
+-- UTC時間では前日15時30分に実行（日本時間午前0時30分 = UTC前日15時30分）
 CREATE EVENT IF NOT EXISTS `cleanup_expired_announcements`
 ON SCHEDULE EVERY 1 DAY
-STARTS CURRENT_TIMESTAMP + INTERVAL 30 MINUTE
+STARTS TIMESTAMP(CURDATE() + INTERVAL 15 HOUR + INTERVAL 30 MINUTE)
 DO
     DELETE FROM `announcements` 
-    WHERE `expires_at` < CONVERT_TZ(NOW(), '+00:00', '+09:00');
+    WHERE `created_at` < DATE_SUB(CONVERT_TZ(NOW(), '+00:00', '+09:00'), INTERVAL 60 DAY);
 
 -- イベントスケジューラーを有効化
 SET GLOBAL event_scheduler = ON;
@@ -157,6 +159,43 @@ CREATE TABLE `user_tags` (
     INDEX `idx_user_id` (`user_id`),
     INDEX `idx_tag_name` (`tag_name`)
 ) COMMENT = 'ユーザータグ情報管理テーブル';
+
+-- コース管理テーブル
+CREATE TABLE IF NOT EXISTS courses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255) NOT NULL COMMENT 'コース名',
+    description TEXT COMMENT 'コースの説明',
+    category VARCHAR(100) NOT NULL DEFAULT '選択科目' COMMENT 'カテゴリ（必修科目/選択科目）',
+    status ENUM('active', 'inactive', 'draft') DEFAULT 'active' COMMENT 'コースの状態',
+    order_index INT DEFAULT 0 COMMENT '表示順序',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    INDEX idx_status (status),
+    INDEX idx_category (category),
+    INDEX idx_order (order_index)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='コース管理テーブル';
+
+-- レッスン管理テーブル
+CREATE TABLE IF NOT EXISTS lessons (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    course_id INT NOT NULL COMMENT '関連コースID',
+    title VARCHAR(255) NOT NULL COMMENT 'レッスン名',
+    description TEXT COMMENT 'レッスン説明',
+    duration VARCHAR(50) COMMENT '所要時間',
+    order_index INT NOT NULL DEFAULT 0 COMMENT '表示順序',
+    has_assignment BOOLEAN NOT NULL DEFAULT FALSE COMMENT '課題の有無',
+    s3_key VARCHAR(1024) COMMENT 'S3オブジェクトキー',
+    file_type VARCHAR(50) COMMENT 'ファイルタイプ (pdf, md, docx, pptxなど)',
+    file_size BIGINT COMMENT 'ファイルサイズ (バイト)',
+    status ENUM('active', 'inactive', 'draft', 'deleted') NOT NULL DEFAULT 'active' COMMENT 'ステータス',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン管理テーブル';
 
 CREATE TABLE `user_lesson_progress` (
   `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '進捗ID',
@@ -384,43 +423,6 @@ CREATE TABLE `instructor_specializations` (
     INDEX `idx_user_id` (`user_id`)
 ) COMMENT = '指導者専門分野テーブル';
 
--- コース管理テーブル
-CREATE TABLE IF NOT EXISTS courses (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    title VARCHAR(255) NOT NULL COMMENT 'コース名',
-    description TEXT COMMENT 'コースの説明',
-    category VARCHAR(100) NOT NULL DEFAULT '選択科目' COMMENT 'カテゴリ（必修科目/選択科目）',
-    status ENUM('active', 'inactive', 'draft') DEFAULT 'active' COMMENT 'コースの状態',
-    order_index INT DEFAULT 0 COMMENT '表示順序',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    created_by INT COMMENT '作成者ID',
-    updated_by INT COMMENT '更新者ID',
-    INDEX idx_status (status),
-    INDEX idx_category (category),
-    INDEX idx_order (order_index)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='コース管理テーブル';
-
--- レッスン管理テーブル
-CREATE TABLE IF NOT EXISTS lessons (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    course_id INT NOT NULL COMMENT '関連コースID',
-    title VARCHAR(255) NOT NULL COMMENT 'レッスン名',
-    description TEXT COMMENT 'レッスン説明',
-    duration VARCHAR(50) COMMENT '所要時間',
-    order_index INT NOT NULL DEFAULT 0 COMMENT '表示順序',
-    has_assignment BOOLEAN NOT NULL DEFAULT FALSE COMMENT '課題の有無',
-    s3_key VARCHAR(1024) COMMENT 'S3オブジェクトキー',
-    file_type VARCHAR(50) COMMENT 'ファイルタイプ (pdf, md, docx, pptxなど)',
-    file_size BIGINT COMMENT 'ファイルサイズ (バイト)',
-    status ENUM('active', 'inactive', 'draft', 'deleted') NOT NULL DEFAULT 'active' COMMENT 'ステータス',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    created_by INT COMMENT '作成者ID',
-    updated_by INT COMMENT '更新者ID',
-    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン管理テーブル';
-
 -- レッスン動画テーブル（1対多対応）
 CREATE TABLE IF NOT EXISTS lesson_videos (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -460,6 +462,26 @@ CREATE TABLE IF NOT EXISTS lesson_text_video_links (
     INDEX idx_video_id (video_id),
     INDEX idx_link_order (link_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスンテキストと動画の紐づけテーブル';
+
+-- レッスン複数テキストファイルテーブル
+CREATE TABLE IF NOT EXISTS lesson_text_files (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ファイルID',
+    lesson_id INT NOT NULL COMMENT '関連レッスンID',
+    file_name VARCHAR(255) NOT NULL COMMENT 'ファイル名',
+    s3_key VARCHAR(1024) NOT NULL COMMENT 'S3オブジェクトキー',
+    file_type VARCHAR(50) COMMENT 'ファイルタイプ (pdf, txt, md, docx, pptxなど)',
+    file_size BIGINT COMMENT 'ファイルサイズ (バイト)',
+    order_index INT NOT NULL DEFAULT 0 COMMENT '表示順序',
+    status ENUM('active', 'inactive', 'deleted') NOT NULL DEFAULT 'active' COMMENT 'ステータス',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    created_by INT COMMENT '作成者ID',
+    updated_by INT COMMENT '更新者ID',
+    FOREIGN KEY (lesson_id) REFERENCES lessons(id) ON DELETE CASCADE,
+    INDEX idx_lesson_id (lesson_id),
+    INDEX idx_order_index (order_index),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='レッスン複数テキストファイルテーブル';
 
 -- カリキュラムパステーブル
 CREATE TABLE IF NOT EXISTS curriculum_paths (
@@ -507,18 +529,6 @@ CREATE TABLE IF NOT EXISTS `operation_logs` (
   INDEX `idx_admin_id` (`admin_id`),
   INDEX `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='操作ログテーブル';
-
--- 初期データの挿入
-
--- 管理者ユーザーの作成
-INSERT INTO user_accounts (id, name, role, status, login_code) VALUES 
-(1, 'admin001', 10, 1, 'ADMN-0001-0001')
-ON DUPLICATE KEY UPDATE name = name;
-
--- 管理者認証情報の作成（パスワード: admin123）
-INSERT INTO admin_credentials (user_id, username, password_hash) VALUES 
-(1, 'admin001', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O')
-ON DUPLICATE KEY UPDATE username = username;
 
 -- 利用者とコースの関連付けテーブル
 CREATE TABLE IF NOT EXISTS `user_courses` (
@@ -646,3 +656,13 @@ CREATE TABLE IF NOT EXISTS `exam_results` (
     INDEX `idx_exam_date` (`exam_date`),
     INDEX `idx_passed` (`passed`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='試験結果テーブル';
+
+-- 管理者ユーザーの作成
+INSERT INTO user_accounts (id, name, role, status, login_code) VALUES 
+(1, 'マスターユーザ', 10, 1, 'ADMN-0001-0001')
+ON DUPLICATE KEY UPDATE name = name;
+
+-- 管理者認証情報の作成（パスワード: admin123）
+INSERT INTO admin_credentials (user_id, username, password_hash) VALUES 
+(1, 'admin001', '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O')
+ON DUPLICATE KEY UPDATE username = username;

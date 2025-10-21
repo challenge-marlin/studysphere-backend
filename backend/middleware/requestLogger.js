@@ -121,7 +121,7 @@ const authLogger = (req, res, next) => {
   next();
 };
 
-// データベースログミドルウェア
+// データベースログミドルウェア（本番環境用改善版）
 const dbLogger = (req, res, next) => {
   // データベース操作の監視
   const originalQuery = req.app.locals.db?.query;
@@ -133,10 +133,31 @@ const dbLogger = (req, res, next) => {
       const wrappedCallback = function(error, results) {
         const duration = Date.now() - startTime;
         
-        customLogger.database('query', sql, params, duration, {
-          error: error ? error.message : null,
-          rowCount: results ? results.length : 0
-        });
+        // 本番環境では重要なクエリのみログ出力
+        const shouldLog = process.env.NODE_ENV === 'development' || 
+                         duration > 1000 || // 1秒以上のクエリ
+                         error || // エラーが発生したクエリ
+                         sql.toLowerCase().includes('insert') || 
+                         sql.toLowerCase().includes('update') || 
+                         sql.toLowerCase().includes('delete');
+        
+        if (shouldLog) {
+          customLogger.database('query', sql, params, duration, {
+            error: error ? error.message : null,
+            rowCount: results ? results.length : 0,
+            environment: process.env.NODE_ENV || 'development'
+          });
+        }
+        
+        // エラーの場合は常にログ出力
+        if (error) {
+          customLogger.errorWithStack(error, {
+            type: 'database_error',
+            query: sql,
+            params: params,
+            duration: duration
+          });
+        }
         
         if (callback) {
           callback(error, results);

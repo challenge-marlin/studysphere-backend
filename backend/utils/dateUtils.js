@@ -32,8 +32,7 @@ const getCurrentJapanTime = () => {
  */
 const getTodayEndTime = () => {
   const now = new Date();
-  
-  // 日本時間の今日の23:59:59を計算
+  // 日本時間の文字列を取得
   const japanTimeString = now.toLocaleString('ja-JP', {
     timeZone: 'Asia/Tokyo',
     year: 'numeric',
@@ -45,21 +44,12 @@ const getTodayEndTime = () => {
     hour12: false
   });
   
-  // 日本時間の今日の23:59:59を設定
+  // 日本時間のDateオブジェクトを作成
   const japanDate = new Date(japanTimeString.replace(/\//g, '-'));
   japanDate.setHours(23, 59, 59, 999);
   
-  // 日本時間をUTCに変換して返す（データベース保存用）
+  // 日本時間をUTCに変換
   const utcTime = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000));
-  
-  console.log('getTodayEndTime 詳細:', {
-    now: now.toISOString(),
-    japanTimeString,
-    japanDate: japanDate.toISOString(),
-    utcTime: utcTime.toISOString(),
-    utcTimeMySQL: utcTime.toISOString().slice(0, 19).replace('T', ' ')
-  });
-  
   return utcTime;
 };
 

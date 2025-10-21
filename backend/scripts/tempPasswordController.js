@@ -237,8 +237,12 @@ class TempPasswordController {
             }
 
             if (currentSatelliteIds.length > 0) {
-                whereConditions.push('JSON_OVERLAPS(ua.satellite_ids, ?)');
-                queryParams.push(JSON.stringify(currentSatelliteIds));
+                // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+                const satelliteConditions = currentSatelliteIds.map(() => 
+                    'JSON_CONTAINS(ua.satellite_ids, ?)'
+                ).join(' OR ');
+                whereConditions.push(`(${satelliteConditions})`);
+                queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
             }
 
             // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得

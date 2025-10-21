@@ -762,17 +762,24 @@ router.post('/extract-pdf-text', authenticateToken, async (req, res) => {
       });
     } catch (headError) {
       if (headError.code === 'NotFound') {
-        customLogger.error('PDFテキスト抽出: S3ファイルが存在しません', {
+        // ファイル拡張子からファイルタイプを判定
+        const fileExtension = s3Key.split('.').pop().toLowerCase();
+        const fileTypeName = fileExtension === 'pdf' ? 'PDFファイル' : 
+                            fileExtension === 'md' ? 'Markdownファイル' : 
+                            'テキストファイル';
+        
+        customLogger.error('テキスト抽出: S3ファイルが存在しません', {
           requestId,
           s3Key,
           lessonId,
+          fileType: fileExtension,
           bucket: process.env.AWS_S3_BUCKET,
           error: headError.message
         });
         clearTimeout(requestTimeout);
         return res.status(404).json({
           success: false,
-          message: '指定されたPDFファイルが見つかりません',
+          message: `指定された${fileTypeName}が見つかりません`,
           error: 'The specified key does not exist.',
           s3Key: s3Key,
           bucket: process.env.AWS_S3_BUCKET,
@@ -905,7 +912,7 @@ router.post('/extract-pdf-text', authenticateToken, async (req, res) => {
         errorMessage = 'ファイルのダウンロードに失敗しました';
         statusCode = 503;
       } else if (error.message.includes('The specified key does not exist')) {
-        errorMessage = '指定されたPDFファイルが見つかりません';
+        errorMessage = '指定されたファイルが見つかりません';
         statusCode = 404;
       }
       
@@ -1248,9 +1255,15 @@ router.get('/pdf-viewer', async (req, res) => {
     
     // S3関連のエラーの場合は詳細なメッセージを返す
     if (error.code === 'NoSuchKey') {
+      const s3Key = req.query?.key || '';
+      const fileExtension = s3Key.split('.').pop().toLowerCase();
+      const fileTypeName = fileExtension === 'pdf' ? 'PDFファイル' : 
+                          fileExtension === 'md' ? 'Markdownファイル' : 
+                          'ファイル';
+      
       return res.status(404).json({
         success: false,
-        message: '指定されたPDFファイルが見つかりません',
+        message: `指定された${fileTypeName}が見つかりません`,
         error: 'File not found in S3'
       });
     } else if (error.code === 'AccessDenied') {
@@ -1263,7 +1276,7 @@ router.get('/pdf-viewer', async (req, res) => {
     
     res.status(500).json({
       success: false,
-      message: 'PDFファイルの取得に失敗しました',
+      message: 'ファイルの取得に失敗しました',
       error: process.env.NODE_ENV === 'development' ? error.message : '内部エラー'
     });
   }

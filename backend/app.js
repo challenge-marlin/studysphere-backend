@@ -211,6 +211,8 @@ app.use(cors({
       const allowedOrigins = [
         'http://localhost:3000',
         'http://localhost:5000',
+        'https://studysphere.ayatori-inc.co.jp',
+        'https://backend.studysphere.ayatori-inc.co.jp',
         process.env.FRONTEND_URL
       ].filter(Boolean);
       
@@ -221,8 +223,46 @@ app.use(cors({
       }
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With', 
+    'Accept', 
+    'Origin', 
+    'Cache-Control',
+    'Pragma',
+    'Expires'
+  ],
+  exposedHeaders: ['Authorization'],
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 }));
+
+// 明示的なOPTIONSリクエストハンドラー（CORSプリフライト対応）
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'https://studysphere.ayatori-inc.co.jp',
+    'https://backend.studysphere.ayatori-inc.co.jp',
+    process.env.FRONTEND_URL
+  ].filter(Boolean);
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else if (process.env.NODE_ENV === 'development') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '3600');
+  res.status(200).end();
+});
 
 // ログミドルウェア（最初に配置）
 app.use(requestLogger);
@@ -315,6 +355,7 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/lessons', lessonRoutes);
 app.use('/api/lesson-videos', lessonVideoRoutes);
 app.use('/api/lesson-text-video-links', lessonTextVideoLinkRoutes);
+app.use('/api/lesson-text-files', require('./routes/lessonTextFiles'));
 app.use('/api/curriculum-paths', curriculumPathRoutes);
 app.use('/api/user-courses', userCourseRoutes);
 app.use('/api/support-plans', supportPlanRoutes);
@@ -356,6 +397,16 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     version: process.version
+  });
+});
+
+// CORS設定確認エンドポイント
+app.get('/api/cors-test', (req, res) => {
+  res.json({
+    message: 'CORS設定確認エンドポイント',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    corsConfigured: true
   });
 });
 

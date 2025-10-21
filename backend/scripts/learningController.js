@@ -218,10 +218,20 @@ const getCourseProgress = async (req, res) => {
 
 // レッスン進捗を更新
 const updateLessonProgress = async (req, res) => {
-  const { userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved, instructorId } = req.body;
+  const { userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved, instructorId, forceUpdate } = req.body;
   const connection = await pool.getConnection();
   
   try {
+    customLogger.info('Updating lesson progress', {
+      userId,
+      lessonId,
+      status,
+      testScore,
+      assignmentSubmitted,
+      instructorApproved,
+      forceUpdate
+    });
+
     // 既存の進捗を確認
     const [existingProgress] = await connection.execute(`
       SELECT * FROM user_lesson_progress 
@@ -229,33 +239,200 @@ const updateLessonProgress = async (req, res) => {
     `, [userId, lessonId]);
 
     if (existingProgress.length > 0) {
-      // 既存の進捗を更新
-      await connection.execute(`
+      // forceUpdateフラグがある場合、同じステータスでも確実に更新されるように
+      // 一旦別のステータスに変更してから元に戻す
+      if (forceUpdate && existingProgress[0].status === status) {
+        customLogger.info('Force update: changing status temporarily to ensure updated_at changes', {
+          userId,
+          lessonId,
+          currentStatus: status
+        });
+        
+        // 1回目: 一旦 not_started に変更
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET status = 'not_started', updated_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [userId, lessonId]);
+        
+        customLogger.info('Force update: temporarily set to not_started');
+        
+        // 2回目: 元のステータスに戻しつつ、他のフィールドも更新
+        const forceUpdateFields = ['status = ?'];
+        const forceUpdateValues = [status];
+        
+        // testScoreがnullでない場合のみ更新
+        if (testScore !== null && testScore !== undefined) {
+          forceUpdateFields.push('test_score = ?');
+          forceUpdateValues.push(testScore);
+        }
+        
+        // assignmentSubmittedが明示的に指定された場合のみ更新
+        if (assignmentSubmitted !== null && assignmentSubmitted !== undefined && assignmentSubmitted !== false) {
+          forceUpdateFields.push('assignment_submitted = ?');
+          forceUpdateValues.push(assignmentSubmitted);
+          if (assignmentSubmitted === true || assignmentSubmitted === 1) {
+            forceUpdateFields.push('assignment_submitted_at = NOW()');
+          }
+        }
+        
+        // instructorApprovedが明示的に指定された場合のみ更新
+        if (instructorApproved !== null && instructorApproved !== undefined) {
+          forceUpdateFields.push('instructor_approved = ?');
+          forceUpdateValues.push(instructorApproved);
+          if (instructorApproved === true || instructorApproved === 1) {
+            forceUpdateFields.push('instructor_approved_at = NOW()');
+            if (instructorId) {
+              forceUpdateFields.push('instructor_id = ?');
+              forceUpdateValues.push(instructorId);
+            }
+          }
+        }
+        
+        // completedの場合は完了日時を設定
+        if (status === 'completed') {
+          forceUpdateFields.push('completed_at = NOW()');
+        }
+        
+        // updated_atは常に更新
+        forceUpdateFields.push('updated_at = NOW()');
+        
+        forceUpdateValues.push(userId, lessonId);
+        
+        const forceUpdateQuery = `
+          UPDATE user_lesson_progress 
+          SET ${forceUpdateFields.join(', ')}
+          WHERE user_id = ? AND lesson_id = ?
+        `;
+        
+        await connection.execute(forceUpdateQuery, forceUpdateValues);
+        
+        customLogger.info('Force update: restored to original status with all fields updated', { 
+          status,
+          updatedFields: forceUpdateFields
+        });
+        
+        // forceUpdateの場合は通常の更新をスキップ
+        // コース進捗更新のみ実行
+        try {
+          console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${userId}, lessonId=${lessonId}`);
+          await updateCourseProgress(connection, userId, lessonId);
+        } catch (progressError) {
+          console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
+          customLogger.warn('Course progress update failed, but lesson progress was updated', {
+            error: progressError.message,
+            userId,
+            lessonId
+          });
+        }
+
+        customLogger.info('Lesson progress force updated successfully', {
+          userId,
+          lessonId,
+          status
+        });
+
+        res.json({
+          success: true,
+          message: '進捗が更新されました'
+        });
+        
+        return; // 処理を終了
+      }
+      
+      // 通常の更新処理（forceUpdateではない場合）
+      // assignment_submittedとinstructor_approvedは明示的に指定された場合のみ更新
+      const updateFields = [];
+      const updateValues = [];
+      
+      updateFields.push('status = ?');
+      updateValues.push(status);
+      
+      // testScoreがnullでない場合のみ更新
+      if (testScore !== null && testScore !== undefined) {
+        updateFields.push('test_score = ?');
+        updateValues.push(testScore);
+      }
+      
+      // assignmentSubmittedが明示的に指定された場合のみ更新
+      if (assignmentSubmitted !== null && assignmentSubmitted !== undefined && assignmentSubmitted !== false) {
+        updateFields.push('assignment_submitted = ?');
+        updateValues.push(assignmentSubmitted);
+        if (assignmentSubmitted === true || assignmentSubmitted === 1) {
+          updateFields.push('assignment_submitted_at = NOW()');
+        }
+      }
+      
+      // instructorApprovedが明示的に指定された場合のみ更新
+      if (instructorApproved !== null && instructorApproved !== undefined) {
+        updateFields.push('instructor_approved = ?');
+        updateValues.push(instructorApproved);
+        if (instructorApproved === true || instructorApproved === 1) {
+          updateFields.push('instructor_approved_at = NOW()');
+          if (instructorId) {
+            updateFields.push('instructor_id = ?');
+            updateValues.push(instructorId);
+          }
+        }
+      }
+      
+      // completedの場合は完了日時を設定
+      if (status === 'completed') {
+        updateFields.push('completed_at = NOW()');
+      }
+      
+      // updated_atは常に更新
+      updateFields.push('updated_at = NOW()');
+      
+      // WHERE句のパラメータ
+      updateValues.push(userId, lessonId);
+      
+      const updateQuery = `
         UPDATE user_lesson_progress 
-        SET 
-          status = ?,
-          test_score = ?,
-          assignment_submitted = ?,
-          instructor_approved = ?,
-          instructor_id = ?,
-          completed_at = CASE WHEN ? = 'completed' THEN NOW() ELSE completed_at END,
-          assignment_submitted_at = CASE WHEN ? = 1 THEN assignment_submitted_at ELSE assignment_submitted_at END,
-          instructor_approved_at = CASE WHEN ? = 1 THEN NOW() ELSE instructor_approved_at END,
-          updated_at = NOW()
+        SET ${updateFields.join(', ')}
         WHERE user_id = ? AND lesson_id = ?
-      `, [status, testScore, assignmentSubmitted, instructorApproved || false, instructorId, status, assignmentSubmitted, instructorApproved || false, userId, lessonId]);
+      `;
+      
+      const [updateResult] = await connection.execute(updateQuery, updateValues);
+      
+      customLogger.info('Existing lesson progress updated', {
+        userId,
+        lessonId,
+        updatedFields: updateFields,
+        affectedRows: updateResult.affectedRows,
+        changedRows: updateResult.changedRows
+      });
     } else {
       // 新しい進捗を作成
       await connection.execute(`
         INSERT INTO user_lesson_progress (
           user_id, lesson_id, status, test_score, assignment_submitted, 
-          instructor_approved, instructor_id, completed_at, assignment_submitted_at, instructor_approved_at
+          instructor_approved, instructor_id, completed_at, assignment_submitted_at, instructor_approved_at,
+          created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 
           CASE WHEN ? = 'completed' THEN NOW() ELSE NULL END,
           CASE WHEN ? = 1 THEN NOW() ELSE NULL END,
-          CASE WHEN ? = 1 THEN NOW() ELSE NULL END
+          CASE WHEN ? = 1 THEN NOW() ELSE NULL END,
+          NOW(), NOW()
         )
-      `, [userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved || false, instructorId, status, assignmentSubmitted, instructorApproved || false]);
+      `, [
+        userId, 
+        lessonId, 
+        status, 
+        testScore || null, 
+        assignmentSubmitted || false, 
+        instructorApproved || false, 
+        instructorId || null, 
+        status, 
+        assignmentSubmitted, 
+        instructorApproved
+      ]);
+      
+      customLogger.info('New lesson progress created', {
+        userId,
+        lessonId,
+        status
+      });
     }
 
     // コース全体の進捗率を更新（エラーが発生しても処理を継続）
@@ -380,7 +557,7 @@ const submitTestResult = async (req, res) => {
       LEFT JOIN companies c ON ua.company_id = c.id
         LEFT JOIN satellites s ON (
           s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
-            JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(s.id)) OR 
+            JSON_CONTAINS(ua.satellite_ids,  JSON_QUOTE(CAST(s.id AS CHAR))) OR 
             JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON)) OR
             JSON_SEARCH(ua.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
           )
@@ -694,7 +871,7 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
   markdown += `- **受験者**: ${user.name} (${user.login_code})\n`;
   markdown += `- **レッスン名**: ${lesson.title}\n`;
   markdown += `- **テスト種別**: ${testType === 'section' ? 'セクションテスト' : '総合テスト'}\n`;
-  if (sectionIndex !== null && sectionIndex !== undefined) {
+  if (testType === 'section' && sectionIndex !== null) {
     markdown += `- **セクション番号**: ${sectionIndex + 1}\n`;
   }
   markdown += `- **受験日時**: ${examDate}\n\n`;
@@ -711,20 +888,20 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
     hasTestData: !!testData,
     hasQuestions: !!testData?.questions,
     questionsLength: testData?.questions?.length,
-    testDataKeys: testData ? Object.keys(testData) : null
+    testDataKeys: testData ? Object.keys(testData) : null,
+    firstQuestion: testData?.questions?.[0]
   });
   
   if (testData?.questions && testData.questions.length > 0) {
     testData.questions.forEach((question, index) => {
     const userAnswer = answers[question.id];
-    const isCorrect = userAnswer !== undefined && userAnswer === question.correctAnswer;
+    const isCorrect = userAnswer === question.correctAnswer;
     
-    console.log(`問題 ${index + 1} の採点:`, {
+    console.log(`問題 ${index + 1} のMD生成:`, {
       questionId: question.id,
       userAnswer,
       correctAnswer: question.correctAnswer,
       isCorrect,
-      hasOriginalCorrectAnswer: question.originalCorrectAnswer !== undefined,
       hasOptions: !!question.options,
       optionsLength: question.options?.length
     });
@@ -735,10 +912,10 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
     question.options.forEach((option, optionIndex) => {
       const optionNumber = optionIndex + 1;
       let marker = '';
-      if (optionNumber === question.correctAnswer + 1) { // correctAnswerは0ベースなので+1
+      if (optionIndex === question.correctAnswer) {
         marker = ' ✅ (正答)';
       }
-      if (userAnswer === optionIndex) { // userAnswerは0ベースのインデックス
+      if (userAnswer === optionIndex) {
         marker += isCorrect ? ' ✅ (あなたの回答)' : ' ❌ (あなたの回答)';
       }
       markdown += `${optionNumber}. ${option}${marker}\n`;
@@ -756,38 +933,62 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
   return markdown;
 }
 
-// テスト結果を取得
+// テスト結果を取得（最新のレッスンテストのみ）
 const getTestResults = async (req, res) => {
   const { userId } = req.params;
   const connection = await pool.getConnection();
   
   try {
+    // exam_resultsテーブルから最新のレッスンテスト結果を取得
     const [results] = await connection.execute(`
       SELECT 
-        ulp.lesson_id,
-        l.title as lesson_title,
-        c.title as course_title,
-        ulp.test_score,
-        ulp.completed_at,
-        ulp.assignment_submitted
-      FROM user_lesson_progress ulp
-      JOIN lessons l ON ulp.lesson_id = l.id
-      JOIN courses c ON l.course_id = c.id
-      WHERE ulp.user_id = ? AND ulp.status = 'completed'
-      ORDER BY ulp.completed_at DESC
+        er.lesson_id,
+        er.test_type,
+        er.passed,
+        er.score as test_score,
+        er.total_questions,
+        er.percentage,
+        er.exam_date as completed_at,
+        l.title as lesson_title
+      FROM exam_results er
+      JOIN lessons l ON er.lesson_id = l.id
+      WHERE er.user_id = ? 
+        AND er.test_type = 'lesson'
+      ORDER BY er.lesson_id, er.exam_date DESC
     `, [userId]);
 
-    customLogger.info('Test results retrieved successfully', {
+    // レッスンごとに最新の結果のみを選択
+    const latestResults = {};
+    results.forEach(result => {
+      const lessonId = result.lesson_id;
+      if (!latestResults[lessonId] || new Date(result.completed_at) > new Date(latestResults[lessonId].completed_at)) {
+        latestResults[lessonId] = result;
+      }
+    });
+
+    // 配列に変換
+    const finalResults = Object.values(latestResults).map(result => ({
+      lesson_id: result.lesson_id,
+      test_score: result.test_score,
+      total_questions: result.total_questions,
+      percentage: result.percentage,
+      passed: result.passed,
+      completed_at: result.completed_at,
+      test_type: result.test_type,
+      lesson_title: result.lesson_title
+    }));
+
+    customLogger.info('Latest test results retrieved successfully from database', {
       userId,
-      resultCount: results.length
+      resultCount: finalResults.length
     });
 
     res.json({
       success: true,
-      data: results
+      data: finalResults
     });
   } catch (error) {
-    customLogger.error('Failed to retrieve test results', {
+    customLogger.error('Failed to retrieve latest test results', {
       error: error.message,
       userId
     });
@@ -834,7 +1035,9 @@ const getLessonContent = async (req, res) => {
       title: lesson.title,
       course_id: lesson.course_id,
       course_title: lesson.course_title,
-      s3_key: lesson.s3_key
+      s3_key: lesson.s3_key,
+      file_type: lesson.file_type,  // ← file_typeも出力
+      file_size: lesson.file_size
     });
 
     // データ整合性チェック
@@ -894,8 +1097,13 @@ const getLessonContent = async (req, res) => {
         console.log('S3ダウンロード結果:', s3Result);
         
         if (s3Result.success) {
+          // ファイルタイプを判定（file_typeフィールドとS3キーの拡張子の両方をチェック）
+          const s3KeyLower = lesson.s3_key.toLowerCase();
+          const fileTypeLower = (lesson.file_type || '').toLowerCase();
+          const isPDF = s3KeyLower.endsWith('.pdf') && (fileTypeLower === 'pdf' || fileTypeLower === 'application/pdf');
+          
           // PDFの場合は、S3の署名付きURLを生成し、テキストコンテンツも取得する
-          if (lesson.s3_key.toLowerCase().endsWith('.pdf')) {
+          if (isPDF) {
             console.log('PDFファイルのため、署名付きURLを生成し、テキストコンテンツも取得中...');
             
             // PDFファイルのテキストコンテンツを取得
@@ -965,10 +1173,18 @@ const getLessonContent = async (req, res) => {
               }
             }
           } else {
-            // テキストファイルの場合は、そのままテキストコンテンツとして使用
-            console.log('テキストファイルのため、内容をそのまま使用');
+            // テキストファイル（MD、TXT等）の場合は、そのままテキストコンテンツとして使用
+            const fileExtension = s3KeyLower.split('.').pop();
+            console.log('テキストファイルのため、内容をそのまま使用', { 
+              fileType: lesson.file_type, 
+              extension: fileExtension,
+              s3Key: lesson.s3_key
+            });
             const fileContent = s3Result.data.toString('utf8');
             lesson.textContent = fileContent;
+            
+            // MDファイルの場合はPDFのURLは不要
+            lesson.pdfUrl = null;
           }
         } else {
           console.warn('S3ダウンロード失敗:', s3Result.message);
@@ -1446,7 +1662,7 @@ const getCurrentLesson = async (req, res) => {
       FROM user_lesson_progress ulp
       JOIN lessons l ON ulp.lesson_id = l.id
       JOIN courses c ON l.course_id = c.id
-      WHERE ulp.user_id = ? AND ulp.status = 'in_progress'
+      WHERE ulp.user_id = ? AND ulp.status != 'not_started'
     `;
     
     const params = [userId];
@@ -1456,39 +1672,24 @@ const getCurrentLesson = async (req, res) => {
       params.push(courseId);
     }
     
-    // updated_atが最新のin_progressレッスンを取得（同じ時刻の場合はlesson_idが大きい方を優先）
+    // 未学習以外のステータスで、更新日時が最新のレッスンを取得
     query += ' ORDER BY ulp.updated_at DESC, ulp.lesson_id DESC LIMIT 1';
     
     const [currentLessons] = await connection.execute(query, params);
 
-    // 現在受講中レッスンがない場合は、コースの最初のレッスンを推奨
-    if (currentLessons.length === 0 && courseId) {
-      const [firstLesson] = await connection.execute(`
-        SELECT 
-          l.id as lesson_id,
-          l.title as lesson_title,
-          l.description as lesson_description,
-          l.order_index as lesson_order,
-          l.course_id,
-          c.title as course_title,
-          c.description as course_description,
-          NOW() as started_at
-        FROM lessons l
-        JOIN courses c ON l.course_id = c.id
-        WHERE l.course_id = ? AND l.status = 'active'
-        ORDER BY l.order_index ASC
-        LIMIT 1
-      `, [courseId]);
-
-      if (firstLesson.length > 0) {
-        currentLessons.push(firstLesson[0]);
-      }
+    // 未学習以外のレッスンがない場合は、現在受講中タグは表示しない
+    if (currentLessons.length === 0) {
+      customLogger.info('No active lessons found - no current lesson will be displayed', {
+        userId,
+        courseId
+      });
     }
 
     customLogger.info('Current lesson retrieved successfully', {
       userId,
       courseId,
-      count: currentLessons.length
+      count: currentLessons.length,
+      currentLesson: currentLessons.length > 0 ? currentLessons[0].lesson_id : null
     });
 
     res.json({
