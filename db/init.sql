@@ -310,6 +310,7 @@ CREATE TABLE `remote_support_daily_records` (
     `condition` VARCHAR(10) NOT NULL COMMENT '体調（良い・普通・悪い）',
     `condition_note` TEXT DEFAULT NULL COMMENT '体調備考（任意）',
     `work_note` TEXT NOT NULL COMMENT '本日の作業内容（必須）',
+    `sleep_hours` VARCHAR(10) DEFAULT NULL COMMENT '睡眠時間（HH時間MM分）',
     `work_result` TEXT COMMENT '作業内容実績',
     `daily_report` TEXT COMMENT '日報',
     `support_method` ENUM('訪問', '電話', 'その他') DEFAULT NULL COMMENT '支援方法',
@@ -384,6 +385,20 @@ CREATE TABLE `support_plans` (
     `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`)
 ) COMMENT = '個別支援計画';
+
+-- 通所記録テーブル
+CREATE TABLE `office_visit_records` (
+    `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '通所記録ID',
+    `user_id` INT NOT NULL COMMENT '利用者のユーザーID',
+    `visit_date` DATE NOT NULL COMMENT '通所日',
+    `satellite_id` INT DEFAULT NULL COMMENT '拠点ID',
+    `notes` TEXT DEFAULT NULL COMMENT '備考',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+    FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
+    FOREIGN KEY (`satellite_id`) REFERENCES `satellites`(`id`) ON DELETE SET NULL,
+    UNIQUE KEY `unique_visit_record` (`user_id`, `visit_date`)
+) COMMENT = '通所記録テーブル';
 
 -- カリキュラム成果物ファイル情報テーブル
 CREATE TABLE `deliverables` (

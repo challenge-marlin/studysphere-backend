@@ -102,18 +102,18 @@ const testConnection = async () => {
 };
 
 // 安全なクエリ実行関数
-const executeQuery = async (query, params = []) => {
+const executeQuery = async (sql, params = []) => {
   let connection;
   const startTime = Date.now();
   
   try {
     connection = await pool.getConnection();
     
-    const [rows] = await connection.execute(query, params);
+    const [rows] = await connection.execute(sql, params);
     const duration = Date.now() - startTime;
     
     // クエリ実行ログ
-    customLogger.database('execute', query, params, duration, {
+    customLogger.database('execute', sql, params, duration, {
       rowCount: rows.length,
       threadId: connection.threadId
     });
@@ -122,7 +122,7 @@ const executeQuery = async (query, params = []) => {
   } catch (error) {
     const duration = Date.now() - startTime;
     customLogger.error('クエリ実行エラー', {
-      query,
+      sql,
       params,
       error: error.message,
       code: error.code,
@@ -137,6 +137,16 @@ const executeQuery = async (query, params = []) => {
     if (connection) {
       connection.release();
     }
+  }
+};
+
+// query関数: executeQueryのラッパーで、直接データを返す
+const query = async (sql, params = []) => {
+  const result = await executeQuery(sql, params);
+  if (result.success) {
+    return result.data;
+  } else {
+    throw new Error(result.error || 'クエリ実行に失敗しました');
   }
 };
 
@@ -233,6 +243,7 @@ module.exports = {
   pool,
   testConnection,
   executeQuery,
+  query,
   getPool,
   getPoolStatus,
   endPool,

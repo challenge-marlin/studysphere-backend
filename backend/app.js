@@ -200,69 +200,14 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
 }));
 app.use(cors({
-  origin: function (origin, callback) {
-    // 開発環境ではすべてのオリジンを許可
-    if (process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      // 本番環境では特定のオリジンのみ許可
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://localhost:5000',
-        'https://studysphere.ayatori-inc.co.jp',
-        'https://backend.studysphere.ayatori-inc.co.jp',
-        process.env.FRONTEND_URL
-      ].filter(Boolean);
-      
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With', 
-    'Accept', 
-    'Origin', 
-    'Cache-Control',
-    'Pragma',
-    'Expires'
-  ],
-  exposedHeaders: ['Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 200
+  origin: 'https://studysphere.ayatori-inc.co.jp',
+  credentials: true
 }));
 
-// 明示的なOPTIONSリクエストハンドラー（CORSプリフライト対応）
-app.options('*', (req, res) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'https://studysphere.ayatori-inc.co.jp',
-    'https://backend.studysphere.ayatori-inc.co.jp',
-    process.env.FRONTEND_URL
-  ].filter(Boolean);
-  
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else if (process.env.NODE_ENV === 'development') {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '3600');
-  res.status(200).end();
-});
+// CORS設定はcorsミドルウェアで処理
 
 // ログミドルウェア（最初に配置）
 app.use(requestLogger);
@@ -367,6 +312,10 @@ app.use('/api/learning', learningRoutes);
 app.use('/api/submissions', submissionRoutes);
 
 app.use('/api/remote-support', remoteSupportRoutes);
+app.use('/api/weekly-evaluations', require('./routes/weeklyEvaluationRoutes'));
+app.use('/api/weekly-evaluation-ai', require('./routes/weeklyEvaluationAIAssistRoutes'));
+app.use('/api/monthly-evaluations', require('./routes/monthlyEvaluationRoutes'));
+app.use('/api/monthly-evaluation-ai', require('./routes/monthlyEvaluationAIAssistRoutes'));
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/username', usernameValidationRoutes);
