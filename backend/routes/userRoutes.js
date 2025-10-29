@@ -492,18 +492,40 @@ router.post('/office-visit', authenticateToken, async (req, res) => {
     const connection = await pool.getConnection();
     
     try {
-      // ユーザーが現在の拠点に所属しているか確認
+      // ユーザーの存在と現在の拠点への所属を確認
       const currentUser = req.user;
-      const [userSatellites] = await connection.execute(
-        'SELECT satellite_id FROM user_satellites WHERE user_id = ?',
+      const satelliteId = currentUser.satellite_id ? parseInt(currentUser.satellite_id) : null;
+      
+      const [users] = await connection.execute(
+        'SELECT id, satellite_ids FROM user_accounts WHERE id = ? AND status = 1',
         [userId]
       );
       
-      if (userSatellites.length === 0) {
+      if (users.length === 0) {
         return res.status(404).json({
           success: false,
           message: 'ユーザーが見つかりません'
         });
+      }
+      
+      const user = users[0];
+      
+      // 現在の拠点に所属しているか確認（satellite_idがnullの場合はスキップ）
+      if (satelliteId && user.satellite_ids) {
+        try {
+          const satelliteIds = JSON.parse(user.satellite_ids);
+          const hasAccess = Array.isArray(satelliteIds) && satelliteIds.includes(satelliteId);
+          
+          if (!hasAccess) {
+            return res.status(403).json({
+              success: false,
+              message: 'この拠点へのアクセス権限がありません'
+            });
+          }
+        } catch (parseError) {
+          console.error('satellite_idsパースエラー:', parseError);
+          // パースエラーの場合も続行（互換性のため）
+        }
       }
 
       // 既に同じ日の通所記録があるかチェック
@@ -527,7 +549,7 @@ router.post('/office-visit', authenticateToken, async (req, res) => {
 
       res.json({
         success: true,
-        message: '通所記録を保存しました',
+        message: '通所記録を設定しました',
         data: {
           id: result.insertId,
           userId,
@@ -541,7 +563,106 @@ router.post('/office-visit', authenticateToken, async (req, res) => {
     console.error('通所記録保存エラー:', error);
     res.status(500).json({
       success: false,
-      message: '通所記録の保存に失敗しました',
+      message: '通所記録の設定に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 特定日の通所記録を取得
+router.get('/office-visit/:userId/:visitDate', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { visitDate } = req.params;
+    
+    if (!userId || !visitDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーIDと通所日は必須です'
+      });
+    }
+
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      const [records] = await connection.execute(
+        'SELECT id, user_id, visit_date, satellite_id, created_at, updated_at FROM office_visit_records WHERE user_id = ? AND visit_date = ?',
+        [userId, visitDate]
+      );
+
+      if (records.length === 0) {
+        return res.json({
+          success: true,
+          data: null,
+          message: '通所記録が見つかりません'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: records[0]
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('通所記録取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '通所記録の取得に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 通所記録を削除
+router.delete('/office-visit/:recordId', authenticateToken, async (req, res) => {
+  try {
+    const recordId = parseInt(req.params.recordId);
+    
+    if (!recordId) {
+      return res.status(400).json({
+        success: false,
+        message: '記録IDは必須です'
+      });
+    }
+
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      // 記録の存在確認
+      const [records] = await connection.execute(
+        'SELECT id, user_id FROM office_visit_records WHERE id = ?',
+        [recordId]
+      );
+
+      if (records.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '通所記録が見つかりません'
+        });
+      }
+
+      // 通所記録を削除
+      await connection.execute(
+        'DELETE FROM office_visit_records WHERE id = ?',
+        [recordId]
+      );
+
+      res.json({
+        success: true,
+        message: '通所記録を削除しました'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('通所記録削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '通所記録の削除に失敗しました',
       error: error.message
     });
   }

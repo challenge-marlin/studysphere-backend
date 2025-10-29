@@ -611,31 +611,78 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
       } else {
         // 一般管理者・指導員の場合は所属拠点のみアクセス可能
         const [userRows] = await connection.execute(
-          'SELECT satellite_ids FROM user_accounts WHERE id = ?',
+          'SELECT satellite_ids, name, role FROM user_accounts WHERE id = ?',
           [req.user.user_id]
         );
+        
+        console.log('=== ユーザー情報デバッグ ===');
+        console.log('ユーザーID:', req.user.user_id);
+        console.log('ユーザー名:', userRows[0]?.name);
+        console.log('ユーザーロール:', userRows[0]?.role);
+        console.log('ユーザーのsatellite_ids生データ:', userRows[0]?.satellite_ids);
         
         if (userRows.length > 0 && userRows[0].satellite_ids) {
           let userSatelliteIds = [];
           try {
-            userSatelliteIds = JSON.parse(userRows[0].satellite_ids);
-            if (!Array.isArray(userSatelliteIds)) {
-              userSatelliteIds = [userSatelliteIds];
+            let parsed;
+            // 既にオブジェクト/配列の場合はそのまま使用
+            if (typeof userRows[0].satellite_ids === 'object' && userRows[0].satellite_ids !== null) {
+              parsed = Array.isArray(userRows[0].satellite_ids) ? userRows[0].satellite_ids : [userRows[0].satellite_ids];
+            } else if (typeof userRows[0].satellite_ids === 'string') {
+              // 文字列の場合はJSON.parseを試行
+              parsed = JSON.parse(userRows[0].satellite_ids);
+            } else {
+              // その他の型（数値など）の場合は配列に変換
+              parsed = [userRows[0].satellite_ids];
             }
+            
+            if (!Array.isArray(parsed)) {
+              parsed = [parsed];
+            }
+            // すべてのIDを数値に変換（文字列の"1", "2"なども数値に変換）
+            userSatelliteIds = parsed.map(id => {
+              const numId = parseInt(id);
+              if (isNaN(numId)) {
+                console.warn('無効な拠点ID:', id);
+                return null;
+              }
+              return numId;
+            }).filter(id => id !== null);
           } catch (error) {
             console.error('ユーザーの拠点IDパースエラー:', error);
+            console.error('satellite_ids生データ:', userRows[0].satellite_ids);
+            console.error('satellite_ids型:', typeof userRows[0].satellite_ids);
             userSatelliteIds = [];
           }
           
           console.log('ユーザーの所属拠点:', userSatelliteIds);
+          console.log('リクエストされた拠点ID:', numericSatelliteId, '型:', typeof numericSatelliteId);
           
-          if (!userSatelliteIds.includes(numericSatelliteId)) {
+          // 各拠点IDの詳細比較ログ
+          console.log('=== 拠点ID比較詳細 ===');
+          console.log('パース後のユーザー所属拠点:', userSatelliteIds);
+          console.log('リクエスト拠点ID:', numericSatelliteId, '型:', typeof numericSatelliteId);
+          userSatelliteIds.forEach((id, index) => {
+            const idNum = id; // すでに数値に変換済み
+            const reqNum = parseInt(numericSatelliteId);
+            const isMatch = idNum === reqNum;
+            console.log(`拠点${index + 1}: ${id} (${typeof id}) === ${reqNum} (${typeof reqNum}) = ${isMatch}`);
+          });
+          
+          // 型を統一して比較（すべて数値として比較）
+          // userSatelliteIdsはすでに数値配列なので、そのまま比較
+          const hasAccess = userSatelliteIds.includes(parseInt(numericSatelliteId));
+          
+          if (!hasAccess) {
             console.log('アクセス権限がありません');
+            console.log('所属拠点:', userSatelliteIds, 'リクエスト拠点:', numericSatelliteId);
             return {
               success: false,
               message: '指定された拠点へのアクセス権限がありません',
               error: 'Access denied'
             };
+          } else {
+            console.log('アクセス権限確認OK');
           }
         }
       }
