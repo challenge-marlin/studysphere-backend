@@ -202,9 +202,78 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: false,
 }));
+// CORS設定：環境に応じて許可するオリジンを変更
+// 開発環境の判定：NODE_ENVがproductionでない場合、またはポートが5050/5000の場合
+// デフォルトでは開発環境として扱う（セキュリティのため本番環境では必ずNODE_ENV=productionを設定すること）
+const isDevelopment = process.env.NODE_ENV !== 'production' ||
+                      process.env.PORT === '5050' || 
+                      process.env.PORT === '5000' ||
+                      (process.env.FRONTEND_URL && (process.env.FRONTEND_URL.includes('localhost') || process.env.FRONTEND_URL.includes('127.0.0.1')));
+
+const allowedOrigins = isDevelopment
+  ? [
+      'https://studysphere.ayatori-inc.co.jp', // 本番環境（開発中でも本番にアクセス可能）
+      'http://localhost:3000',                  // 開発環境（localhost）
+      'http://127.0.0.1:3000',                  // 開発環境（127.0.0.1）
+      'http://localhost:3001',                  // その他の開発ポート
+      'http://127.0.0.1:3001'                    // その他の開発ポート
+    ]
+  : ['https://studysphere.ayatori-inc.co.jp'];
+
+console.log('=== CORS設定デバッグ ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+console.log('isDevelopment:', isDevelopment);
+console.log('allowedOrigins:', allowedOrigins);
+console.log('========================');
+
 app.use(cors({
-  origin: 'https://studysphere.ayatori-inc.co.jp',
-  credentials: true
+  origin: function (origin, callback) {
+    console.log(`[CORS] リクエストオリジン: ${origin || '(なし)'}`);
+    
+    // オリジンが指定されていない場合（同一オリジンリクエスト、Postman等）は許可
+    if (!origin) {
+      console.log('[CORS] オリジンなし - 許可');
+      return callback(null, true);
+    }
+    
+    // 許可されたオリジンのリストに含まれているかチェック
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log(`[CORS] 許可されたオリジン: ${origin}`);
+      callback(null, true);
+    } else {
+      // 開発環境では警告を出すが許可（デバッグ用）
+      if (isDevelopment) {
+        console.warn(`⚠️ [CORS] 未許可のオリジンからのリクエスト: ${origin}`);
+        console.warn(`許可されたオリジン: ${allowedOrigins.join(', ')}`);
+        console.warn(`開発環境のため許可します`);
+        // 開発環境では警告のみで許可
+        callback(null, true);
+      } else {
+        // 本番環境では拒否
+        console.error(`❌ [CORS] 本番環境で未許可のオリジン: ${origin}`);
+        callback(new Error('CORS policy: Origin not allowed'));
+      }
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Cache-Control',
+    'cache-control',
+    'Pragma',
+    'Expires',
+    'If-Modified-Since',
+    'If-None-Match',
+    'Accept',
+    'Accept-Language',
+    'Accept-Encoding'
+  ],
+  exposedHeaders: ['Content-Length', 'Content-Type', 'ETag', 'Last-Modified']
 }));
 
 // CORS設定はcorsミドルウェアで処理

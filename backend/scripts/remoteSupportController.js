@@ -1408,7 +1408,10 @@ class RemoteSupportController {
         mark_start,
         mark_lunch_start,
         mark_lunch_end,
-        mark_end
+        mark_end,
+        sleep_hours,
+        bedtime,
+        wakeup_time
       } = req.body;
 
       // リクエストボディをログ出力
@@ -1458,17 +1461,40 @@ class RemoteSupportController {
           }
           
           // フロントエンドからMySQL形式（YYYY-MM-DD HH:MM:SS）で送信される場合
+          // フロントエンドで既にUTCに変換されているので、そのまま使用
           if (typeof timeString === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(timeString)) {
-            customLogger.info(`MySQL形式として認識: ${timeString}`);
+            customLogger.info(`MySQL形式として認識（UTC）: ${timeString}`);
             return timeString;
           }
           
           // HH:MM形式の文字列の場合（後方互換性のため）
+          // この場合は日本時間として解釈してUTCに変換する必要がある
           if (typeof timeString === 'string' && /^\d{2}:\d{2}$/.test(timeString)) {
             const reportDate = existingReports[0].date;
             customLogger.info(`HH:MM形式として認識: ${timeString}, 使用する日付: ${reportDate}`);
-            const datetime = `${reportDate} ${timeString}:00`;
-            customLogger.info(`時間変換成功: ${timeString} -> ${datetime}`);
+            
+            // 日本時間として解釈（+09:00を付与）
+            // new Date()に+09:00を付与すると、内部的にUTCに変換される
+            const jstDateTimeString = `${reportDate}T${timeString}:00+09:00`;
+            const dateObj = new Date(jstDateTimeString);
+            
+            if (isNaN(dateObj.getTime())) {
+              customLogger.error(`無効な時間形式: ${timeString}`);
+              return null;
+            }
+            
+            // Dateオブジェクトは既にUTC時刻として管理されているので、
+            // getUTC*メソッドで直接UTCの値を取得できる
+            // 追加で9時間引く必要はない（既にUTCになっている）
+            const year = dateObj.getUTCFullYear();
+            const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const hours = String(dateObj.getUTCHours()).padStart(2, '0');
+            const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(dateObj.getUTCSeconds()).padStart(2, '0');
+            
+            const datetime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            customLogger.info(`時間変換成功（UTC）: ${timeString} -> ${datetime}`);
             return datetime;
           }
           
@@ -1564,6 +1590,21 @@ class RemoteSupportController {
         updateParams.push(advice);
       }
       
+      if (isValidValue(sleep_hours)) {
+        updateFields.push('sleep_hours = ?');
+        updateParams.push(sleep_hours);
+      }
+
+      if (isValidValue(bedtime)) {
+        updateFields.push('bedtime = ?');
+        updateParams.push(bedtime);
+      }
+
+      if (isValidValue(wakeup_time)) {
+        updateFields.push('wakeup_time = ?');
+        updateParams.push(wakeup_time);
+      }
+
       if (isValidValue(instructor_comment)) {
         updateFields.push('instructor_comment = ?');
         updateParams.push(instructor_comment);
@@ -1575,28 +1616,51 @@ class RemoteSupportController {
       }
       
       // 時間フィールドの処理
-      if (markStartDateTime !== null && markStartDateTime !== '' && markStartDateTime !== undefined) {
-        updateFields.push('mark_start = ?');
-        updateParams.push(markStartDateTime);
-        customLogger.info('mark_start追加:', markStartDateTime);
+      // フロントエンドから送信された値が明示的にnullの場合、NULLに設定
+      // 値がある場合はその値を設定
+      if (mark_start !== undefined) {
+        if (markStartDateTime !== null && markStartDateTime !== '' && markStartDateTime !== undefined) {
+          updateFields.push('mark_start = ?');
+          updateParams.push(markStartDateTime);
+          customLogger.info('mark_start追加:', markStartDateTime);
+        } else {
+          // 明示的にnullが送信された場合、NULLに設定
+          updateFields.push('mark_start = NULL');
+          customLogger.info('mark_startをNULLに設定');
+        }
       }
       
-      if (markLunchStartDateTime !== null && markLunchStartDateTime !== '' && markLunchStartDateTime !== undefined) {
-        updateFields.push('mark_lunch_start = ?');
-        updateParams.push(markLunchStartDateTime);
-        customLogger.info('mark_lunch_start追加:', markLunchStartDateTime);
+      if (mark_lunch_start !== undefined) {
+        if (markLunchStartDateTime !== null && markLunchStartDateTime !== '' && markLunchStartDateTime !== undefined) {
+          updateFields.push('mark_lunch_start = ?');
+          updateParams.push(markLunchStartDateTime);
+          customLogger.info('mark_lunch_start追加:', markLunchStartDateTime);
+        } else {
+          updateFields.push('mark_lunch_start = NULL');
+          customLogger.info('mark_lunch_startをNULLに設定');
+        }
       }
       
-      if (markLunchEndDateTime !== null && markLunchEndDateTime !== '' && markLunchEndDateTime !== undefined) {
-        updateFields.push('mark_lunch_end = ?');
-        updateParams.push(markLunchEndDateTime);
-        customLogger.info('mark_lunch_end追加:', markLunchEndDateTime);
+      if (mark_lunch_end !== undefined) {
+        if (markLunchEndDateTime !== null && markLunchEndDateTime !== '' && markLunchEndDateTime !== undefined) {
+          updateFields.push('mark_lunch_end = ?');
+          updateParams.push(markLunchEndDateTime);
+          customLogger.info('mark_lunch_end追加:', markLunchEndDateTime);
+        } else {
+          updateFields.push('mark_lunch_end = NULL');
+          customLogger.info('mark_lunch_endをNULLに設定');
+        }
       }
       
-      if (markEndDateTime !== null && markEndDateTime !== '' && markEndDateTime !== undefined) {
-        updateFields.push('mark_end = ?');
-        updateParams.push(markEndDateTime);
-        customLogger.info('mark_end追加:', markEndDateTime);
+      if (mark_end !== undefined) {
+        if (markEndDateTime !== null && markEndDateTime !== '' && markEndDateTime !== undefined) {
+          updateFields.push('mark_end = ?');
+          updateParams.push(markEndDateTime);
+          customLogger.info('mark_end追加:', markEndDateTime);
+        } else {
+          updateFields.push('mark_end = NULL');
+          customLogger.info('mark_endをNULLに設定');
+        }
       }
       
       // updated_atは常に更新
@@ -1761,6 +1825,163 @@ class RemoteSupportController {
       res.status(500).json({
         success: false,
         message: 'コメントの追加に失敗しました',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * 日報コメント削除
+   */
+  static async deleteDailyReportComment(req, res) {
+    try {
+      const { id, commentId } = req.params;
+      const { createdAt } = req.query;
+
+      if (!id || !commentId) {
+        return res.status(400).json({
+          success: false,
+          message: '日報IDおよびコメントIDは必須です'
+        });
+      }
+
+      const [existingReports] = await pool.execute(
+        'SELECT instructor_comment FROM remote_support_daily_records WHERE id = ? LIMIT 1',
+        [id]
+      );
+
+      if (existingReports.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '日報が見つかりません'
+        });
+      }
+
+      const existingReport = existingReports[0];
+
+      customLogger.info('日報コメント削除リクエスト受信', {
+        reportId: id,
+        commentId,
+        createdAt,
+        rawInstructorCommentLength: existingReport.instructor_comment ? existingReport.instructor_comment.length : 0
+      });
+
+      if (!existingReport.instructor_comment) {
+        return res.status(404).json({
+          success: false,
+          message: '対象のコメントが見つかりません'
+        });
+      }
+
+      let comments = [];
+      try {
+        const parsed = JSON.parse(existingReport.instructor_comment);
+        if (Array.isArray(parsed)) {
+          comments = parsed;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.comments)) {
+          comments = parsed.comments;
+        }
+      } catch (error) {
+        customLogger.warn('コメントJSONの解析に失敗しました:', {
+          error: error.message,
+          instructor_comment: existingReport.instructor_comment
+        });
+        comments = [];
+      }
+
+      customLogger.info('コメント配列解析結果', {
+        totalComments: comments.length,
+        sample: comments.slice(0, 3)
+      });
+
+      const commentIdNumber = Number(commentId);
+      let matchFound = false;
+      const filteredComments = comments.filter((comment, index) => {
+        if (!comment) {
+          customLogger.info('コメント検証: 空コメントのため保持', { index });
+          return true;
+        }
+
+        let matchedById = false;
+        let matchedByCreatedAt = false;
+
+        if (Object.prototype.hasOwnProperty.call(comment, 'id')) {
+          matchedById = comment.id === commentIdNumber || String(comment.id) === String(commentId);
+        }
+
+        const commentCreatedAtValue = comment.created_at || comment.createdAt;
+        if (createdAt && commentCreatedAtValue) {
+          const requestDate = new Date(createdAt);
+          const commentDate = new Date(commentCreatedAtValue);
+          if (!Number.isNaN(requestDate.getTime()) && !Number.isNaN(commentDate.getTime())) {
+            if (commentDate.toISOString() === requestDate.toISOString()) {
+              matchedByCreatedAt = true;
+            }
+            const diff = Math.abs(commentDate.getTime() - requestDate.getTime());
+            if (!matchedByCreatedAt && diff <= 1000) {
+              matchedByCreatedAt = true;
+            }
+          }
+
+          if (!matchedByCreatedAt && (commentCreatedAtValue === createdAt || String(commentCreatedAtValue) === String(createdAt))) {
+            matchedByCreatedAt = true;
+          }
+        }
+
+        const shouldRemove = matchedById || matchedByCreatedAt;
+
+        customLogger.info('コメント検証結果', {
+          index,
+          comment,
+          matchedById,
+          matchedByCreatedAt,
+          shouldRemove
+        });
+
+        if (shouldRemove) {
+          matchFound = true;
+        }
+
+        return !shouldRemove;
+      });
+
+      customLogger.info('コメントフィルタ結果', {
+        before: comments.length,
+        after: filteredComments.length,
+        matchFound
+      });
+
+      if (!matchFound) {
+        return res.status(404).json({
+          success: false,
+          message: '対象のコメントが見つかりません'
+        });
+      }
+
+      const serialized = filteredComments.length > 0 ? JSON.stringify(filteredComments) : null;
+
+      await pool.execute(
+        'UPDATE remote_support_daily_records SET instructor_comment = ?, updated_at = NOW() WHERE id = ?',
+        [serialized, id]
+      );
+
+      customLogger.info('日報コメント削除:', {
+        reportId: id,
+        commentId
+      });
+
+      res.json({
+        success: true,
+        message: 'コメントを削除しました',
+        data: {
+          remainingComments: filteredComments
+        }
+      });
+    } catch (error) {
+      customLogger.error('日報コメント削除エラー:', error);
+      res.status(500).json({
+        success: false,
+        message: 'コメントの削除に失敗しました',
         error: error.message
       });
     }
@@ -2292,3 +2513,4 @@ class RemoteSupportController {
 }
 
 module.exports = RemoteSupportController;
+

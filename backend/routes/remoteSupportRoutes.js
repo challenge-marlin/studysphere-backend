@@ -53,6 +53,7 @@ router.get('/daily-reports', RemoteSupportController.getDailyReports);
 router.get('/daily-reports/:id', RemoteSupportController.getDailyReport);
 router.put('/daily-reports/:id', RemoteSupportController.updateDailyReport);
 router.post('/daily-reports/:id/comments', RemoteSupportController.addDailyReportComment);
+router.delete('/daily-reports/:id/comments/:commentId', RemoteSupportController.deleteDailyReportComment);
 
 // S3記録データ取得エンドポイント
 router.get('/capture-records', RemoteSupportController.getCaptureRecords);
@@ -62,65 +63,121 @@ router.get('/capture-records/:userId/:date', RemoteSupportController.getCaptureR
 router.get('/daily-records', require('../middleware/auth').authenticateToken, async (req, res) => {
   const { pool } = require('../utils/database');
   const { customLogger } = require('../utils/logger');
+  const { convertUTCToJapanTime } = require('../utils/dateUtils');
+  let connection;
   
   try {
     const { userId, startDate, endDate } = req.query;
     
-    customLogger.info('日次記録取得リクエスト:', { userId, startDate, endDate });
+    customLogger.info('日次記録取得リクエスト:', { 
+      userId, 
+      startDate, 
+      endDate,
+      userIdType: typeof userId,
+      queryParams: req.query
+    });
     
+    // パラメータ検証
     if (!userId) {
+      customLogger.warn('日次記録取得エラー: ユーザーIDが未指定');
       return res.status(400).json({
         success: false,
         message: 'ユーザーIDは必須です'
       });
     }
     
-    let query = `
-      SELECT 
-        rsdr.id,
-        rsdr.user_id,
-        rsdr.date,
-        rsdr.mark_start,
-        rsdr.mark_lunch_start,
-        rsdr.mark_lunch_end,
-        rsdr.mark_end,
-        rsdr.temperature,
-        rsdr.condition_note,
-        rsdr.work_note,
-        rsdr.work_result as workResult,
-        rsdr.daily_report as dailyReport,
-        rsdr.support_method as supportMethod,
-        rsdr.support_method_note,
-        rsdr.task_content as workContent,
-        rsdr.support_content as supportContent,
-        rsdr.advice,
-        rsdr.instructor_comment,
-        rsdr.recorder_name,
-        rsdr.created_at,
-        rsdr.updated_at,
-        CASE 
-          WHEN rsdr.condition_note LIKE '%良い%' OR rsdr.condition_note LIKE '%良好%' THEN '良い'
-          WHEN rsdr.condition_note LIKE '%普通%' OR rsdr.condition_note LIKE '%通常%' THEN '普通'
-          ELSE 'その他'
-        END as condition
-      FROM remote_support_daily_records rsdr
-      WHERE rsdr.user_id = ?
-    `;
+    // userIdを整数に変換
+    const userIdInt = parseInt(userId, 10);
+    if (isNaN(userIdInt)) {
+      customLogger.warn('日次記録取得エラー: ユーザーIDが無効', { userId });
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーIDが無効です'
+      });
+    }
     
-    const params = [userId];
+    // 日付の検証（オプション）
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        customLogger.warn('日次記録取得エラー: 日付フォーマットが無効', { startDate, endDate });
+        return res.status(400).json({
+          success: false,
+          message: '日付フォーマットが無効です'
+        });
+      }
+      if (start > end) {
+        customLogger.warn('日次記録取得エラー: 開始日が終了日より後', { startDate, endDate });
+        return res.status(400).json({
+          success: false,
+          message: '開始日は終了日より前である必要があります'
+        });
+      }
+    }
+    
+    // データベース接続を取得
+    customLogger.info('データベース接続を取得中...');
+    try {
+      connection = await pool.getConnection();
+      customLogger.info('データベース接続取得成功', { threadId: connection.threadId });
+    } catch (connectionError) {
+      customLogger.error('データベース接続取得失敗:', {
+        error: connectionError.message,
+        code: connectionError.code,
+        errno: connectionError.errno,
+        stack: connectionError.stack
+      });
+      throw new Error(`データベース接続に失敗しました: ${connectionError.message}`);
+    }
+    
+    // conditionはMySQLの予約語なので、バッククォートでエスケープして別名を付ける
+    // テンプレートリテラル内でバッククォートをエスケープするには、別の方法を使用
+    const backtick = '`';
+    let query = 'SELECT ' +
+      'rsdr.id, ' +
+      'rsdr.user_id, ' +
+      'rsdr.date, ' +
+      'rsdr.mark_start, ' +
+      'rsdr.mark_lunch_start, ' +
+      'rsdr.mark_lunch_end, ' +
+      'rsdr.mark_end, ' +
+      'rsdr.temperature, ' +
+      'rsdr.' + backtick + 'condition' + backtick + ' as condition_original, ' +
+      'rsdr.condition_note, ' +
+      'rsdr.work_note, ' +
+      'rsdr.work_result as workResult, ' +
+      'rsdr.daily_report as dailyReport, ' +
+      'rsdr.support_method as supportMethod, ' +
+      'rsdr.support_method_note, ' +
+      'rsdr.task_content as workContent, ' +
+      'rsdr.support_content as supportContent, ' +
+      'rsdr.advice, ' +
+      'rsdr.instructor_comment, ' +
+      'rsdr.recorder_name, ' +
+      'rsdr.created_at, ' +
+      'rsdr.updated_at ' +
+      'FROM remote_support_daily_records rsdr ' +
+      'WHERE rsdr.user_id = ?';
+    
+    const params = [userIdInt];
     
     if (startDate && endDate) {
-      query += ` AND rsdr.date >= ? AND rsdr.date <= ?`;
+      query += ' AND rsdr.date >= ? AND rsdr.date <= ?';
       params.push(startDate, endDate);
     }
     
-    query += ` ORDER BY rsdr.date ASC`;
+    query += ' ORDER BY rsdr.date ASC';
     
-    customLogger.info('SQL実行:', { query, params });
+    customLogger.info('SQL実行:', { 
+      query: query.substring(0, 200) + '...', 
+      params,
+      paramsCount: params.length
+    });
     
-    const [rows] = await pool.execute(query, params);
+    const [rows] = await connection.execute(query, params);
     
-    customLogger.info('日次記録取得件数:', rows.length);
+    customLogger.info('日次記録取得件数:', { count: rows.length });
     
     // 時刻データを整理
     const records = rows.map(record => {
@@ -130,9 +187,11 @@ router.get('/daily-records', require('../middleware/auth').authenticateToken, as
       
       try {
         if (record.mark_start) {
-          const start = new Date(record.mark_start);
-          if (!isNaN(start.getTime())) {
-            startTime = `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
+          // UTCからJSTに変換
+          const startUTC = new Date(record.mark_start);
+          if (!isNaN(startUTC.getTime())) {
+            const startJST = convertUTCToJapanTime(startUTC);
+            startTime = `${String(startJST.getHours()).padStart(2, '0')}:${String(startJST.getMinutes()).padStart(2, '0')}`;
           }
         }
       } catch (e) {
@@ -141,9 +200,11 @@ router.get('/daily-records', require('../middleware/auth').authenticateToken, as
       
       try {
         if (record.mark_end) {
-          const end = new Date(record.mark_end);
-          if (!isNaN(end.getTime())) {
-            endTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+          // UTCからJSTに変換
+          const endUTC = new Date(record.mark_end);
+          if (!isNaN(endUTC.getTime())) {
+            const endJST = convertUTCToJapanTime(endUTC);
+            endTime = `${String(endJST.getHours()).padStart(2, '0')}:${String(endJST.getMinutes()).padStart(2, '0')}`;
           }
         }
       } catch (e) {
@@ -161,9 +222,11 @@ router.get('/daily-records', require('../middleware/auth').authenticateToken, as
         dailyReport: record.dailyReport || '',
         supportContent: record.supportContent || '',
         advice: record.advice || '',
-        condition: record.condition || '普通'
+        condition: record.condition_original || '普通'
       };
     });
+    
+    customLogger.info('日次記録取得成功', { recordCount: records.length });
     
     res.json({
       success: true,
@@ -173,13 +236,57 @@ router.get('/daily-records', require('../middleware/auth').authenticateToken, as
     customLogger.error('日次記録取得エラー:', {
       message: error.message,
       stack: error.stack,
-      query: error.sql
+      sql: error.sql,
+      sqlMessage: error.sqlMessage,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      userId: req.query.userId,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      requestUrl: req.url,
+      requestMethod: req.method,
+      requestHeaders: {
+        authorization: req.headers.authorization ? 'Bearer ***' : 'none',
+        contentType: req.headers['content-type']
+      }
     });
-    res.status(500).json({
+    
+    // SQLエラーの詳細を返す（開発・デバッグ用）
+    const errorResponse = {
       success: false,
       message: '日次記録の取得に失敗しました',
       error: error.message
-    });
+    };
+    
+    // SQLエラーがある場合は追加情報を返す
+    if (error.sqlMessage) {
+      errorResponse.sqlError = error.sqlMessage;
+      errorResponse.sqlCode = error.code;
+    }
+    
+    // データベース接続エラーの場合
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.message.includes('接続')) {
+      errorResponse.errorType = 'DATABASE_CONNECTION_ERROR';
+      customLogger.error('データベース接続エラーが発生しました', {
+        code: error.code,
+        message: error.message
+      });
+    }
+    
+    res.status(500).json(errorResponse);
+  } finally {
+    // 接続を解放
+    if (connection) {
+      try {
+        connection.release();
+        customLogger.info('データベース接続を解放しました');
+      } catch (releaseError) {
+        customLogger.error('接続の解放に失敗:', {
+          error: releaseError.message
+        });
+      }
+    }
   }
 });
 

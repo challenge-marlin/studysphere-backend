@@ -2917,7 +2917,43 @@ const getSatelliteHomeSupportUsersWithDailyRecords = async (req, res) => {
     const [rows] = await connection.execute(query, params);
     
     console.log('取得した在宅支援利用者数:', rows.length);
-    console.log('取得した在宅支援利用者:', rows);
+    
+    // タグ情報を取得
+    const userIds = Array.from(new Set(rows.map(row => row.id))).filter(Boolean);
+    let tagMap = {};
+    
+    if (userIds.length > 0) {
+      const placeholders = userIds.map(() => '?').join(',');
+      try {
+        const [tagRows] = await connection.execute(
+          `
+            SELECT user_id, tag_name
+            FROM user_tags
+            WHERE user_id IN (${placeholders})
+          `,
+          userIds
+        );
+        
+        tagMap = tagRows.reduce((acc, tag) => {
+          if (!acc[tag.user_id]) {
+            acc[tag.user_id] = [];
+          }
+          if (tag.tag_name) {
+            acc[tag.user_id].push(tag.tag_name);
+          }
+          return acc;
+        }, {});
+        
+        console.log('タグ情報取得完了:', tagRows.length);
+      } catch (tagError) {
+        console.error('在宅支援利用者タグ取得エラー:', tagError);
+      }
+    }
+    
+    const rowsWithTags = rows.map(row => ({
+      ...row,
+      tags: tagMap[row.id] || []
+    }));
     
     customLogger.info('Satellite home support users with daily records retrieved successfully', {
       satelliteId,
@@ -2929,7 +2965,7 @@ const getSatelliteHomeSupportUsersWithDailyRecords = async (req, res) => {
 
     res.json({
       success: true,
-      data: rows
+      data: rowsWithTags
     });
   } catch (error) {
     customLogger.error('Error fetching satellite home support users with daily records:', error);
@@ -3452,13 +3488,27 @@ const getSatelliteEvaluationStatus = async (req, res) => {
         ua.recipient_number,
         CASE WHEN rsdr.id IS NOT NULL THEN 1 ELSE 0 END as has_daily_record,
         CASE WHEN wer.id IS NOT NULL THEN 1 ELSE 0 END as has_weekly_evaluation,
-        CASE WHEN mer.id IS NOT NULL THEN 1 ELSE 0 END as has_monthly_evaluation
+        CASE WHEN mer.id IS NOT NULL THEN 1 ELSE 0 END as has_monthly_evaluation,
+        last_wer.last_weekly_date,
+        last_wer.last_weekly_period_end
       FROM user_accounts ua
       LEFT JOIN remote_support_daily_records rsdr ON ua.id = rsdr.user_id AND rsdr.date = ?
       LEFT JOIN weekly_evaluation_records wer ON ua.id = wer.user_id 
         AND wer.period_start <= ? AND wer.period_end >= ?
       LEFT JOIN monthly_evaluation_records mer ON ua.id = mer.user_id 
         AND mer.date >= ? AND mer.date <= ?
+      LEFT JOIN (
+        SELECT 
+          wer1.user_id,
+          wer1.date AS last_weekly_date,
+          wer1.period_end AS last_weekly_period_end
+        FROM weekly_evaluation_records wer1
+        INNER JOIN (
+          SELECT user_id, MAX(date) AS max_date
+          FROM weekly_evaluation_records
+          GROUP BY user_id
+        ) latest ON wer1.user_id = latest.user_id AND wer1.date = latest.max_date
+      ) last_wer ON ua.id = last_wer.user_id
     `;
     
     let whereConditions = [
@@ -3485,6 +3535,24 @@ const getSatelliteEvaluationStatus = async (req, res) => {
     
     const [rows] = await connection.execute(query, params);
     
+    const formatToJapanDate = (dateValue) => {
+      if (!dateValue) {
+        return null;
+      }
+      const dateObj = new Date(dateValue);
+      if (Number.isNaN(dateObj.getTime())) {
+        return null;
+      }
+      return dateObj
+        .toLocaleDateString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })
+        .replace(/\//g, '-');
+    };
+    
     // データを整形
     const evaluationUsers = rows.map(row => ({
       id: row.id,
@@ -3495,7 +3563,9 @@ const getSatelliteEvaluationStatus = async (req, res) => {
       monthlyStatus: row.has_monthly_evaluation ? '完了' : '未完了',
       dailyPriority: row.has_daily_record ? 0 : 1,
       weeklyPriority: row.has_weekly_evaluation ? 0 : 1,
-      monthlyPriority: row.has_monthly_evaluation ? 0 : 1
+      monthlyPriority: row.has_monthly_evaluation ? 0 : 1,
+      lastWeeklyRecordDate: formatToJapanDate(row.last_weekly_date),
+      lastWeeklyPeriodEnd: formatToJapanDate(row.last_weekly_period_end)
     }));
     
     console.log('取得した評価状況:', evaluationUsers);

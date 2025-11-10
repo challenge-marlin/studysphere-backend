@@ -351,6 +351,8 @@ CREATE TABLE `monthly_evaluation_records` (
     `id` INT AUTO_INCREMENT PRIMARY KEY COMMENT '評価ID',
     `user_id` INT NOT NULL COMMENT '利用者のユーザーID',
     `date` DATE NOT NULL COMMENT '評価実施日（実施日）',
+    `period_start` DATE DEFAULT NULL COMMENT '対象期間の開始日',
+    `period_end` DATE DEFAULT NULL COMMENT '対象期間の終了日',
     `mark_start` DATETIME DEFAULT NULL COMMENT '始業時間（任意）',
     `mark_end` DATETIME DEFAULT NULL COMMENT '終業時間（任意）',
     `evaluation_method` ENUM('通所', '訪問', 'その他') NOT NULL DEFAULT '通所' COMMENT '評価方法',
