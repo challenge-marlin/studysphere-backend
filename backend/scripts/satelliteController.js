@@ -93,6 +93,64 @@ const getSatellites = async () => {
 };
 
 /**
+ * 企業に紐づいた拠点一覧を取得
+ */
+const getSatellitesByCompany = async (companyId) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // 1. 指定企業の拠点基本情報を取得
+    const [satellites] = await connection.execute(`
+      SELECT 
+        s.id,
+        s.company_id,
+        s.name,
+        s.address,
+        s.phone,
+        s.office_type_id,
+        s.token,
+        s.token_issued_at,
+        s.token_expiry_at,
+        s.contract_type,
+        s.max_users,
+        s.status,
+        s.manager_ids,
+        s.disabled_course_ids,
+        s.created_at,
+        s.updated_at,
+        c.name as company_name,
+        ot.type as office_type_name
+      FROM satellites s
+      LEFT JOIN companies c ON s.company_id = c.id
+      LEFT JOIN office_types ot ON s.office_type_id = ot.id
+      WHERE s.company_id = ?
+      ORDER BY s.created_at DESC
+    `, [companyId]);
+    
+    return {
+      success: true,
+      data: satellites
+    };
+  } catch (error) {
+    console.error('企業別拠点一覧取得エラー:', error);
+    return {
+      success: false,
+      message: '企業別拠点一覧の取得に失敗しました',
+      error: error.message
+    };
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        console.error('接続の解放に失敗:', releaseError);
+      }
+    }
+  }
+};
+
+/**
  * 拠点に所属するユーザー一覧取得
  */
 const getSatelliteUsers = async (satelliteId, req) => {
@@ -1125,6 +1183,7 @@ const removeSatelliteManager = async (id, managerId) => {
 
 module.exports = {
   getSatellites,
+  getSatellitesByCompany,
   getSatelliteById,
   getSatellitesByIds,
   createSatellite,

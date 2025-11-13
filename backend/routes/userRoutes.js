@@ -28,13 +28,15 @@ const {
   bulkRemoveUserInstructors,
   getSatelliteUsersForHomeSupport,
   getSatelliteHomeSupportUsers,
+  getSatelliteHomeSupportUsersWithDailyRecords,
   bulkUpdateHomeSupportFlag,
   removeHomeSupportFlag,
   getSatelliteInstructorsForHomeSupport,
   bulkAddUserTags,
   removeUserTag,
   getAllTags,
-  bulkCreateUsers
+  bulkCreateUsers,
+  getSatelliteEvaluationStatus
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -443,14 +445,228 @@ router.get('/satellite/:satelliteId/home-support-users', authenticateToken, getS
 // 拠点内の在宅支援利用者一覧を取得
 router.get('/satellite/:satelliteId/home-support-users-list', authenticateToken, getSatelliteHomeSupportUsers);
 
+// 拠点内の在宅支援利用者一覧を取得（日次記録情報を含む）
+router.get('/satellite/:satelliteId/home-support-users-with-records', authenticateToken, getSatelliteHomeSupportUsersWithDailyRecords);
+
 // 拠点内の指導員一覧を取得（在宅支援用）
 router.get('/satellite/:satelliteId/home-support-instructors', authenticateToken, getSatelliteInstructorsForHomeSupport);
+
+// 拠点内の指導員一覧を取得（週次評価記録者用）
+router.get('/satellite/:satelliteId/weekly-evaluation-instructors', authenticateToken, async (req, res) => {
+  try {
+    const { satelliteId } = req.params;
+    const result = await getSatelliteAvailableInstructors(satelliteId);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('拠点指導員取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '指導員の取得中にエラーが発生しました',
+      error: error.message
+    });
+  }
+});
+
+// 拠点内の在宅支援利用者の評価状況を取得
+router.get('/satellite/:satelliteId/evaluation-status', authenticateToken, getSatelliteEvaluationStatus);
 
 // 在宅支援フラグを一括更新
 router.post('/bulk-update-home-support', authenticateToken, bulkUpdateHomeSupportFlag);
 
 // 在宅支援解除（単一利用者）
 router.put('/:userId/remove-home-support', authenticateToken, removeHomeSupportFlag);
+
+// 通所記録を作成
+router.post('/office-visit', authenticateToken, async (req, res) => {
+  try {
+    const { userId, visitDate } = req.body;
+    
+    if (!userId || !visitDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーIDと通所日は必須です'
+      });
+    }
+
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザーの存在と現在の拠点への所属を確認
+      const currentUser = req.user;
+      const satelliteId = currentUser.satellite_id ? parseInt(currentUser.satellite_id) : null;
+      
+      const [users] = await connection.execute(
+        'SELECT id, satellite_ids FROM user_accounts WHERE id = ? AND status = 1',
+        [userId]
+      );
+      
+      if (users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+      
+      const user = users[0];
+      
+      // 現在の拠点に所属しているか確認（satellite_idがnullの場合はスキップ）
+      if (satelliteId && user.satellite_ids) {
+        try {
+          const satelliteIds = JSON.parse(user.satellite_ids);
+          const hasAccess = Array.isArray(satelliteIds) && satelliteIds.includes(satelliteId);
+          
+          if (!hasAccess) {
+            return res.status(403).json({
+              success: false,
+              message: 'この拠点へのアクセス権限がありません'
+            });
+          }
+        } catch (parseError) {
+          console.error('satellite_idsパースエラー:', parseError);
+          // パースエラーの場合も続行（互換性のため）
+        }
+      }
+
+      // 既に同じ日の通所記録があるかチェック
+      const [existingRecords] = await connection.execute(
+        'SELECT id FROM office_visit_records WHERE user_id = ? AND visit_date = ?',
+        [userId, visitDate]
+      );
+
+      if (existingRecords.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'この日の通所記録は既に存在します'
+        });
+      }
+
+      // 通所記録を保存
+      const [result] = await connection.execute(
+        'INSERT INTO office_visit_records (user_id, visit_date, satellite_id) VALUES (?, ?, ?)',
+        [userId, visitDate, currentUser.satellite_id || null]
+      );
+
+      res.json({
+        success: true,
+        message: '通所記録を設定しました',
+        data: {
+          id: result.insertId,
+          userId,
+          visitDate
+        }
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('通所記録保存エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '通所記録の設定に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 特定日の通所記録を取得
+router.get('/office-visit/:userId/:visitDate', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { visitDate } = req.params;
+    
+    if (!userId || !visitDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーIDと通所日は必須です'
+      });
+    }
+
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      const [records] = await connection.execute(
+        'SELECT id, user_id, visit_date, satellite_id, created_at, updated_at FROM office_visit_records WHERE user_id = ? AND visit_date = ?',
+        [userId, visitDate]
+      );
+
+      if (records.length === 0) {
+        return res.json({
+          success: true,
+          data: null,
+          message: '通所記録が見つかりません'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: records[0]
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('通所記録取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '通所記録の取得に失敗しました',
+      error: error.message
+    });
+  }
+});
+
+// 通所記録を削除
+router.delete('/office-visit/:recordId', authenticateToken, async (req, res) => {
+  try {
+    const recordId = parseInt(req.params.recordId);
+    
+    if (!recordId) {
+      return res.status(400).json({
+        success: false,
+        message: '記録IDは必須です'
+      });
+    }
+
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      // 記録の存在確認
+      const [records] = await connection.execute(
+        'SELECT id, user_id FROM office_visit_records WHERE id = ?',
+        [recordId]
+      );
+
+      if (records.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '通所記録が見つかりません'
+        });
+      }
+
+      // 通所記録を削除
+      await connection.execute(
+        'DELETE FROM office_visit_records WHERE id = ?',
+        [recordId]
+      );
+
+      res.json({
+        success: true,
+        message: '通所記録を削除しました'
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('通所記録削除エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '通所記録の削除に失敗しました',
+      error: error.message
+    });
+  }
+});
 
 // タグ管理関連のエンドポイント
 // ユーザーのタグを一括追加
@@ -472,6 +688,117 @@ router.post('/:userId/mark-temp-password-used', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: '一時パスワードの使用済みマークに失敗しました', 
+      error: error.message 
+    });
+  }
+});
+
+// 特定ユーザー情報取得（/:userId/*の後に配置して、より具体的なルートが優先されるようにする）
+router.get('/:userId', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const requestingUserId = req.user.user_id;
+    const requestingUserRole = req.user.role;
+    const { pool } = require('../utils/database');
+    const connection = await pool.getConnection();
+    
+    try {
+      // まず利用者情報を取得
+      const [rows] = await connection.execute(`
+        SELECT 
+          ua.id,
+          ua.name,
+          ua.email,
+          ua.role,
+          ua.status,
+          ua.login_code,
+          ua.company_id,
+          ua.satellite_ids,
+          ua.is_remote_user,
+          ua.recipient_number,
+          ua.password_reset_required,
+          ua.instructor_id,
+          instructor.name as instructor_name
+        FROM user_accounts ua
+        LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+        WHERE ua.id = ?
+      `, [userId]);
+      
+      if (rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+      
+      const user = rows[0];
+      
+      // アクセス権限チェック
+      // システム管理者（ロール9以上）の場合は全利用者にアクセス可能
+      if (requestingUserRole >= 9) {
+        console.log(`システム管理者（ロール${requestingUserRole}）による利用者情報取得: ユーザーID ${userId}`);
+      } else {
+        // それ以外の場合は、同じ拠点に所属しているか、または担当指導員であるかをチェック
+        let hasAccess = false;
+        
+        // 自身の情報へのアクセスは許可
+        if (userId === requestingUserId) {
+          hasAccess = true;
+        } else {
+          // 担当指導員かどうかをチェック
+          if (user.instructor_id === requestingUserId) {
+            hasAccess = true;
+            console.log(`担当指導員による利用者情報取得: 指導員ID ${requestingUserId}, 利用者ID ${userId}`);
+          } else {
+            // 同じ拠点に所属しているかをチェック
+            const [requestingUserRows] = await connection.execute(
+              'SELECT satellite_ids FROM user_accounts WHERE id = ?',
+              [requestingUserId]
+            );
+            
+            if (requestingUserRows.length > 0 && requestingUserRows[0].satellite_ids && user.satellite_ids) {
+              try {
+                const requestingUserSatelliteIds = JSON.parse(requestingUserRows[0].satellite_ids);
+                const targetUserSatelliteIds = JSON.parse(user.satellite_ids);
+                
+                // 配列でない場合は配列に変換
+                const requestingIds = Array.isArray(requestingUserSatelliteIds) ? requestingUserSatelliteIds : [requestingUserSatelliteIds];
+                const targetIds = Array.isArray(targetUserSatelliteIds) ? targetUserSatelliteIds : [targetUserSatelliteIds];
+                
+                // 共通の拠点IDがあるかチェック
+                hasAccess = requestingIds.some(id => targetIds.includes(id));
+                
+                if (hasAccess) {
+                  console.log(`同じ拠点に所属しているためアクセス許可: ユーザーID ${requestingUserId}, 利用者ID ${userId}`);
+                }
+              } catch (parseError) {
+                console.error('拠点IDのパースエラー:', parseError);
+              }
+            }
+          }
+        }
+        
+        if (!hasAccess) {
+          console.log(`アクセス拒否: ユーザーID ${requestingUserId}（ロール${requestingUserRole}）は利用者ID ${userId}へのアクセス権限がありません`);
+          return res.status(403).json({
+            success: false,
+            message: 'この利用者情報へのアクセス権限がありません'
+          });
+        }
+      }
+      
+      res.json({
+        success: true,
+        data: user
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('ユーザー取得エラー:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'ユーザー情報の取得に失敗しました', 
       error: error.message 
     });
   }

@@ -8,6 +8,9 @@ const {
   regenerateCompanyToken,
 } = require('../scripts/companyController');
 const {
+  getSatellitesByCompany,
+} = require('../scripts/satelliteController');
+const {
   companyValidation,
   companyUpdateValidation,
   handleValidationErrors,
@@ -39,6 +42,18 @@ router.get('/', async (req, res) => {
       stack: error.stack,
     });
   }
+});
+
+// 企業に紐づいた拠点一覧取得（/:idより前に定義する必要がある）
+router.get('/:id/satellites', async (req, res) => {
+  const companyId = parseInt(req.params.id);
+  const result = await getSatellitesByCompany(companyId);
+  res.status(result.success ? 200 : 400).json({
+    success: result.success,
+    message: result.message,
+    ...(result.data && { data: result.data }),
+    ...(result.error && { error: result.error }),
+  });
 });
 
 // 企業詳細取得

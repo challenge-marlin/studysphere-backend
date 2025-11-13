@@ -139,6 +139,63 @@ router.get('/:id/users/count', async (req, res) => {
   }
 });
 
+// デバッグ用：ユーザー情報確認エンドポイント
+router.get('/debug/user/:userId', authenticateToken, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.userId);
+    const { pool } = require('../utils/database');
+    
+    const [userRows] = await pool.execute(
+      'SELECT id, name, role, satellite_ids, company_id FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+    
+    if (userRows.length === 0) {
+      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+    }
+    
+    const user = userRows[0];
+    let parsedSatelliteIds = [];
+    
+    if (user.satellite_ids) {
+      try {
+        // 既にオブジェクト/配列の場合はそのまま使用
+        if (typeof user.satellite_ids === 'object' && user.satellite_ids !== null) {
+          parsedSatelliteIds = Array.isArray(user.satellite_ids) ? user.satellite_ids : [user.satellite_ids];
+        } else if (typeof user.satellite_ids === 'string') {
+          // 文字列の場合はJSON.parseを試行
+          const parsed = JSON.parse(user.satellite_ids);
+          parsedSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+        } else {
+          // その他の型（数値など）の場合は配列に変換
+          parsedSatelliteIds = [user.satellite_ids];
+        }
+      } catch (error) {
+        console.error('satellite_idsパースエラー:', error);
+        console.error('satellite_ids生データ:', user.satellite_ids);
+        console.error('satellite_ids型:', typeof user.satellite_ids);
+        parsedSatelliteIds = [];
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        user_id: user.id,
+        name: user.name,
+        role: user.role,
+        company_id: user.company_id,
+        satellite_ids_raw: user.satellite_ids,
+        satellite_ids_parsed: parsedSatelliteIds,
+        satellite_ids_type: typeof user.satellite_ids
+      }
+    });
+  } catch (error) {
+    console.error('デバッグエンドポイントエラー:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // 拠点に所属するユーザー一覧取得
 router.get('/:id/users', authenticateToken, async (req, res) => {
   try {
