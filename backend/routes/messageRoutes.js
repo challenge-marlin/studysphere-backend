@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../utils/database');
 const { authenticateToken } = require('../middleware/auth');
+const {
+  sendPushNotificationToUser,
+  pushNotificationsConfigured,
+} = require('../utils/pushNotifications');
 
 // サニタイズ関数
 const sanitizeInput = (input) => {
@@ -37,6 +41,16 @@ const sanitizeInput = (input) => {
   sanitized = sanitized.trim();
   
   return sanitized;
+};
+
+const truncateForNotification = (text, maxLength = 120) => {
+  if (!text) {
+    return '';
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}…`;
 };
 
 // 個人メッセージ送信
@@ -92,16 +106,41 @@ router.post('/send', authenticateToken, async (req, res) => {
       [sender_id]
     );
 
+    const responsePayload = {
+      id: result.insertId,
+      sender: senderRows[0],
+      receiver: receiverRows[0],
+      message: sanitizedMessage,
+      created_at: new Date()
+    };
+
+    if (pushNotificationsConfigured()) {
+      const senderName = senderRows[0]?.name || '新着メッセージ';
+      const receiverRole = receiverRows[0]?.role;
+      let targetUrl = '/';
+      if (receiverRole === 1) {
+        targetUrl = '/student/dashboard';
+      } else if (receiverRole === 4) {
+        targetUrl = '/instructor/dashboard';
+      } else if (receiverRole === 5) {
+        targetUrl = '/admin/dashboard';
+      }
+
+      try {
+        await sendPushNotificationToUser(receiver_id, {
+          title: 'Study Sphere',
+          body: `${senderName}: ${truncateForNotification(sanitizedMessage, 120)}`,
+          url: targetUrl,
+        });
+      } catch (pushError) {
+        console.error('Failed to dispatch push notification:', pushError);
+      }
+    }
+
     res.status(201).json({
       success: true,
       message: 'メッセージを送信しました',
-      data: {
-        id: result.insertId,
-        sender: senderRows[0],
-        receiver: receiverRows[0],
-        message: sanitizedMessage,
-        created_at: new Date()
-      }
+      data: responsePayload
     });
 
   } catch (error) {
@@ -715,7 +754,34 @@ router.get('/instructors', authenticateToken, async (req, res) => {
     }
 
     const user = userRows[0];
-    const satelliteIds = user.satellite_ids ? JSON.parse(user.satellite_ids) : [];
+
+    let satelliteIds = [];
+    if (user.satellite_ids) {
+      try {
+        if (Array.isArray(user.satellite_ids)) {
+          satelliteIds = user.satellite_ids;
+        } else if (typeof user.satellite_ids === 'string') {
+          satelliteIds = JSON.parse(user.satellite_ids);
+        } else {
+          satelliteIds = [user.satellite_ids];
+        }
+      } catch (error) {
+        console.error('satellite_idsパースエラー:', error);
+        satelliteIds = [];
+      }
+    }
+
+    if ((!satelliteIds || satelliteIds.length === 0) && user.satellite_id) {
+      satelliteIds = [user.satellite_id];
+    }
+
+    satelliteIds = Array.isArray(satelliteIds) ? satelliteIds : [satelliteIds];
+    satelliteIds = satelliteIds
+      .map(id => {
+        const numericId = Number(id);
+        return Number.isNaN(numericId) ? null : numericId;
+      })
+      .filter((id, index, self) => id !== null && self.indexOf(id) === index);
 
     console.log('Debug: user data =', {
       instructor_id: user.instructor_id,
@@ -739,11 +805,41 @@ router.get('/instructors', authenticateToken, async (req, res) => {
 
     // 拠点IDの条件（複数拠点対応）
     if (satelliteIds.length > 0) {
-      const satelliteConditions = satelliteIds.map(() => 
-        'JSON_CONTAINS(ua.satellite_ids, ?)'
-      ).join(' OR ');
+      const satelliteConditions = satelliteIds
+        .map(() => '(JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(? AS CHAR))))')
+        .join(' OR ');
       whereConditions.push(`(${satelliteConditions})`);
-      queryParams.push(...satelliteIds.map(id => JSON.stringify(id)));
+      satelliteIds.forEach(id => {
+        queryParams.push(JSON.stringify(id));
+        queryParams.push(String(id));
+      });
+    } else if (instructorId) {
+      // 拠点情報が取得できない場合は担当指導員のみに限定
+      console.warn('利用者のsatellite_idsが空のため、担当指導員のみを返します。', {
+        user_id,
+        instructor_id: instructorId
+      });
+      whereConditions.push('ua.id = ?');
+      queryParams.push(instructorId);
+    } else {
+      console.warn('利用者のsatellite_idsと担当指導員情報が取得できませんでした。', {
+        user_id
+      });
+      return res.json({
+        success: true,
+        data: {
+          instructors: [],
+          assigned_instructor_id: null,
+          debug_info: {
+            user_id: user_id,
+            user_company_id: user.company_id,
+            user_satellite_ids: satelliteIds,
+            user_instructor_id: user.instructor_id,
+            query_conditions: whereConditions,
+            query_params: queryParams
+          }
+        }
+      });
     }
 
     console.log('Debug: whereConditions =', whereConditions);
