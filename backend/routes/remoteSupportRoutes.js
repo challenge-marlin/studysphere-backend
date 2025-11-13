@@ -52,6 +52,7 @@ router.post('/verify-user-code', RemoteSupportController.verifyUserCode);
 router.get('/daily-reports', RemoteSupportController.getDailyReports);
 router.get('/daily-reports/:id', RemoteSupportController.getDailyReport);
 router.put('/daily-reports/:id', RemoteSupportController.updateDailyReport);
+router.delete('/daily-reports/:id', RemoteSupportController.deleteDailyReport);
 router.post('/daily-reports/:id/comments', RemoteSupportController.addDailyReportComment);
 router.delete('/daily-reports/:id/comments/:commentId', RemoteSupportController.deleteDailyReportComment);
 

@@ -87,6 +87,80 @@ const encodeFileName = (str) => {
   }
 };
 
+// S3メタデータをデコードするヘルパー
+const isBase64String = (value) => {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  // 長さは4の倍数である必要がある（パディングを除く）
+  if (value.length % 4 !== 0) {
+    return false;
+  }
+
+  // ベース64に使用される文字のみで構成されているかチェック
+  const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
+  if (!base64Regex.test(value)) {
+    return false;
+  }
+
+  try {
+    const decoded = Buffer.from(value, 'base64');
+
+    if (decoded.length === 0) {
+      return false;
+    }
+
+    // 再エンコードして一致するか（パディング除く）
+    const normalizedOriginal = value.replace(/=+$/, '');
+    const normalizedReencoded = decoded.toString('base64').replace(/=+$/, '');
+
+    return normalizedOriginal === normalizedReencoded;
+  } catch (error) {
+    return false;
+  }
+};
+
+const safelyDecodeBase64 = (value) => {
+  try {
+    const decodedBuffer = Buffer.from(value, 'base64');
+    const decodedString = decodedBuffer.toString('utf8');
+
+    // 再エンコードして元と一致するか確認（パディング除く）
+    const normalizedOriginal = value.replace(/=+$/, '');
+    const normalizedReencoded = Buffer.from(decodedString, 'utf8').toString('base64').replace(/=+$/, '');
+
+    if (normalizedOriginal !== normalizedReencoded) {
+      return value;
+    }
+
+    return decodedString;
+  } catch (error) {
+    return value;
+  }
+};
+
+const decodeS3Metadata = (metadata = {}) => {
+  const decodedMetadata = {};
+
+  Object.keys(metadata).forEach((key) => {
+    const value = metadata[key];
+
+    if (typeof value !== 'string') {
+      decodedMetadata[key] = value;
+      return;
+    }
+
+    if (isBase64String(value)) {
+      decodedMetadata[key] = safelyDecodeBase64(value);
+    } else {
+      decodedMetadata[key] = value;
+    }
+  });
+
+  return decodedMetadata;
+};
+
 // S3操作のユーティリティ関数
 const s3Utils = {
   // ファイルアップロード
@@ -145,17 +219,7 @@ const s3Utils = {
       const result = await s3.getObject(params).promise();
       
       // メタデータのBase64デコード
-      const decodedMetadata = {};
-      if (result.Metadata) {
-        Object.keys(result.Metadata).forEach(key => {
-          try {
-            decodedMetadata[key] = Buffer.from(result.Metadata[key], 'base64').toString('utf8');
-          } catch (error) {
-            // デコードに失敗した場合は元の値を保持
-            decodedMetadata[key] = result.Metadata[key];
-          }
-        });
-      }
+      const decodedMetadata = decodeS3Metadata(result.Metadata || {});
       
       customLogger.info(`S3 download successful: ${key}`, {
         bucket: s3Config.bucketName,
@@ -174,6 +238,45 @@ const s3Utils = {
         error: error.message,
         key: key
       });
+      throw error;
+    }
+  },
+
+  // ファイルメタデータ取得
+  getFileMetadata: async (key) => {
+    try {
+      const params = {
+        Bucket: s3Config.bucketName,
+        Key: key
+      };
+
+      const result = await s3.headObject(params).promise();
+      const rawMetadata = result.Metadata || {};
+      const decodedMetadata = decodeS3Metadata(rawMetadata);
+
+      return {
+        success: true,
+        metadata: decodedMetadata,
+        metadataRaw: rawMetadata,
+        contentType: result.ContentType || null,
+        contentLength: result.ContentLength || null,
+        lastModified: result.LastModified || null,
+        etag: result.ETag || null
+      };
+    } catch (error) {
+      customLogger.error('S3 headObject failed', {
+        error: error.message,
+        key: key
+      });
+
+      if (error.code === 'NotFound' || error.code === 'NoSuchKey') {
+        return {
+          success: false,
+          message: 'File not found on S3',
+          code: error.code
+        };
+      }
+
       throw error;
     }
   },

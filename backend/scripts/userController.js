@@ -2673,9 +2673,35 @@ const getSatelliteUsersForHomeSupport = async (req, res) => {
     
     // 特定の指導員の利用者のみを取得する場合
     if (instructorIds) {
-      const instructorIdArray = instructorIds.split(',').map(id => parseInt(id.trim()));
-      query += ` AND (ua.instructor_id IN (${instructorIdArray.map(() => '?').join(',')}) OR ua.instructor_id IS NULL)`;
-      params.push(...instructorIdArray);
+      const rawIds = instructorIds.split(',').map(id => id.trim()).filter(id => id !== '');
+      const numericIds = [];
+      let includeUnassigned = false;
+
+      rawIds.forEach(id => {
+        if (id.toLowerCase() === 'unassigned') {
+          includeUnassigned = true;
+          return;
+        }
+        const parsed = parseInt(id, 10);
+        if (!Number.isNaN(parsed)) {
+          numericIds.push(parsed);
+        }
+      });
+
+      const instructorConditions = [];
+
+      if (numericIds.length > 0) {
+        instructorConditions.push(`ua.instructor_id IN (${numericIds.map(() => '?').join(',')})`);
+        params.push(...numericIds);
+      }
+
+      if (includeUnassigned) {
+        instructorConditions.push('ua.instructor_id IS NULL');
+      }
+
+      if (instructorConditions.length > 0) {
+        query += ` AND (${instructorConditions.join(' OR ')})`;
+      }
     }
     
     query += ` ORDER BY ua.instructor_id, ua.name`;
@@ -3059,8 +3085,20 @@ const removeHomeSupportFlag = async (req, res) => {
 const getSatelliteInstructorsForHomeSupport = async (req, res) => {
   const { satelliteId } = req.params;
   const connection = await pool.getConnection();
-  
+
   try {
+    const satelliteIdInt = parseInt(satelliteId, 10);
+
+    if (Number.isNaN(satelliteIdInt)) {
+      return res.status(400).json({
+        success: false,
+        message: '不正な拠点IDです'
+      });
+    }
+
+    const satelliteIdNumericJson = JSON.stringify(satelliteIdInt);
+    const satelliteIdStringJson = JSON.stringify(String(satelliteIdInt));
+
     const [rows] = await connection.execute(`
       SELECT DISTINCT
         ua.id,
@@ -3070,14 +3108,47 @@ const getSatelliteInstructorsForHomeSupport = async (req, res) => {
       FROM user_accounts ua
       LEFT JOIN user_accounts students ON ua.id = students.instructor_id 
         AND students.role = 1 
-        AND JSON_CONTAINS(students.satellite_ids, ?)
+        AND (
+          JSON_CONTAINS(students.satellite_ids, ?)
+          OR JSON_CONTAINS(students.satellite_ids, ?)
+        )
         AND students.status = 1
       WHERE ua.role = 4 
-        AND JSON_CONTAINS(ua.satellite_ids, ?)
+        AND (
+          JSON_CONTAINS(ua.satellite_ids, ?)
+          OR JSON_CONTAINS(ua.satellite_ids, ?)
+        )
         AND ua.status = 1
       GROUP BY ua.id, ua.name, ua.login_code
       ORDER BY ua.name
-    `, [JSON.stringify(satelliteId), JSON.stringify(satelliteId)]);
+    `, [
+      satelliteIdNumericJson,
+      satelliteIdStringJson,
+      satelliteIdNumericJson,
+      satelliteIdStringJson
+    ]);
+
+    const [unassignedRows] = await connection.execute(`
+      SELECT COUNT(*) AS student_count
+      FROM user_accounts ua
+      WHERE ua.role = 1
+        AND ua.status = 1
+        AND ua.instructor_id IS NULL
+        AND (
+          JSON_CONTAINS(ua.satellite_ids, ?)
+          OR JSON_CONTAINS(ua.satellite_ids, ?)
+        )
+    `, [satelliteIdNumericJson, satelliteIdStringJson]);
+
+    const unassignedCount = unassignedRows?.[0]?.student_count ?? 0;
+
+    rows.push({
+      id: null,
+      name: '担当なし',
+      login_code: null,
+      student_count: unassignedCount,
+      is_unassigned: true
+    });
     
     customLogger.info('Satellite instructors for home support retrieved successfully', {
       satelliteId,

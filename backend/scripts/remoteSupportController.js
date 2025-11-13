@@ -1741,6 +1741,63 @@ class RemoteSupportController {
   }
 
   /**
+   * 日報削除
+   */
+  static async deleteDailyReport(req, res) {
+    try {
+      const { id } = req.params;
+
+      customLogger.info('日報削除リクエスト受信', { reportId: id });
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message: '日報IDは必須です'
+        });
+      }
+
+      const [existingReports] = await pool.execute(
+        'SELECT id FROM remote_support_daily_records WHERE id = ? LIMIT 1',
+        [id]
+      );
+
+      if (existingReports.length === 0) {
+        customLogger.warn('日報削除: 対象レコードが存在しません', { reportId: id });
+        return res.status(404).json({
+          success: false,
+          message: '日報が見つかりません'
+        });
+      }
+
+      const [deleteResult] = await pool.execute(
+        'DELETE FROM remote_support_daily_records WHERE id = ?',
+        [id]
+      );
+
+      customLogger.info('日報削除完了', {
+        reportId: id,
+        affectedRows: deleteResult.affectedRows
+      });
+
+      res.json({
+        success: true,
+        message: '日報を削除しました'
+      });
+    } catch (error) {
+      customLogger.error('日報削除エラー:', {
+        message: error.message,
+        stack: error.stack,
+        params: req.params
+      });
+      res.status(500).json({
+        success: false,
+        message: '日報の削除に失敗しました',
+        error: error.message
+      });
+    }
+  }
+
+  /**
    * 日報コメント追加
    */
   static async addDailyReportComment(req, res) {
