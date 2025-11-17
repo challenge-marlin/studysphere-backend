@@ -1,4 +1,4 @@
-﻿const { customLogger } = require('../utils/logger');
+﻿﻿const { customLogger } = require('../utils/logger');
 const { pool } = require('../utils/database');
 const { recordOperationLogDirect } = require('./operationLogController');
 const { s3Utils, encodeRFC5987, encodeFileName } = require('../config/s3');
@@ -1112,6 +1112,8 @@ const downloadLessonFile = async (req, res) => {
   const { id } = req.params;
   const connection = await pool.getConnection();
   
+  let requestedS3Key = null;
+
   try {
     const [rows] = await connection.execute(`
       SELECT l.s3_key, l.file_type, l.title, c.title as course_title
@@ -1128,6 +1130,7 @@ const downloadLessonFile = async (req, res) => {
     }
 
     const lesson = rows[0];
+    requestedS3Key = lesson.s3_key;
 
     if (!lesson.s3_key) {
       return res.status(404).json({
@@ -1138,6 +1141,13 @@ const downloadLessonFile = async (req, res) => {
 
     // S3からファイルをダウンロード
     const downloadResult = await s3Utils.downloadFile(lesson.s3_key);
+
+    if (!downloadResult.success) {
+      return res.status(404).json({
+        success: false,
+        message: downloadResult.message || '指定されたファイルが見つかりません'
+      });
+    }
 
     // レスポンスヘッダー設定
     const contentType = downloadResult.contentType || 'application/octet-stream';
@@ -1160,11 +1170,28 @@ const downloadLessonFile = async (req, res) => {
       userId: req.user?.user_id || null
     });
   } catch (error) {
-    customLogger.error('Failed to download lesson file', {
+    const isMissingOnS3 = error.code === 'NoSuchKey' || error.statusCode === 404;
+
+    const logPayload = {
       error: error.message,
       lessonId: id,
       userId: req.user?.user_id || null
-    });
+    };
+
+    if (isMissingOnS3) {
+      customLogger.warn('Lesson file not found on S3', {
+        ...logPayload,
+        s3Key: requestedS3Key
+      });
+
+      return res.status(404).json({
+        success: false,
+        message: 'S3上にファイルが見つかりません。ファイルを再アップロードしてください。',
+        error: error.message
+      });
+    }
+
+    customLogger.error('Failed to download lesson file', logPayload);
     
     res.status(500).json({
       success: false,
@@ -1282,8 +1309,46 @@ const downloadLessonFile = async (req, res) => {
 
       // lessonsテーブルの現在のs3_keyに対応する単一ファイルのみを返す
       // これにより、古いファイルとの混同を防ぐ
-      const fileName = lesson.s3_key.split('/').pop();
-      const fileExtension = fileName.split('.').pop().toLowerCase();
+    const fileName = lesson.s3_key.split('/').pop();
+    const fileExtension = fileName.split('.').pop().toLowerCase();
+    let originalFileName = fileName;
+    let metadataInfo = null;
+    let resolvedFileSize = lesson.file_size || 0;
+    let lastModified = null;
+    let rawMetadata = null;
+
+    try {
+      const metadataResult = await s3Utils.getFileMetadata(lesson.s3_key);
+      if (metadataResult.success) {
+        metadataInfo = metadataResult.metadata || {};
+        rawMetadata = metadataResult.metadataRaw || {};
+        if (metadataInfo['original-name']) {
+          originalFileName = metadataInfo['original-name'];
+        }
+
+        if (!resolvedFileSize && metadataResult.contentLength) {
+          resolvedFileSize = metadataResult.contentLength;
+        }
+
+        if (metadataResult.lastModified) {
+          lastModified = metadataResult.lastModified;
+        }
+      } else {
+        customLogger.warn('Lesson file metadata not found on S3', {
+          lessonId: id,
+          s3Key: lesson.s3_key,
+          message: metadataResult.message,
+          userId: req.user?.user_id || null
+        });
+      }
+    } catch (metadataError) {
+      customLogger.warn('Failed to retrieve S3 metadata for lesson file', {
+        error: metadataError.message,
+        lessonId: id,
+        s3Key: lesson.s3_key,
+        userId: req.user?.user_id || null
+      });
+    }
       
       // ファイル拡張子からMIMEタイプを推定
       let mimeType = lesson.file_type || fileExtension;
@@ -1307,15 +1372,19 @@ const downloadLessonFile = async (req, res) => {
       }
       
       // 現在のファイル情報のみを配列で返す
-      const files = [{
-        key: lesson.s3_key,
-        file_name: fileName,
-        file_type: mimeType,
-        file_extension: fileExtension,
-        size: lesson.file_size || 0,
-        lastModified: null, // DB上の更新日時を使用する場合は追加可能
-        sizeFormatted: lesson.file_size ? formatFileSize(lesson.file_size) : '不明'
-      }];
+    const files = [{
+      key: lesson.s3_key,
+      file_name: fileName,
+      original_file_name: originalFileName,
+      display_name: originalFileName || fileName,
+      file_type: mimeType,
+      file_extension: fileExtension,
+      size: resolvedFileSize,
+      lastModified: lastModified,
+      metadata: metadataInfo,
+      metadataRaw: rawMetadata,
+      sizeFormatted: resolvedFileSize ? formatFileSize(resolvedFileSize) : '不明'
+    }];
 
       customLogger.info('Lesson files retrieved successfully', {
         lessonId: id,
@@ -1373,7 +1442,7 @@ const downloadLessonFile = async (req, res) => {
       if (!downloadResult.success) {
         return res.status(404).json({
           success: false,
-          message: downloadResult.message
+          message: downloadResult.message || '指定されたファイルが見つかりません'
         });
       }
 
@@ -1393,11 +1462,25 @@ const downloadLessonFile = async (req, res) => {
         userId: req.user?.id || null
       });
     } catch (error) {
-      customLogger.error('Failed to download individual file', {
+      const isMissingOnS3 = error.code === 'NoSuchKey' || error.statusCode === 404;
+
+      const logPayload = {
         error: error.message,
         fileKey: req.body.fileKey,
         userId: req.user?.id || null
-      });
+      };
+
+      if (isMissingOnS3) {
+        customLogger.warn('Requested file not found on S3', logPayload);
+
+        return res.status(404).json({
+          success: false,
+          message: 'S3上にファイルが見つかりません。ファイルを再アップロードしてください。',
+          error: error.message
+        });
+      }
+
+      customLogger.error('Failed to download individual file', logPayload);
       
       res.status(500).json({
         success: false,

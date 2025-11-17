@@ -5,6 +5,7 @@ const {
   getTopUsersByCompany,
   getTeachersByCompany,
   getUserSatellites,
+  getUserById,
   getSatelliteUsers,
   addSatelliteToUser,
   removeSatelliteFromUser,
@@ -28,13 +29,15 @@ const {
   bulkRemoveUserInstructors,
   getSatelliteUsersForHomeSupport,
   getSatelliteHomeSupportUsers,
+  getSatelliteHomeSupportUsersWithDailyRecords,
   bulkUpdateHomeSupportFlag,
   removeHomeSupportFlag,
   getSatelliteInstructorsForHomeSupport,
   bulkAddUserTags,
   removeUserTag,
   getAllTags,
-  bulkCreateUsers
+  bulkCreateUsers,
+  getSatelliteEvaluationStatus
 } = require('../scripts/userController');
 
 const router = express.Router();
@@ -443,8 +446,21 @@ router.get('/satellite/:satelliteId/home-support-users', authenticateToken, getS
 // 拠点内の在宅支援利用者一覧を取得
 router.get('/satellite/:satelliteId/home-support-users-list', authenticateToken, getSatelliteHomeSupportUsers);
 
+// 拠点内の在宅支援利用者一覧（日次記録含む）を取得
+router.get(
+  '/satellite/:satelliteId/home-support-users-with-records',
+  authenticateToken,
+  getSatelliteHomeSupportUsersWithDailyRecords
+);
+
 // 拠点内の指導員一覧を取得（在宅支援用）
 router.get('/satellite/:satelliteId/home-support-instructors', authenticateToken, getSatelliteInstructorsForHomeSupport);
+
+// 週次評価用の指導員一覧取得（在宅支援と同一ロジックを再利用）
+router.get('/satellite/:satelliteId/weekly-evaluation-instructors', authenticateToken, getSatelliteInstructorsForHomeSupport);
+
+// 拠点の評価状況（週次・月次・日次）を取得
+router.get('/satellite/:satelliteId/evaluation-status', authenticateToken, getSatelliteEvaluationStatus);
 
 // 在宅支援フラグを一括更新
 router.post('/bulk-update-home-support', authenticateToken, bulkUpdateHomeSupportFlag);
@@ -461,6 +477,9 @@ router.delete('/:userId/tags/:tagName', authenticateToken, removeUserTag);
 
 // 全タグ一覧を取得
 router.get('/tags/all', authenticateToken, getAllTags);
+
+// 個別利用者情報の取得
+router.get('/:userId(\\d+)', authenticateToken, getUserById);
 
 // ログアウト時に一時パスワードを使用済みにマーク
 router.post('/:userId/mark-temp-password-used', async (req, res) => {

@@ -2,6 +2,35 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 
+/**
+ * 任意機能のルートを安全に読み込むヘルパー
+ * モジュールが存在しない場合でもアプリ全体が起動できるようにする
+ * @param {string} routePath
+ * @param {string} featureName
+ * @returns {express.Router}
+ */
+const loadOptionalRoute = (routePath, featureName = 'この機能') => {
+  try {
+    return require(routePath);
+  } catch (error) {
+    const message = `Optional route "${featureName}" is disabled: ${error.message}`;
+    if (error.code === 'MODULE_NOT_FOUND') {
+      console.warn(message);
+    } else {
+      console.error(message, error);
+    }
+
+    const disabledRouter = express.Router();
+    disabledRouter.all('*', (req, res) => {
+      res.status(503).json({
+        success: false,
+        message: `${featureName}は現在この環境では利用できません`,
+      });
+    });
+    return disabledRouter;
+  }
+};
+
 // ログシステムのインポート
 const { customLogger } = require('./utils/logger');
 const { 
@@ -165,6 +194,7 @@ const supportPlanRoutes = require('./routes/supportPlanRoutes');
 const tempPasswordRoutes = require('./routes/tempPasswordRoutes');
 const announcementRoutes = require('./routes/announcementRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const studentRoutes = require('./routes/studentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const testRoutes = require('./routes/testRoutes');
@@ -173,6 +203,10 @@ const learningRoutes = require('./routes/learningRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
 const usernameValidationRoutes = require('./routes/usernameValidationRoutes');
+const weeklyEvaluationRoutes = loadOptionalRoute('./routes/weeklyEvaluationRoutes', '週次評価');
+const weeklyEvaluationAIAssistRoutes = loadOptionalRoute('./routes/weeklyEvaluationAIAssistRoutes', '週次評価(AIアシスト)');
+const monthlyEvaluationRoutes = loadOptionalRoute('./routes/monthlyEvaluationRoutes', '月次評価');
+const monthlyEvaluationAIAssistRoutes = loadOptionalRoute('./routes/monthlyEvaluationAIAssistRoutes', '月次評価(AIアシスト)');
 // AIルートの条件付き読み込み（環境変数が設定されている場合のみ）
 let aiRoutes;
 try {
@@ -200,26 +234,60 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false,
 }));
+// CORS設定：環境に応じて許可するオリジンを変更
+// 開発環境の判定：NODE_ENVがproductionでない場合、またはポートが5050/5000の場合
+// デフォルトでは開発環境として扱う（セキュリティのため本番環境では必ずNODE_ENV=productionを設定すること）
+const isDevelopment = process.env.NODE_ENV !== 'production' ||
+                      process.env.PORT === '5050' || 
+                      process.env.PORT === '5000' ||
+                      (process.env.FRONTEND_URL && (process.env.FRONTEND_URL.includes('localhost') || process.env.FRONTEND_URL.includes('127.0.0.1')));
+
+const allowedOrigins = isDevelopment
+  ? [
+      'https://studysphere.ayatori-inc.co.jp', // 本番環境（開発中でも本番にアクセス可能）
+      'http://localhost:3000',                  // 開発環境（localhost）
+      'http://127.0.0.1:3000',                  // 開発環境（127.0.0.1）
+      'http://localhost:3001',                  // その他の開発ポート
+      'http://127.0.0.1:3001'                    // その他の開発ポート
+    ]
+  : ['https://studysphere.ayatori-inc.co.jp'];
+
+console.log('=== CORS設定デバッグ ===');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+console.log('isDevelopment:', isDevelopment);
+console.log('allowedOrigins:', allowedOrigins);
+console.log('========================');
+
 app.use(cors({
   origin: function (origin, callback) {
-    // 開発環境ではすべてのオリジンを許可
-    if (process.env.NODE_ENV === 'development') {
+    console.log(`[CORS] リクエストオリジン: ${origin || '(なし)'}`);
+    
+    // オリジンが指定されていない場合（同一オリジンリクエスト、Postman等）は許可
+    if (!origin) {
+      console.log('[CORS] オリジンなし - 許可');
+      return callback(null, true);
+    }
+    
+    // 許可されたオリジンのリストに含まれているかチェック
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      console.log(`[CORS] 許可されたオリジン: ${origin}`);
       callback(null, true);
     } else {
-      // 本番環境では特定のオリジンのみ許可
-      const allowedOrigins = [
-        'http://localhost:3000',
-        'http://localhost:5000',
-        'https://studysphere.ayatori-inc.co.jp',
-        'https://backend.studysphere.ayatori-inc.co.jp',
-        process.env.FRONTEND_URL
-      ].filter(Boolean);
-      
-      if (!origin || allowedOrigins.includes(origin)) {
+      // 開発環境では警告を出すが許可（デバッグ用）
+      if (isDevelopment) {
+        console.warn(`⚠️ [CORS] 未許可のオリジンからのリクエスト: ${origin}`);
+        console.warn(`許可されたオリジン: ${allowedOrigins.join(', ')}`);
+        console.warn(`開発環境のため許可します`);
+        // 開発環境では警告のみで許可
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        // 本番環境では拒否
+        console.error(`❌ [CORS] 本番環境で未許可のオリジン: ${origin}`);
+        callback(new Error('CORS policy: Origin not allowed'));
       }
     }
   },
@@ -228,41 +296,21 @@ app.use(cors({
   allowedHeaders: [
     'Content-Type', 
     'Authorization', 
-    'X-Requested-With', 
-    'Accept', 
-    'Origin', 
+    'X-Requested-With',
     'Cache-Control',
+    'cache-control',
     'Pragma',
-    'Expires'
+    'Expires',
+    'If-Modified-Since',
+    'If-None-Match',
+    'Accept',
+    'Accept-Language',
+    'Accept-Encoding'
   ],
-  exposedHeaders: ['Authorization'],
-  preflightContinue: false,
-  optionsSuccessStatus: 200
+  exposedHeaders: ['Content-Length', 'Content-Type', 'ETag', 'Last-Modified']
 }));
 
-// 明示的なOPTIONSリクエストハンドラー（CORSプリフライト対応）
-app.options('*', (req, res) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'https://studysphere.ayatori-inc.co.jp',
-    'https://backend.studysphere.ayatori-inc.co.jp',
-    process.env.FRONTEND_URL
-  ].filter(Boolean);
-  
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  } else if (process.env.NODE_ENV === 'development') {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-  }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '3600');
-  res.status(200).end();
-});
+// CORS設定はcorsミドルウェアで処理
 
 // ログミドルウェア（最初に配置）
 app.use(requestLogger);
@@ -362,11 +410,16 @@ app.use('/api/support-plans', supportPlanRoutes);
 app.use('/api/temp-passwords', tempPasswordRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/notifications', notificationRoutes);
 app.use('/api/student', studentRoutes);
 app.use('/api/learning', learningRoutes);
 app.use('/api/submissions', submissionRoutes);
 
 app.use('/api/remote-support', remoteSupportRoutes);
+app.use('/api/weekly-evaluations', weeklyEvaluationRoutes);
+app.use('/api/weekly-evaluation-ai', weeklyEvaluationAIAssistRoutes);
+app.use('/api/monthly-evaluations', monthlyEvaluationRoutes);
+app.use('/api/monthly-evaluation-ai', monthlyEvaluationAIAssistRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/username', usernameValidationRoutes);

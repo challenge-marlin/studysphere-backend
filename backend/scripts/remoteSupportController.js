@@ -37,7 +37,7 @@ class RemoteSupportController {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
         region: process.env.AWS_REGION || 'ap-northeast-1',
-        bucketName: 'studysphere'
+        bucketName: process.env.AWS_S3_BUCKET || 'studysphere'
       };
 
       customLogger.info('S3設定確認:', {
@@ -218,7 +218,7 @@ class RemoteSupportController {
         
         uploadPromises.push(
           s3.upload({
-            Bucket: 'studysphere',
+            Bucket: s3Config.bucketName,
             Key: photoKey,
             Body: files.photo[0].buffer,
             ContentType: 'image/png'
@@ -242,7 +242,7 @@ class RemoteSupportController {
         
         uploadPromises.push(
           s3.upload({
-            Bucket: 'studysphere',
+            Bucket: s3Config.bucketName,
             Key: screenshotKey,
             Body: files.screenshot[0].buffer,
             ContentType: 'image/png'
@@ -416,7 +416,24 @@ class RemoteSupportController {
         daily_report
       } = req.body;
 
+      // リクエストパラメータの詳細ログ
+      customLogger.info(`[markAttendance] リクエスト受信:`, {
+        login_code,
+        mark_type,
+        timestamp,
+        temperature,
+        condition,
+        has_condition_note: !!condition_note,
+        has_work_note: !!work_note,
+        has_work_result: !!work_result,
+        has_daily_report: !!daily_report
+      });
+
       if (!login_code || !mark_type) {
+        customLogger.error(`[markAttendance] 必須パラメータが不足:`, {
+          login_code: !!login_code,
+          mark_type: !!mark_type
+        });
         return res.status(400).json({
           success: false,
           message: 'ログインコードと打刻タイプが必須です'
@@ -445,172 +462,223 @@ class RemoteSupportController {
 
       const user = users[0];
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD形式
-      const now = timestamp || new Date().toISOString();
+      
+      // MySQLのDATETIME形式に変換（YYYY-MM-DD HH:MM:SS）
+      let now;
+      if (timestamp) {
+        const date = new Date(timestamp);
+        now = date.toISOString().slice(0, 19).replace('T', ' ');
+      } else {
+        now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      }
+      
+      customLogger.info(`[markAttendance] タイムスタンプ変換:`, {
+        original: timestamp,
+        converted: now
+      });
 
       // 勤怠打刻のログを記録
       customLogger.info(`Remote support attendance marked: ${mark_type} for user ${login_code} at ${now}`);
 
       // データベースに勤怠打刻を記録
       try {
+        customLogger.info(`勤怠打刻データベース処理開始: ユーザーID ${user.id}, 打刻タイプ ${mark_type}, 日付 ${today}`);
+        
         // 既存のレコードを確認
         const [existingRecords] = await pool.execute(
           'SELECT id FROM remote_support_daily_records WHERE user_id = ? AND date = ?',
           [user.id, today]
         );
 
+        customLogger.info(`既存レコード数: ${existingRecords.length}`);
+
         if (existingRecords.length > 0) {
           // 既存レコードを更新
-          let updateQuery = 'UPDATE remote_support_daily_records SET updated_at = NOW()';
+          let updateFields = ['updated_at = NOW()'];
           let updateParams = [];
 
           // 打刻タイプに応じて更新するフィールドを決定
           switch (mark_type) {
             case 'start':
-              updateQuery += ', mark_start = ?';
+              updateFields.push('mark_start = ?');
               updateParams.push(now);
               break;
             case 'lunch_start':
-              updateQuery += ', mark_lunch_start = ?';
+              updateFields.push('mark_lunch_start = ?');
               updateParams.push(now);
+              customLogger.info(`昼休み開始時刻を更新: ${now}`);
               break;
             case 'lunch_end':
-              updateQuery += ', mark_lunch_end = ?';
+              updateFields.push('mark_lunch_end = ?');
               updateParams.push(now);
+              customLogger.info(`昼休み終了時刻を更新: ${now}`);
               break;
             case 'end':
-              updateQuery += ', mark_end = ?';
+              updateFields.push('mark_end = ?');
               updateParams.push(now);
               break;
+            default:
+              customLogger.warn(`不明な打刻タイプ: ${mark_type}`);
           }
 
-          // その他のデータも更新
-          if (temperature !== undefined) {
-            updateQuery += ', temperature = ?';
+          // その他のデータも更新（値が実際に存在する場合のみ）
+          if (temperature !== undefined && temperature !== null && temperature !== '') {
+            updateFields.push('temperature = ?');
             updateParams.push(temperature);
           }
-          if (condition !== undefined) {
-            updateQuery += ', `condition` = ?';
+          if (condition !== undefined && condition !== null && condition !== '') {
+            updateFields.push('`condition` = ?');
             updateParams.push(condition);
           }
-          if (condition_note !== undefined) {
-            updateQuery += ', condition_note = ?';
+          if (condition_note !== undefined && condition_note !== null && condition_note !== '') {
+            updateFields.push('condition_note = ?');
             updateParams.push(condition_note);
           }
-          if (work_note !== undefined) {
-            updateQuery += ', work_note = ?';
+          if (work_note !== undefined && work_note !== null && work_note !== '') {
+            updateFields.push('work_note = ?');
             updateParams.push(work_note);
           }
-          if (work_result !== undefined) {
-            updateQuery += ', work_result = ?';
+          if (work_result !== undefined && work_result !== null && work_result !== '') {
+            updateFields.push('work_result = ?');
             updateParams.push(work_result);
           }
-          if (daily_report !== undefined) {
-            updateQuery += ', daily_report = ?';
+          if (daily_report !== undefined && daily_report !== null && daily_report !== '') {
+            updateFields.push('daily_report = ?');
             updateParams.push(daily_report);
           }
 
-          updateQuery += ' WHERE id = ?';
+          const updateQuery = `UPDATE remote_support_daily_records SET ${updateFields.join(', ')} WHERE id = ?`;
           updateParams.push(existingRecords[0].id);
 
-          await pool.execute(updateQuery, updateParams);
-          customLogger.info(`既存の勤怠レコードを更新: ユーザーID ${user.id}, 打刻タイプ ${mark_type}`);
+          customLogger.info(`更新クエリ実行: ${updateQuery}`);
+          customLogger.info(`更新パラメータ:`, updateParams);
+          
+          const [updateResult] = await pool.execute(updateQuery, updateParams);
+          customLogger.info(`既存の勤怠レコードを更新完了: ユーザーID ${user.id}, 打刻タイプ ${mark_type}, 影響行数: ${updateResult.affectedRows}`);
+          
+          if (updateResult.affectedRows === 0) {
+            customLogger.warn(`既存レコードの更新が行われませんでした: ユーザーID ${user.id}, 打刻タイプ ${mark_type}`);
+          }
         } else {
           // 新規レコードを作成
-          let insertQuery = `INSERT INTO remote_support_daily_records (
-            user_id, date, created_at, updated_at`;
+          let insertFields = ['user_id', 'date', 'created_at', 'updated_at'];
           let insertValues = 'VALUES (?, ?, NOW(), NOW()';
           let insertParams = [user.id, today];
 
           // 打刻タイプに応じてフィールドを追加
           switch (mark_type) {
             case 'start':
-              insertQuery += ', mark_start';
+              insertFields.push('mark_start');
               insertValues += ', ?';
               insertParams.push(now);
               break;
             case 'lunch_start':
-              insertQuery += ', mark_lunch_start';
+              insertFields.push('mark_lunch_start');
               insertValues += ', ?';
               insertParams.push(now);
               break;
             case 'lunch_end':
-              insertQuery += ', mark_lunch_end';
+              insertFields.push('mark_lunch_end');
               insertValues += ', ?';
               insertParams.push(now);
               break;
             case 'end':
-              insertQuery += ', mark_end';
+              insertFields.push('mark_end');
               insertValues += ', ?';
               insertParams.push(now);
               break;
           }
 
-          // その他のデータも追加
-          if (temperature !== undefined) {
-            insertQuery += ', temperature';
+          // その他のデータも追加（値が実際に存在する場合のみ）
+          if (temperature !== undefined && temperature !== null && temperature !== '') {
+            insertFields.push('temperature');
             insertValues += ', ?';
             insertParams.push(temperature);
           }
-          if (condition !== undefined) {
-            insertQuery += ', `condition`';
+          if (condition !== undefined && condition !== null && condition !== '') {
+            insertFields.push('`condition`');
             insertValues += ', ?';
             insertParams.push(condition);
           }
-          if (condition_note !== undefined) {
-            insertQuery += ', condition_note';
+          if (condition_note !== undefined && condition_note !== null && condition_note !== '') {
+            insertFields.push('condition_note');
             insertValues += ', ?';
             insertParams.push(condition_note);
           }
-          if (work_note !== undefined) {
-            insertQuery += ', work_note';
+          if (work_note !== undefined && work_note !== null && work_note !== '') {
+            insertFields.push('work_note');
             insertValues += ', ?';
             insertParams.push(work_note);
           }
-          if (work_result !== undefined) {
-            insertQuery += ', work_result';
+          if (work_result !== undefined && work_result !== null && work_result !== '') {
+            insertFields.push('work_result');
             insertValues += ', ?';
             insertParams.push(work_result);
           }
-          if (daily_report !== undefined) {
-            insertQuery += ', daily_report';
+          if (daily_report !== undefined && daily_report !== null && daily_report !== '') {
+            insertFields.push('daily_report');
             insertValues += ', ?';
             insertParams.push(daily_report);
           }
 
-          insertQuery += ') ' + insertValues + ')';
-          await pool.execute(insertQuery, insertParams);
-          customLogger.info(`新規勤怠レコードを作成: ユーザーID ${user.id}, 打刻タイプ ${mark_type}`);
+          insertValues += ')';
+          const insertQuery = `INSERT INTO remote_support_daily_records (${insertFields.join(', ')}) ${insertValues}`;
+          
+          customLogger.info(`挿入クエリ実行: ${insertQuery}`);
+          customLogger.info(`挿入パラメータ:`, insertParams);
+          
+          const [insertResult] = await pool.execute(insertQuery, insertParams);
+          customLogger.info(`新規勤怠レコードを作成完了: ユーザーID ${user.id}, 打刻タイプ ${mark_type}, 挿入ID: ${insertResult.insertId}`);
         }
       } catch (dbError) {
         customLogger.error('勤怠データの記録に失敗:', {
           error: dbError.message,
           userId: user.id,
           markType: mark_type,
-          date: today
+          date: today,
+          stack: dbError.stack
         });
-        // データベースエラーでもレスポンスは返す
+        // データベースエラーを再スローして、エラーレスポンスを返す
+        throw new Error(`勤怠データの記録に失敗しました: ${dbError.message}`);
       }
 
-      res.json({
+      customLogger.info(`勤怠打刻成功: ユーザーID ${user.id}, 打刻タイプ ${mark_type}, 日付 ${today}`);
+      
+      const response = {
         success: true,
-        message: '勤怠打刻が完了しました'
-      });
+        message: '勤怠打刻が完了しました',
+        data: {
+          user_id: user.id,
+          mark_type: mark_type,
+          date: today,
+          timestamp: now
+        }
+      };
+      
+      customLogger.info(`[markAttendance] レスポンス送信:`, response);
+      res.json(response);
 
     } catch (error) {
-      customLogger.error('Remote support attendance error:', error);
-      if (error.message.includes('タイムアウト')) {
-        res.status(408).json({
-          success: false,
-          message: '勤怠打刻処理がタイムアウトしました',
-          error: error.message
-        });
-      } else {
-        res.status(500).json({
-          success: false,
-          message: '勤怠打刻に失敗しました',
-          error: error.message
-        });
-      }
+      customLogger.error('Remote support attendance error:', {
+        error: error.message,
+        stack: error.stack,
+        markType: req.body?.mark_type,
+        loginCode: req.body?.login_code
+      });
+      
+      // エラーレスポンスを確実に返す
+      const errorResponse = {
+        success: false,
+        message: error.message.includes('タイムアウト') 
+          ? '勤怠打刻処理がタイムアウトしました' 
+          : '勤怠打刻に失敗しました',
+        error: error.message
+      };
+      
+      customLogger.error(`[markAttendance] エラーレスポンス送信:`, errorResponse);
+      
+      const statusCode = error.message.includes('タイムアウト') ? 408 : 500;
+      res.status(statusCode).json(errorResponse);
     }
   }
 
@@ -728,7 +796,7 @@ class RemoteSupportController {
    */
   static async login(req, res) {
     try {
-      const { login_code, temperature, condition, condition_note, work_note } = req.body;
+      const { login_code, temperature, condition, condition_note, work_note, sleep_hours } = req.body;
 
       if (!login_code) {
         return res.status(400).json({
@@ -759,7 +827,7 @@ class RemoteSupportController {
 
       const user = users[0];
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD形式
-      const now = new Date().toISOString();
+      const now = new Date().toISOString().replace('T', ' ').replace('Z', ''); // MySQL形式: YYYY-MM-DD HH:mm:ss
 
       // 日報データをデータベースに記録
       try {
@@ -770,23 +838,23 @@ class RemoteSupportController {
         );
 
         if (existingRecords.length > 0) {
-          // 既存レコードを更新（ログイン時間のみ更新）
+          // 既存レコードを更新（ログイン時間と睡眠時間を更新）
           await pool.execute(
-            'UPDATE remote_support_daily_records SET mark_start = ?, updated_at = NOW() WHERE id = ?',
-            [now, existingRecords[0].id]
+            'UPDATE remote_support_daily_records SET mark_start = ?, sleep_hours = ?, updated_at = NOW() WHERE id = ?',
+            [now, sleep_hours || null, existingRecords[0].id]
           );
-          customLogger.info(`既存の日報レコードを更新: ユーザーID ${user.id}, 日付 ${today}`);
+          customLogger.info(`既存の日報レコードを更新: ユーザーID ${user.id}, 日付 ${today}, 睡眠時間: ${sleep_hours || 'なし'}`);
         } else {
           // 新規レコードを作成
           await pool.execute(
             `INSERT INTO remote_support_daily_records (
               user_id, date, mark_start, temperature, \`condition\`, 
-              condition_note, work_note, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-            [user.id, today, now, temperature || null, condition || null, 
-             condition_note || null, work_note || null]
+              condition_note, work_note, sleep_hours, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+            [user.id, today, now, temperature || null, condition || '普通', 
+             condition_note || null, work_note || null, sleep_hours || null]
           );
-          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}`);
+          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}, 睡眠時間: ${sleep_hours || 'なし'}`);
         }
       } catch (dbError) {
         customLogger.error('日報データの記録に失敗:', {
@@ -1336,10 +1404,14 @@ class RemoteSupportController {
         support_content,
         advice,
         instructor_comment,
+        recorder_name,
         mark_start,
         mark_lunch_start,
         mark_lunch_end,
-        mark_end
+        mark_end,
+        sleep_hours,
+        bedtime,
+        wakeup_time
       } = req.body;
 
       // リクエストボディをログ出力
@@ -1389,17 +1461,40 @@ class RemoteSupportController {
           }
           
           // フロントエンドからMySQL形式（YYYY-MM-DD HH:MM:SS）で送信される場合
+          // フロントエンドで既にUTCに変換されているので、そのまま使用
           if (typeof timeString === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(timeString)) {
-            customLogger.info(`MySQL形式として認識: ${timeString}`);
+            customLogger.info(`MySQL形式として認識（UTC）: ${timeString}`);
             return timeString;
           }
           
           // HH:MM形式の文字列の場合（後方互換性のため）
+          // この場合は日本時間として解釈してUTCに変換する必要がある
           if (typeof timeString === 'string' && /^\d{2}:\d{2}$/.test(timeString)) {
             const reportDate = existingReports[0].date;
             customLogger.info(`HH:MM形式として認識: ${timeString}, 使用する日付: ${reportDate}`);
-            const datetime = `${reportDate} ${timeString}:00`;
-            customLogger.info(`時間変換成功: ${timeString} -> ${datetime}`);
+            
+            // 日本時間として解釈（+09:00を付与）
+            // new Date()に+09:00を付与すると、内部的にUTCに変換される
+            const jstDateTimeString = `${reportDate}T${timeString}:00+09:00`;
+            const dateObj = new Date(jstDateTimeString);
+            
+            if (isNaN(dateObj.getTime())) {
+              customLogger.error(`無効な時間形式: ${timeString}`);
+              return null;
+            }
+            
+            // Dateオブジェクトは既にUTC時刻として管理されているので、
+            // getUTC*メソッドで直接UTCの値を取得できる
+            // 追加で9時間引く必要はない（既にUTCになっている）
+            const year = dateObj.getUTCFullYear();
+            const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const hours = String(dateObj.getUTCHours()).padStart(2, '0');
+            const minutes = String(dateObj.getUTCMinutes()).padStart(2, '0');
+            const seconds = String(dateObj.getUTCSeconds()).padStart(2, '0');
+            
+            const datetime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            customLogger.info(`時間変換成功（UTC）: ${timeString} -> ${datetime}`);
             return datetime;
           }
           
@@ -1495,34 +1590,77 @@ class RemoteSupportController {
         updateParams.push(advice);
       }
       
+      if (isValidValue(sleep_hours)) {
+        updateFields.push('sleep_hours = ?');
+        updateParams.push(sleep_hours);
+      }
+
+      if (isValidValue(bedtime)) {
+        updateFields.push('bedtime = ?');
+        updateParams.push(bedtime);
+      }
+
+      if (isValidValue(wakeup_time)) {
+        updateFields.push('wakeup_time = ?');
+        updateParams.push(wakeup_time);
+      }
+
       if (isValidValue(instructor_comment)) {
         updateFields.push('instructor_comment = ?');
         updateParams.push(instructor_comment);
       }
       
+      if (isValidValue(recorder_name)) {
+        updateFields.push('recorder_name = ?');
+        updateParams.push(recorder_name);
+      }
+      
       // 時間フィールドの処理
-      if (markStartDateTime !== null && markStartDateTime !== '' && markStartDateTime !== undefined) {
-        updateFields.push('mark_start = ?');
-        updateParams.push(markStartDateTime);
-        customLogger.info('mark_start追加:', markStartDateTime);
+      // フロントエンドから送信された値が明示的にnullの場合、NULLに設定
+      // 値がある場合はその値を設定
+      if (mark_start !== undefined) {
+        if (markStartDateTime !== null && markStartDateTime !== '' && markStartDateTime !== undefined) {
+          updateFields.push('mark_start = ?');
+          updateParams.push(markStartDateTime);
+          customLogger.info('mark_start追加:', markStartDateTime);
+        } else {
+          // 明示的にnullが送信された場合、NULLに設定
+          updateFields.push('mark_start = NULL');
+          customLogger.info('mark_startをNULLに設定');
+        }
       }
       
-      if (markLunchStartDateTime !== null && markLunchStartDateTime !== '' && markLunchStartDateTime !== undefined) {
-        updateFields.push('mark_lunch_start = ?');
-        updateParams.push(markLunchStartDateTime);
-        customLogger.info('mark_lunch_start追加:', markLunchStartDateTime);
+      if (mark_lunch_start !== undefined) {
+        if (markLunchStartDateTime !== null && markLunchStartDateTime !== '' && markLunchStartDateTime !== undefined) {
+          updateFields.push('mark_lunch_start = ?');
+          updateParams.push(markLunchStartDateTime);
+          customLogger.info('mark_lunch_start追加:', markLunchStartDateTime);
+        } else {
+          updateFields.push('mark_lunch_start = NULL');
+          customLogger.info('mark_lunch_startをNULLに設定');
+        }
       }
       
-      if (markLunchEndDateTime !== null && markLunchEndDateTime !== '' && markLunchEndDateTime !== undefined) {
-        updateFields.push('mark_lunch_end = ?');
-        updateParams.push(markLunchEndDateTime);
-        customLogger.info('mark_lunch_end追加:', markLunchEndDateTime);
+      if (mark_lunch_end !== undefined) {
+        if (markLunchEndDateTime !== null && markLunchEndDateTime !== '' && markLunchEndDateTime !== undefined) {
+          updateFields.push('mark_lunch_end = ?');
+          updateParams.push(markLunchEndDateTime);
+          customLogger.info('mark_lunch_end追加:', markLunchEndDateTime);
+        } else {
+          updateFields.push('mark_lunch_end = NULL');
+          customLogger.info('mark_lunch_endをNULLに設定');
+        }
       }
       
-      if (markEndDateTime !== null && markEndDateTime !== '' && markEndDateTime !== undefined) {
-        updateFields.push('mark_end = ?');
-        updateParams.push(markEndDateTime);
-        customLogger.info('mark_end追加:', markEndDateTime);
+      if (mark_end !== undefined) {
+        if (markEndDateTime !== null && markEndDateTime !== '' && markEndDateTime !== undefined) {
+          updateFields.push('mark_end = ?');
+          updateParams.push(markEndDateTime);
+          customLogger.info('mark_end追加:', markEndDateTime);
+        } else {
+          updateFields.push('mark_end = NULL');
+          customLogger.info('mark_endをNULLに設定');
+        }
       }
       
       // updated_atは常に更新
@@ -1598,6 +1736,63 @@ class RemoteSupportController {
         message: '日報の更新に失敗しました',
         error: error.message,
         details: error.stack
+      });
+    }
+  }
+
+  /**
+   * 日報削除
+   */
+  static async deleteDailyReport(req, res) {
+    try {
+      const { id } = req.params;
+
+      customLogger.info('日報削除リクエスト受信', { reportId: id });
+
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          message: '日報IDは必須です'
+        });
+      }
+
+      const [existingReports] = await pool.execute(
+        'SELECT id FROM remote_support_daily_records WHERE id = ? LIMIT 1',
+        [id]
+      );
+
+      if (existingReports.length === 0) {
+        customLogger.warn('日報削除: 対象レコードが存在しません', { reportId: id });
+        return res.status(404).json({
+          success: false,
+          message: '日報が見つかりません'
+        });
+      }
+
+      const [deleteResult] = await pool.execute(
+        'DELETE FROM remote_support_daily_records WHERE id = ?',
+        [id]
+      );
+
+      customLogger.info('日報削除完了', {
+        reportId: id,
+        affectedRows: deleteResult.affectedRows
+      });
+
+      res.json({
+        success: true,
+        message: '日報を削除しました'
+      });
+    } catch (error) {
+      customLogger.error('日報削除エラー:', {
+        message: error.message,
+        stack: error.stack,
+        params: req.params
+      });
+      res.status(500).json({
+        success: false,
+        message: '日報の削除に失敗しました',
+        error: error.message
       });
     }
   }
@@ -1687,6 +1882,163 @@ class RemoteSupportController {
       res.status(500).json({
         success: false,
         message: 'コメントの追加に失敗しました',
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * 日報コメント削除
+   */
+  static async deleteDailyReportComment(req, res) {
+    try {
+      const { id, commentId } = req.params;
+      const { createdAt } = req.query;
+
+      if (!id || !commentId) {
+        return res.status(400).json({
+          success: false,
+          message: '日報IDおよびコメントIDは必須です'
+        });
+      }
+
+      const [existingReports] = await pool.execute(
+        'SELECT instructor_comment FROM remote_support_daily_records WHERE id = ? LIMIT 1',
+        [id]
+      );
+
+      if (existingReports.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '日報が見つかりません'
+        });
+      }
+
+      const existingReport = existingReports[0];
+
+      customLogger.info('日報コメント削除リクエスト受信', {
+        reportId: id,
+        commentId,
+        createdAt,
+        rawInstructorCommentLength: existingReport.instructor_comment ? existingReport.instructor_comment.length : 0
+      });
+
+      if (!existingReport.instructor_comment) {
+        return res.status(404).json({
+          success: false,
+          message: '対象のコメントが見つかりません'
+        });
+      }
+
+      let comments = [];
+      try {
+        const parsed = JSON.parse(existingReport.instructor_comment);
+        if (Array.isArray(parsed)) {
+          comments = parsed;
+        } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.comments)) {
+          comments = parsed.comments;
+        }
+      } catch (error) {
+        customLogger.warn('コメントJSONの解析に失敗しました:', {
+          error: error.message,
+          instructor_comment: existingReport.instructor_comment
+        });
+        comments = [];
+      }
+
+      customLogger.info('コメント配列解析結果', {
+        totalComments: comments.length,
+        sample: comments.slice(0, 3)
+      });
+
+      const commentIdNumber = Number(commentId);
+      let matchFound = false;
+      const filteredComments = comments.filter((comment, index) => {
+        if (!comment) {
+          customLogger.info('コメント検証: 空コメントのため保持', { index });
+          return true;
+        }
+
+        let matchedById = false;
+        let matchedByCreatedAt = false;
+
+        if (Object.prototype.hasOwnProperty.call(comment, 'id')) {
+          matchedById = comment.id === commentIdNumber || String(comment.id) === String(commentId);
+        }
+
+        const commentCreatedAtValue = comment.created_at || comment.createdAt;
+        if (createdAt && commentCreatedAtValue) {
+          const requestDate = new Date(createdAt);
+          const commentDate = new Date(commentCreatedAtValue);
+          if (!Number.isNaN(requestDate.getTime()) && !Number.isNaN(commentDate.getTime())) {
+            if (commentDate.toISOString() === requestDate.toISOString()) {
+              matchedByCreatedAt = true;
+            }
+            const diff = Math.abs(commentDate.getTime() - requestDate.getTime());
+            if (!matchedByCreatedAt && diff <= 1000) {
+              matchedByCreatedAt = true;
+            }
+          }
+
+          if (!matchedByCreatedAt && (commentCreatedAtValue === createdAt || String(commentCreatedAtValue) === String(createdAt))) {
+            matchedByCreatedAt = true;
+          }
+        }
+
+        const shouldRemove = matchedById || matchedByCreatedAt;
+
+        customLogger.info('コメント検証結果', {
+          index,
+          comment,
+          matchedById,
+          matchedByCreatedAt,
+          shouldRemove
+        });
+
+        if (shouldRemove) {
+          matchFound = true;
+        }
+
+        return !shouldRemove;
+      });
+
+      customLogger.info('コメントフィルタ結果', {
+        before: comments.length,
+        after: filteredComments.length,
+        matchFound
+      });
+
+      if (!matchFound) {
+        return res.status(404).json({
+          success: false,
+          message: '対象のコメントが見つかりません'
+        });
+      }
+
+      const serialized = filteredComments.length > 0 ? JSON.stringify(filteredComments) : null;
+
+      await pool.execute(
+        'UPDATE remote_support_daily_records SET instructor_comment = ?, updated_at = NOW() WHERE id = ?',
+        [serialized, id]
+      );
+
+      customLogger.info('日報コメント削除:', {
+        reportId: id,
+        commentId
+      });
+
+      res.json({
+        success: true,
+        message: 'コメントを削除しました',
+        data: {
+          remainingComments: filteredComments
+        }
+      });
+    } catch (error) {
+      customLogger.error('日報コメント削除エラー:', error);
+      res.status(500).json({
+        success: false,
+        message: 'コメントの削除に失敗しました',
         error: error.message
       });
     }
@@ -1824,6 +2176,394 @@ class RemoteSupportController {
         success: false,
         message: '利用者コードの検証に失敗しました',
         error: error.message
+      });
+    }
+  }
+
+  /**
+   * S3から記録データを取得（指導員ダッシュボード用）
+   */
+  static async getCaptureRecords(req, res) {
+    try {
+      const { userId, startDate, endDate, satelliteId, page = 1, limit = 20 } = req.query;
+      
+      customLogger.info('S3記録データ取得リクエスト:', {
+        userId,
+        startDate,
+        endDate,
+        satelliteId,
+        page,
+        limit
+      });
+
+      // S3設定
+      const s3 = new AWS.S3({
+        region: process.env.AWS_REGION || 'ap-northeast-1',
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      });
+
+      const bucketName = process.env.AWS_S3_BUCKET || 'studysphere';
+      
+      // ユーザー情報を取得
+      let whereClause = 'WHERE 1=1';
+      const params = [];
+      
+      if (userId) {
+        whereClause += ' AND ua.id = ?';
+        params.push(userId);
+      }
+      
+      // 拠点IDでフィルタリング
+      if (satelliteId) {
+        whereClause += ' AND JSON_CONTAINS(ua.satellite_ids, ?)';
+        params.push(JSON.stringify(parseInt(satelliteId)));
+      }
+      
+      const [users] = await pool.execute(`
+        SELECT 
+          ua.id,
+          ua.name,
+          ua.login_code,
+          ua.company_id,
+          ua.satellite_ids,
+          c.token as company_token,
+          s.token as satellite_token
+        FROM user_accounts ua
+        LEFT JOIN companies c ON ua.company_id = c.id
+        LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+        ${whereClause}
+        ORDER BY ua.name
+      `, params);
+
+      if (users.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            records: [],
+            pagination: {
+              page: parseInt(page),
+              limit: parseInt(limit),
+              total: 0,
+              totalPages: 0
+            }
+          }
+        });
+      }
+
+      const allRecords = [];
+
+      // 各ユーザーのS3データを取得
+      for (const user of users) {
+        try {
+          // S3パス構造: capture/{企業トークン}/{拠点トークン}/{利用者トークン}/YYYY/MM/DD/
+          const prefix = `capture/${user.company_token}/${user.satellite_token}/${user.login_code}/`;
+          
+          const listParams = {
+            Bucket: bucketName,
+            Prefix: prefix,
+            MaxKeys: 1000
+          };
+
+          const s3Objects = await s3.listObjectsV2(listParams).promise();
+          
+          if (s3Objects.Contents && s3Objects.Contents.length > 0) {
+            // 日付でグループ化
+            const recordsByDate = {};
+            
+            for (const obj of s3Objects.Contents) {
+              const key = obj.Key;
+              const lastModified = obj.LastModified;
+              
+              // パスから日付を抽出: capture/company/satellite/user/YYYY/MM/DD/type/timestamp.png
+              const pathParts = key.split('/');
+              if (pathParts.length >= 7) {
+                const year = pathParts[4];
+                const month = pathParts[5];
+                const day = pathParts[6];
+                const type = pathParts[7]; // camera or screenshot
+                const dateKey = `${year}-${month}-${day}`;
+                
+                // 日付フィルタリング
+                if (startDate && dateKey < startDate) continue;
+                if (endDate && dateKey > endDate) continue;
+                
+                if (!recordsByDate[dateKey]) {
+                  recordsByDate[dateKey] = {
+                    date: dateKey,
+                    user: {
+                      id: user.id,
+                      name: user.name,
+                      login_code: user.login_code
+                    },
+                    photos: [],
+                    screenshots: [],
+                    thumbnail: null
+                  };
+                }
+                
+                // プレサインドURLを生成（1時間有効）
+                const presignedUrl = s3.getSignedUrl('getObject', {
+                  Bucket: bucketName,
+                  Key: key,
+                  Expires: 3600 // 1時間
+                });
+                
+                const record = {
+                  key: key,
+                  type: type,
+                  lastModified: lastModified,
+                  url: presignedUrl
+                };
+                
+                if (type === 'camera') {
+                  recordsByDate[dateKey].photos.push(record);
+                } else if (type === 'screenshot') {
+                  recordsByDate[dateKey].screenshots.push(record);
+                }
+              }
+            }
+            
+            // 各日付のサムネイルを決定（同時刻に2つ記録されているなら2つ、そうでないなら最新画像1つ）
+            for (const dateKey in recordsByDate) {
+              const record = recordsByDate[dateKey];
+              
+              // 写真とスクリーンショットを時刻順でソート
+              record.photos.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+              record.screenshots.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+              
+              // 最新の写真とスクリーンショットを取得
+              const latestPhoto = record.photos.length > 0 ? record.photos[0] : null;
+              const latestScreenshot = record.screenshots.length > 0 ? record.screenshots[0] : null;
+              
+              // 同時刻判定（5分以内の差を同一時刻とみなす）
+              const isSameTime = latestPhoto && latestScreenshot && 
+                Math.abs(new Date(latestPhoto.lastModified) - new Date(latestScreenshot.lastModified)) < 5 * 60 * 1000;
+              
+              // サムネイル決定
+              if (isSameTime) {
+                // 同時刻に2つ記録されている場合は両方
+                record.thumbnails = [latestPhoto, latestScreenshot];
+                record.thumbnail = latestPhoto; // 互換性のため残す
+              } else if (latestPhoto) {
+                // 写真のみ
+                record.thumbnails = [latestPhoto];
+                record.thumbnail = latestPhoto;
+              } else if (latestScreenshot) {
+                // スクリーンショットのみ
+                record.thumbnails = [latestScreenshot];
+                record.thumbnail = latestScreenshot;
+              } else {
+                record.thumbnails = [];
+                record.thumbnail = null;
+              }
+              
+              allRecords.push(record);
+            }
+          }
+        } catch (s3Error) {
+          customLogger.error(`ユーザー ${user.name} のS3データ取得エラー:`, s3Error);
+        }
+      }
+      
+      // 日付順でソート（新しい順）
+      allRecords.sort((a, b) => new Date(b.date) - new Date(a.date));
+      
+      // ページネーション
+      const total = allRecords.length;
+      const startIndex = (parseInt(page) - 1) * parseInt(limit);
+      const endIndex = startIndex + parseInt(limit);
+      const paginatedRecords = allRecords.slice(startIndex, endIndex);
+      
+      customLogger.info(`S3記録データ取得完了: ${paginatedRecords.length}件 (総件数: ${total}件)`);
+      
+      res.json({
+        success: true,
+        data: {
+          records: paginatedRecords,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total,
+            totalPages: Math.ceil(total / limit)
+          }
+        }
+      });
+      
+    } catch (error) {
+      customLogger.error('S3記録データ取得エラー:', {
+        error: error.message,
+        stack: error.stack,
+        query: req.query
+      });
+      res.status(500).json({
+        success: false,
+        message: '記録データの取得に失敗しました',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  }
+
+  /**
+   * 特定ユーザー・日付のS3記録データを取得
+   */
+  static async getCaptureRecordsByUserAndDate(req, res) {
+    try {
+      const { userId, date } = req.params;
+      
+      customLogger.info(`特定ユーザー・日付のS3記録データ取得: userId=${userId}, date=${date}`);
+
+      // ユーザー情報を取得
+      const [users] = await pool.execute(`
+        SELECT 
+          ua.id,
+          ua.name,
+          ua.login_code,
+          ua.company_id,
+          ua.satellite_ids,
+          c.token as company_token,
+          s.token as satellite_token
+        FROM user_accounts ua
+        LEFT JOIN companies c ON ua.company_id = c.id
+        LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+        WHERE ua.id = ?
+      `, [userId]);
+
+      if (users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+
+      const user = users[0];
+      
+      // 開始打刻時間と睡眠時間を取得
+      let startTime = null;
+      let sleepHours = null;
+      try {
+        const [dailyRecords] = await pool.execute(
+          'SELECT mark_start, sleep_hours FROM remote_support_daily_records WHERE user_id = ? AND date = ?',
+          [userId, date]
+        );
+        
+        if (dailyRecords.length > 0) {
+          if (dailyRecords[0].mark_start) {
+            startTime = dailyRecords[0].mark_start;
+          }
+          if (dailyRecords[0].sleep_hours) {
+            sleepHours = dailyRecords[0].sleep_hours;
+          }
+        }
+      } catch (error) {
+        customLogger.warn('打刻時間・睡眠時間の取得に失敗:', error);
+      }
+      
+      // S3設定
+      const s3 = new AWS.S3({
+        region: process.env.AWS_REGION || 'ap-northeast-1',
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+      });
+
+      const bucketName = process.env.AWS_S3_BUCKET || 'studysphere';
+      
+      // 日付をYYYY/MM/DD形式に変換
+      const dateObj = new Date(date);
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      
+      // S3パス構造: capture/{企業トークン}/{拠点トークン}/{利用者トークン}/YYYY/MM/DD/
+      const prefix = `capture/${user.company_token}/${user.satellite_token}/${user.login_code}/${year}/${month}/${day}/`;
+      
+      const listParams = {
+        Bucket: bucketName,
+        Prefix: prefix,
+        MaxKeys: 1000
+      };
+
+      const s3Objects = await s3.listObjectsV2(listParams).promise();
+      
+      const photos = [];
+      const screenshots = [];
+      
+      if (s3Objects.Contents && s3Objects.Contents.length > 0) {
+        for (const obj of s3Objects.Contents) {
+          const key = obj.Key;
+          const lastModified = obj.LastModified;
+          
+          // パスからタイプを抽出
+          const pathParts = key.split('/');
+          if (pathParts.length >= 8) {
+            const type = pathParts[7]; // camera or screenshot
+            
+            // S3の署名付きURLを生成（60分有効）
+            const presignedUrl = s3.getSignedUrl('getObject', {
+              Bucket: bucketName,
+              Key: key,
+              Expires: 3600 // 1時間
+            });
+            
+            const record = {
+              key: key,
+              type: type,
+              lastModified: lastModified,
+              url: presignedUrl
+            };
+            
+            if (type === 'camera') {
+              photos.push(record);
+            } else if (type === 'screenshot') {
+              screenshots.push(record);
+            }
+          }
+        }
+      }
+      
+      // 時刻順でソート（新しい順）
+      photos.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+      screenshots.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
+      
+      // サムネイル決定（写真優先、最後のファイル）
+      let thumbnail = null;
+      if (photos.length > 0) {
+        thumbnail = photos[0];
+      } else if (screenshots.length > 0) {
+        thumbnail = screenshots[0];
+      }
+      
+      customLogger.info(`特定ユーザー・日付のS3記録データ取得完了: 写真${photos.length}件、スクリーンショット${screenshots.length}件`);
+      
+      res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            name: user.name,
+            login_code: user.login_code
+          },
+          date: date,
+          startTime: startTime,
+          sleepHours: sleepHours,
+          photos,
+          screenshots,
+          thumbnail
+        }
+      });
+      
+    } catch (error) {
+      customLogger.error('特定ユーザー・日付のS3記録データ取得エラー:', {
+        error: error.message,
+        stack: error.stack,
+        params: req.params
+      });
+      res.status(500).json({
+        success: false,
+        message: '記録データの取得に失敗しました',
+        error: error.message,
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
       });
     }
   }

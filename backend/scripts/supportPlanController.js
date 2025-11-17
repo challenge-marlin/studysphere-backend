@@ -221,11 +221,106 @@ const upsertSupportPlan = async (req, res) => {
   }
 };
 
+// 拠点内の在宅支援利用者の個別支援計画の目標達成予定日を取得
+const getSatelliteSupportPlanGoalDates = async (req, res) => {
+  try {
+    const { satelliteId } = req.params;
+    
+    const sql = `
+      SELECT 
+        sp.user_id,
+        ua.name as user_name,
+        sp.goal_date,
+        sp.updated_at
+      FROM support_plans sp
+      INNER JOIN user_accounts ua ON sp.user_id = ua.id
+      WHERE ua.satellite_ids LIKE ? 
+        AND ua.is_remote_user = 1
+        AND sp.goal_date IS NOT NULL
+      ORDER BY sp.goal_date ASC
+    `;
+    
+    const satelliteIdPattern = `%"${satelliteId}"%`;
+    const result = await query(sql, [satelliteIdPattern]);
+    
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    customLogger.error('拠点個別支援計画目標日取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '個別支援計画の目標達成予定日の取得中にエラーが発生しました',
+      error: error.message
+    });
+  }
+};
+
+// 拠点内の在宅支援利用者の個別支援計画状況を取得（記録がない利用者も含む）
+const getSatelliteSupportPlanStatus = async (req, res) => {
+  try {
+    const { satelliteId } = req.params;
+    
+    console.log('個別支援計画状況取得開始 - satelliteId:', satelliteId);
+    
+    const sql = `
+      SELECT 
+        ua.id as user_id,
+        ua.name as user_name,
+        sp.goal_date,
+        sp.updated_at,
+        CASE 
+          WHEN sp.id IS NULL THEN 'no_record'
+          WHEN sp.goal_date IS NULL THEN 'no_goal_date'
+          ELSE 'has_goal_date'
+        END as status
+      FROM user_accounts ua
+      LEFT JOIN support_plans sp ON ua.id = sp.user_id
+      WHERE JSON_CONTAINS(ua.satellite_ids, ?)
+        AND ua.is_remote_user = 1
+        AND ua.status = 1
+      ORDER BY ua.name ASC
+    `;
+    
+    const satelliteIdJson = JSON.stringify(parseInt(satelliteId));
+    console.log('SQL実行:', sql, 'パラメータ:', [satelliteIdJson]);
+    
+    const result = await query(sql, [satelliteIdJson]);
+    
+    console.log('SQL実行結果:', result);
+    
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    console.error('拠点個別支援計画状況取得エラー詳細:', {
+      message: error.message,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage,
+      stack: error.stack
+    });
+    customLogger.error('拠点個別支援計画状況取得エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '個別支援計画の状況取得中にエラーが発生しました',
+      error: error.message,
+      code: error.code,
+      sqlMessage: error.sqlMessage
+    });
+  }
+};
+
 module.exports = {
   getSupportPlans,
   getSupportPlanByUserId,
   createSupportPlan,
   updateSupportPlan,
   deleteSupportPlan,
-  upsertSupportPlan
+  upsertSupportPlan,
+  getSatelliteSupportPlanGoalDates,
+  getSatelliteSupportPlanStatus
 };

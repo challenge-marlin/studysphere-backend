@@ -679,11 +679,29 @@ const submitTestResult = async (req, res) => {
       ? calculatedScore >= 29  // レッスンテスト: 30問中29問以上
       : progressPercentage >= 90;  // セクションテスト: 90%以上
     
+    // 既存のレッスン進捗を確認（承認済みレッスンの再受験時にステータスを維持するため）
+    const [existingProgressRows] = await connection.execute(`
+      SELECT status, instructor_approved, completed_at
+      FROM user_lesson_progress
+      WHERE user_id = ? AND lesson_id = ?
+      FOR UPDATE
+    `, [userId, lessonId]);
+
+    const existingProgress = existingProgressRows[0] || null;
+    const isAlreadyApprovedLesson = !!(existingProgress &&
+      existingProgress.status === 'completed' &&
+      (existingProgress.instructor_approved === 1 || existingProgress.instructor_approved === true));
+
     // テスト合格の場合のみ進捗を更新、指導員承認待ちの状態にする
     let newStatus = 'in_progress'; // デフォルトは進行中
     let completedAt = null;
     
-    if (testPassed) {
+    if (isAlreadyApprovedLesson) {
+      // 一度承認済みのレッスンは再受験してもcompleted状態を維持
+      newStatus = 'completed';
+      completedAt = existingProgress?.completed_at || null;
+      console.log('🛡️ 承認済みレッスンの再受験: ステータスをcompletedのまま保持します');
+    } else if (testPassed) {
       // テストは合格したが、指導員承認待ち
       newStatus = 'in_progress'; // 指導員承認まで完了にはしない
       console.log(`✅ テスト合格 (${progressPercentage}%) - 指導員承認待ち`);

@@ -1070,6 +1070,216 @@ const removeSatelliteFromUser = async (userId, satelliteId) => {
   }
 };
 
+/**
+ * 指定したユーザーの詳細情報を取得
+ */
+const getUserById = async (req, res) => {
+  const { userId } = req.params;
+  const requester = req.user;
+
+  if (!requester) {
+    return res.status(401).json({
+      success: false,
+      message: '認証が必要です'
+    });
+  }
+
+  const targetUserId = parseInt(userId, 10);
+
+  if (Number.isNaN(targetUserId)) {
+    return res.status(400).json({
+      success: false,
+      message: 'ユーザーIDが不正です'
+    });
+  }
+
+  let connection;
+
+  try {
+    connection = await pool.getConnection();
+
+    const [users] = await connection.execute(
+      `
+        SELECT 
+          ua.id,
+          ua.name,
+          ua.email,
+          ua.role,
+          ua.status,
+          ua.login_code,
+          ua.company_id,
+          ua.satellite_ids,
+          ua.instructor_id,
+          ua.recipient_number,
+          ua.is_remote_user,
+          NULL AS created_at,
+          NULL AS updated_at,
+          instructor.name as instructor_name,
+          c.name as company_name
+        FROM user_accounts ua
+        LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+        LEFT JOIN companies c ON ua.company_id = c.id
+        WHERE ua.id = ?
+      `,
+      [targetUserId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: '指定された利用者が見つかりません'
+      });
+    }
+
+    const user = users[0];
+
+    const isAdmin = requester.role >= 9;
+    const isSameUser = requester.user_id === user.id;
+    const isInstructor = requester.role >= 4 && requester.role < 9;
+    const isSameCompany = requester.company_id && requester.company_id === user.company_id;
+    const isAssignedInstructor = isInstructor && user.instructor_id === requester.user_id;
+
+    if (!(isAdmin || isSameUser || isAssignedInstructor || (isInstructor && isSameCompany))) {
+      return res.status(403).json({
+        success: false,
+        message: 'この利用者情報へのアクセス権限がありません'
+      });
+    }
+
+    let satelliteIds = [];
+    if (user.satellite_ids) {
+      try {
+        if (typeof user.satellite_ids === 'string') {
+          const parsed = JSON.parse(user.satellite_ids);
+          satelliteIds = Array.isArray(parsed) ? parsed.map(Number) : [Number(parsed)];
+        } else if (Array.isArray(user.satellite_ids)) {
+          satelliteIds = user.satellite_ids.map(Number);
+        } else {
+          satelliteIds = [Number(user.satellite_ids)];
+        }
+        satelliteIds = satelliteIds.filter(id => !Number.isNaN(id));
+      } catch (error) {
+        customLogger.warn('satellite_ids parse error in getUserById', {
+          userId: user.id,
+          rawValue: user.satellite_ids,
+          error: error.message
+        });
+        satelliteIds = [];
+      }
+    }
+
+    let satelliteDetails = [];
+    if (satelliteIds.length > 0) {
+      const placeholders = satelliteIds.map(() => '?').join(',');
+      const [satellites] = await connection.execute(
+        `
+          SELECT 
+            s.id,
+            s.name,
+            s.token,
+            s.company_id,
+            c.name as company_name
+          FROM satellites s
+          LEFT JOIN companies c ON s.company_id = c.id
+          WHERE s.id IN (${placeholders})
+        `,
+        satelliteIds
+      );
+
+      satelliteDetails = satellites.map(sat => ({
+        id: sat.id,
+        name: sat.name,
+        token: sat.token,
+        company_id: sat.company_id,
+        company_name: sat.company_name
+      }));
+    }
+
+    const [tagRows] = await connection.execute(
+      'SELECT tag_name FROM user_tags WHERE user_id = ?',
+      [targetUserId]
+    );
+
+    const tags = Array.from(
+      new Set([
+        ...tagRows.map(tag => tag.tag_name),
+        ...(user.is_remote_user === 1 ? ['在宅支援'] : [])
+      ])
+    );
+
+    const primarySatellite = satelliteDetails[0] || null;
+
+    const formattedUser = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      login_code: user.login_code,
+      loginCode: user.login_code,
+      company_id: user.company_id,
+      companyId: user.company_id,
+      company_name: user.company_name,
+      companyName: user.company_name,
+      instructor_id: user.instructor_id,
+      instructorId: user.instructor_id,
+      instructor_name: user.instructor_name,
+      instructorName: user.instructor_name,
+      recipient_number: user.recipient_number,
+      recipientNumber: user.recipient_number || '',
+      is_remote_user: user.is_remote_user === 1,
+      isRemoteUser: user.is_remote_user === 1,
+      satellite_ids: satelliteIds,
+      satelliteIds,
+      satellite_details: satelliteDetails,
+      satelliteDetails,
+      tags,
+      created_at: user.created_at,
+      updated_at: user.updated_at
+    };
+
+    if (primarySatellite) {
+      formattedUser.satellite_id = primarySatellite.id;
+      formattedUser.satelliteId = primarySatellite.id;
+      formattedUser.satellite_name = primarySatellite.name;
+      formattedUser.satelliteName = primarySatellite.name;
+      formattedUser.primary_satellite_id = primarySatellite.id;
+      formattedUser.primary_satellite_name = primarySatellite.name;
+      formattedUser.location = {
+        id: primarySatellite.id,
+        name: primarySatellite.name,
+        company_id: primarySatellite.company_id,
+        company_name: primarySatellite.company_name
+      };
+    }
+
+    return res.json({
+      success: true,
+      data: formattedUser
+    });
+  } catch (error) {
+    customLogger.error('Error fetching user by ID', {
+      userId: userId,
+      requesterId: requester.user_id,
+      error: error.message
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: '利用者情報の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    if (connection) {
+      try {
+        connection.release();
+      } catch (releaseError) {
+        customLogger.error('Connection release error in getUserById', releaseError);
+      }
+    }
+  }
+};
+
 // ユーザー作成
 const createUser = async (userData) => {
   let connection;
@@ -2767,6 +2977,161 @@ const getSatelliteHomeSupportUsers = async (req, res) => {
 };
 
 /**
+ * 拠点内の在宅支援利用者一覧（日次記録を含む）を取得
+ */
+const getSatelliteHomeSupportUsersWithDailyRecords = async (req, res) => {
+  const { satelliteId } = req.params;
+  const { instructorIds, date } = req.query;
+  const connection = await pool.getConnection();
+
+  const parseJsonField = (value, defaultValue = null) => {
+    if (value === null || value === undefined) {
+      return defaultValue;
+    }
+
+    if (Array.isArray(value) || (typeof value === 'object' && !Buffer.isBuffer(value))) {
+      return value;
+    }
+
+    try {
+      const text = Buffer.isBuffer(value) ? value.toString('utf8') : value;
+      const parsed = typeof text === 'string' ? JSON.parse(text) : text;
+      return parsed ?? defaultValue;
+    } catch (error) {
+      customLogger.warn('JSONフィールドのパースに失敗しました', {
+        error: error.message,
+        valuePreview: Buffer.isBuffer(value) ? value.toString('utf8').slice(0, 200) : String(value).slice(0, 200)
+      });
+      return defaultValue;
+    }
+  };
+
+  try {
+    const satelliteIdInt = parseInt(satelliteId);
+
+    if (Number.isNaN(satelliteIdInt)) {
+      return res.status(400).json({
+        success: false,
+        message: 'satelliteIdが不正です'
+      });
+    }
+
+    const instructorIdArray = instructorIds
+      ? instructorIds
+          .split(',')
+          .map(id => parseInt(id.trim(), 10))
+          .filter(id => !Number.isNaN(id))
+      : [];
+
+    const params = [];
+    const hasDateFilter = Boolean(date);
+
+    if (hasDateFilter) {
+      params.push(date);
+    }
+
+    params.push(JSON.stringify(satelliteIdInt));
+
+    let query = `
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.login_code,
+        CASE WHEN ua.is_remote_user = 1 THEN TRUE ELSE FALSE END AS is_remote_user,
+        ua.instructor_id,
+        instructor.name AS instructor_name,
+        ua.company_id,
+        c.name AS company_name,
+        tags.tags AS tags,
+        rsdr.id AS daily_record_id,
+        rsdr.date AS record_date,
+        rsdr.mark_start,
+        rsdr.mark_lunch_start,
+        rsdr.mark_lunch_end,
+        rsdr.mark_end,
+        rsdr.temperature,
+        rsdr.condition,
+        rsdr.condition_note,
+        rsdr.work_note,
+        rsdr.work_result,
+        rsdr.daily_report,
+        rsdr.support_method,
+        rsdr.support_method_note,
+        rsdr.task_content,
+        rsdr.support_content,
+        rsdr.advice,
+        rsdr.instructor_comment,
+        rsdr.recorder_name,
+        rsdr.webcam_photos,
+        rsdr.screenshots,
+        rsdr.created_at AS record_created_at,
+        rsdr.updated_at AS record_updated_at
+      FROM user_accounts ua
+      LEFT JOIN user_accounts instructor ON ua.instructor_id = instructor.id
+      LEFT JOIN companies c ON ua.company_id = c.id
+      LEFT JOIN (
+        SELECT user_id, JSON_ARRAYAGG(tag_name) AS tags
+        FROM user_tags
+        GROUP BY user_id
+      ) tags ON tags.user_id = ua.id
+      LEFT JOIN remote_support_daily_records rsdr
+        ON ua.id = rsdr.user_id
+        ${hasDateFilter ? 'AND rsdr.date = ?' : ''}
+      WHERE ua.role = 1
+        AND ua.status = 1
+        AND ua.is_remote_user = 1
+        AND JSON_CONTAINS(ua.satellite_ids, ?)
+    `;
+
+    if (instructorIdArray.length > 0) {
+      query += ` AND (ua.instructor_id IN (${instructorIdArray.map(() => '?').join(',')}) OR ua.instructor_id IS NULL)`;
+      params.push(...instructorIdArray);
+    }
+
+    query += `
+      ORDER BY 
+        ua.instructor_id,
+        ua.name,
+        rsdr.date DESC,
+        rsdr.created_at DESC
+    `;
+
+    const [rows] = await connection.execute(query, params);
+
+    const formattedRows = rows.map(row => ({
+      ...row,
+      tags: parseJsonField(row.tags, []),
+      instructor_comment: parseJsonField(row.instructor_comment, null),
+      webcam_photos: parseJsonField(row.webcam_photos, []),
+      screenshots: parseJsonField(row.screenshots, [])
+    }));
+
+    customLogger.info('Satellite home support users with records retrieved successfully', {
+      satelliteId: satelliteIdInt,
+      instructorIds: instructorIdArray,
+      hasDateFilter,
+      date,
+      count: formattedRows.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: formattedRows
+    });
+  } catch (error) {
+    customLogger.error('Error fetching satellite home support users with records:', error);
+    res.status(500).json({
+      success: false,
+      message: '在宅支援利用者（日次記録含む）の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+/**
  * 在宅支援解除（単一利用者）
  */
 const removeHomeSupportFlag = async (req, res) => {
@@ -3227,12 +3592,167 @@ const bulkCreateUsers = async (req, res) => {
   }
 };
 
+/**
+ * 拠点内の在宅支援利用者の評価状況を取得
+ */
+const getSatelliteEvaluationStatus = async (req, res) => {
+  const { satelliteId } = req.params;
+  const { instructorIds, date } = req.query;
+  const connection = await pool.getConnection();
+  
+  try {
+    console.log('=== getSatelliteEvaluationStatus Debug ===');
+    console.log('satelliteId:', satelliteId);
+    console.log('instructorIds:', instructorIds);
+    console.log('date:', date);
+    
+    // 基準日を設定（指定がない場合は今日）
+    const targetDate = date ? new Date(date) : new Date();
+    const dateStr = targetDate.toISOString().split('T')[0];
+    
+    // 週の開始日と終了日を計算（月曜日から日曜日）
+    const currentDay = targetDate.getDay();
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay;
+    const weekStart = new Date(targetDate);
+    weekStart.setDate(targetDate.getDate() + mondayOffset);
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    
+    // 月の開始日と終了日を計算
+    const monthStartStr = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+    const monthEndStr = lastDay.toISOString().split('T')[0];
+    
+    console.log('dateStr:', dateStr);
+    console.log('weekStartStr:', weekStartStr);
+    console.log('weekEndStr:', weekEndStr);
+    console.log('monthStartStr:', monthStartStr);
+    console.log('monthEndStr:', monthEndStr);
+    
+    let query = `
+      SELECT 
+        ua.id,
+        ua.name,
+        ua.login_code,
+        ua.recipient_number,
+        CASE WHEN rsdr.id IS NOT NULL THEN 1 ELSE 0 END as has_daily_record,
+        CASE WHEN wer.id IS NOT NULL THEN 1 ELSE 0 END as has_weekly_evaluation,
+        CASE WHEN mer.id IS NOT NULL THEN 1 ELSE 0 END as has_monthly_evaluation,
+        last_wer.last_weekly_date,
+        last_wer.last_weekly_period_end
+      FROM user_accounts ua
+      LEFT JOIN remote_support_daily_records rsdr ON ua.id = rsdr.user_id AND rsdr.date = ?
+      LEFT JOIN weekly_evaluation_records wer ON ua.id = wer.user_id 
+        AND wer.period_start <= ? AND wer.period_end >= ?
+      LEFT JOIN monthly_evaluation_records mer ON ua.id = mer.user_id 
+        AND mer.date >= ? AND mer.date <= ?
+      LEFT JOIN (
+        SELECT 
+          wer1.user_id,
+          wer1.date AS last_weekly_date,
+          wer1.period_end AS last_weekly_period_end
+        FROM weekly_evaluation_records wer1
+        INNER JOIN (
+          SELECT user_id, MAX(date) AS max_date
+          FROM weekly_evaluation_records
+          GROUP BY user_id
+        ) latest ON wer1.user_id = latest.user_id AND wer1.date = latest.max_date
+      ) last_wer ON ua.id = last_wer.user_id
+    `;
+    
+    let whereConditions = [
+      'ua.role = 1',
+      'JSON_CONTAINS(ua.satellite_ids, ?)',
+      'ua.status = 1',
+      'ua.is_remote_user = 1'
+    ];
+    
+    const params = [dateStr, weekEndStr, weekStartStr, monthStartStr, monthEndStr, JSON.stringify(parseInt(satelliteId))];
+    
+    // 特定の指導員の利用者のみを取得する場合
+    if (instructorIds) {
+      const instructorIdArray = instructorIds.split(',').map(id => parseInt(id.trim()));
+      whereConditions.push(`(ua.instructor_id IN (${instructorIdArray.map(() => '?').join(',')}) OR ua.instructor_id IS NULL)`);
+      params.push(...instructorIdArray);
+    }
+    
+    query += ` WHERE ${whereConditions.join(' AND ')}`;
+    query += ` ORDER BY ua.name`;
+    
+    console.log('実行するクエリ:', query);
+    console.log('クエリパラメータ:', params);
+    
+    const [rows] = await connection.execute(query, params);
+    
+    const formatToJapanDate = (dateValue) => {
+      if (!dateValue) {
+        return null;
+      }
+      const dateObj = new Date(dateValue);
+      if (Number.isNaN(dateObj.getTime())) {
+        return null;
+      }
+      return dateObj
+        .toLocaleDateString('ja-JP', {
+          timeZone: 'Asia/Tokyo',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        })
+        .replace(/\//g, '-');
+    };
+    
+    // データを整形
+    const evaluationUsers = rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      recipientNumber: row.recipient_number || '',
+      dailyStatus: row.has_daily_record ? '完了' : '未完了',
+      weeklyStatus: row.has_weekly_evaluation ? '完了' : '未完了',
+      monthlyStatus: row.has_monthly_evaluation ? '完了' : '未完了',
+      dailyPriority: row.has_daily_record ? 0 : 1,
+      weeklyPriority: row.has_weekly_evaluation ? 0 : 1,
+      monthlyPriority: row.has_monthly_evaluation ? 0 : 1,
+      lastWeeklyRecordDate: formatToJapanDate(row.last_weekly_date),
+      lastWeeklyPeriodEnd: formatToJapanDate(row.last_weekly_period_end)
+    }));
+    
+    console.log('取得した評価状況:', evaluationUsers);
+    
+    customLogger.info('Satellite evaluation status retrieved successfully', {
+      satelliteId,
+      instructorIds,
+      date,
+      count: evaluationUsers.length,
+      userId: req.user?.user_id
+    });
+
+    res.json({
+      success: true,
+      data: evaluationUsers
+    });
+  } catch (error) {
+    customLogger.error('Error fetching satellite evaluation status:', error);
+    res.status(500).json({
+      success: false,
+      message: '評価状況の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUsers,
   getTopUsersByCompany,
   getTeachersByCompany,
   healthCheck,
   getUserSatellites,
+  getUserById,
   getSatelliteUsers,
   addSatelliteToUser,
   removeSatelliteFromUser,
@@ -3257,11 +3777,13 @@ module.exports = {
   bulkRemoveUserInstructors,
   getSatelliteUsersForHomeSupport,
   getSatelliteHomeSupportUsers,
+  getSatelliteHomeSupportUsersWithDailyRecords,
   bulkUpdateHomeSupportFlag,
   removeHomeSupportFlag,
   getSatelliteInstructorsForHomeSupport,
   bulkAddUserTags,
   removeUserTag,
   getAllTags,
-  bulkCreateUsers
+  bulkCreateUsers,
+  getSatelliteEvaluationStatus
 }; 

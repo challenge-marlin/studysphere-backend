@@ -13,17 +13,29 @@ let pool = mysql.createPool({
   ssl: dbConfig.ssl,
   // 接続プールの設定を最適化
   // 接続プールのサイズ制限
-  connectionLimit: 10, // 接続数を適切に制限（メモリ使用量を削減）
-  queueLimit: 5, // キュー制限を設定
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 20, // 接続数を適切に制限（本番環境では増やす）
+  queueLimit: parseInt(process.env.DB_QUEUE_LIMIT) || 10, // キュー制限を設定
   // 接続の再利用設定
-  waitForConnections: true // 接続を待機
+  waitForConnections: true, // 接続を待機
+  // ENUM値の文字化け対策
+  typeCast: dbConfig.typeCast || undefined
 });
 
 // 接続プールの状態監視（簡素化）
-pool.on('connection', (connection) => {
-  customLogger.info('新しいデータベース接続が作成されました', {
-    threadId: connection.threadId
-  });
+pool.on('connection', async (connection) => {
+  // 接続時に文字セットを明示的に設定（ENUM値の文字化け対策）
+  try {
+    await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+    await connection.query('SET CHARACTER SET utf8mb4');
+    customLogger.info('新しいデータベース接続が作成されました（文字セット設定済み）', {
+      threadId: connection.threadId
+    });
+  } catch (error) {
+    customLogger.warn('接続時の文字セット設定に失敗', {
+      threadId: connection.threadId,
+      error: error.message
+    });
+  }
 });
 
 // プールエラーの監視（簡素化）
@@ -102,18 +114,18 @@ const testConnection = async () => {
 };
 
 // 安全なクエリ実行関数
-const executeQuery = async (query, params = []) => {
+const executeQuery = async (sql, params = []) => {
   let connection;
   const startTime = Date.now();
   
   try {
     connection = await pool.getConnection();
     
-    const [rows] = await connection.execute(query, params);
+    const [rows] = await connection.execute(sql, params);
     const duration = Date.now() - startTime;
     
     // クエリ実行ログ
-    customLogger.database('execute', query, params, duration, {
+    customLogger.database('execute', sql, params, duration, {
       rowCount: rows.length,
       threadId: connection.threadId
     });
@@ -122,7 +134,7 @@ const executeQuery = async (query, params = []) => {
   } catch (error) {
     const duration = Date.now() - startTime;
     customLogger.error('クエリ実行エラー', {
-      query,
+      sql,
       params,
       error: error.message,
       code: error.code,
@@ -137,6 +149,16 @@ const executeQuery = async (query, params = []) => {
     if (connection) {
       connection.release();
     }
+  }
+};
+
+// query関数: executeQueryのラッパーで、直接データを返す
+const query = async (sql, params = []) => {
+  const result = await executeQuery(sql, params);
+  if (result.success) {
+    return result.data;
+  } else {
+    throw new Error(result.error || 'クエリ実行に失敗しました');
   }
 };
 
@@ -233,6 +255,7 @@ module.exports = {
   pool,
   testConnection,
   executeQuery,
+  query,
   getPool,
   getPoolStatus,
   endPool,
