@@ -615,7 +615,11 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
           [req.user.user_id]
         );
         
-        if (userRows.length > 0 && userRows[0].satellite_ids) {
+        console.log('ユーザー情報取得結果:', userRows);
+        console.log('ユーザーのsatellite_ids（生データ）:', userRows[0]?.satellite_ids);
+        console.log('satellite_idsの型:', typeof userRows[0]?.satellite_ids);
+        
+        if (userRows.length > 0 && userRows[0].satellite_ids && userRows[0].satellite_ids !== 'null' && userRows[0].satellite_ids !== '[]') {
           let userSatelliteIds = [];
           try {
             userSatelliteIds = JSON.parse(userRows[0].satellite_ids);
@@ -627,16 +631,49 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
             userSatelliteIds = [];
           }
           
-          console.log('ユーザーの所属拠点:', userSatelliteIds);
+          // すべてのIDを数値に統一して比較
+          const normalizedUserSatelliteIds = userSatelliteIds.map(id => {
+            const numId = parseInt(id);
+            return isNaN(numId) ? null : numId;
+          }).filter(id => id !== null);
           
-          if (!userSatelliteIds.includes(numericSatelliteId)) {
+          console.log('ユーザーの所属拠点（生データ）:', userSatelliteIds);
+          console.log('ユーザーの所属拠点（正規化後）:', normalizedUserSatelliteIds);
+          console.log('要求された拠点ID（数値）:', numericSatelliteId);
+          console.log('要求された拠点IDの型:', typeof numericSatelliteId);
+          
+          // 型を統一して比較（数値と文字列の両方に対応）
+          const hasAccess = normalizedUserSatelliteIds.some(id => {
+            const result = id === numericSatelliteId;
+            console.log(`比較: ${id} (${typeof id}) === ${numericSatelliteId} (${typeof numericSatelliteId}) = ${result}`);
+            return result;
+          });
+          
+          console.log('アクセス権限チェック結果:', hasAccess);
+          
+          if (!hasAccess) {
             console.log('アクセス権限がありません');
+            console.log('詳細:', {
+              requestedSatelliteId: numericSatelliteId,
+              userSatelliteIds: normalizedUserSatelliteIds,
+              originalUserSatelliteIds: userSatelliteIds
+            });
             return {
               success: false,
               message: '指定された拠点へのアクセス権限がありません',
               error: 'Access denied'
             };
           }
+          
+          console.log('アクセス権限あり: 拠点ID', numericSatelliteId);
+        } else {
+          // satellite_idsがnullまたは空の場合、アクセスを拒否
+          console.log('ユーザーに所属拠点が設定されていません');
+          return {
+            success: false,
+            message: '指定された拠点へのアクセス権限がありません',
+            error: 'Access denied - no satellite assignment'
+          };
         }
       }
     }
@@ -3638,17 +3675,23 @@ const getSatelliteEvaluationStatus = async (req, res) => {
         ua.name,
         ua.login_code,
         ua.recipient_number,
-        CASE WHEN rsdr.id IS NOT NULL THEN 1 ELSE 0 END as has_daily_record,
-        CASE WHEN wer.id IS NOT NULL THEN 1 ELSE 0 END as has_weekly_evaluation,
-        CASE WHEN mer.id IS NOT NULL THEN 1 ELSE 0 END as has_monthly_evaluation,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM remote_support_daily_records rsdr 
+          WHERE rsdr.user_id = ua.id AND rsdr.date = ?
+        ) THEN 1 ELSE 0 END as has_daily_record,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM weekly_evaluation_records wer 
+          WHERE wer.user_id = ua.id 
+            AND wer.period_start <= ? AND wer.period_end >= ?
+        ) THEN 1 ELSE 0 END as has_weekly_evaluation,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM monthly_evaluation_records mer 
+          WHERE mer.user_id = ua.id 
+            AND mer.date >= ? AND mer.date <= ?
+        ) THEN 1 ELSE 0 END as has_monthly_evaluation,
         last_wer.last_weekly_date,
         last_wer.last_weekly_period_end
       FROM user_accounts ua
-      LEFT JOIN remote_support_daily_records rsdr ON ua.id = rsdr.user_id AND rsdr.date = ?
-      LEFT JOIN weekly_evaluation_records wer ON ua.id = wer.user_id 
-        AND wer.period_start <= ? AND wer.period_end >= ?
-      LEFT JOIN monthly_evaluation_records mer ON ua.id = mer.user_id 
-        AND mer.date >= ? AND mer.date <= ?
       LEFT JOIN (
         SELECT 
           wer1.user_id,
@@ -3656,10 +3699,22 @@ const getSatelliteEvaluationStatus = async (req, res) => {
           wer1.period_end AS last_weekly_period_end
         FROM weekly_evaluation_records wer1
         INNER JOIN (
-          SELECT user_id, MAX(date) AS max_date
+          SELECT 
+            user_id,
+            MAX(date) AS max_date
           FROM weekly_evaluation_records
           GROUP BY user_id
-        ) latest ON wer1.user_id = latest.user_id AND wer1.date = latest.max_date
+        ) latest_date ON wer1.user_id = latest_date.user_id AND wer1.date = latest_date.max_date
+        INNER JOIN (
+          SELECT 
+            user_id,
+            date,
+            MAX(id) AS max_id
+          FROM weekly_evaluation_records
+          GROUP BY user_id, date
+        ) latest_id ON wer1.user_id = latest_id.user_id 
+          AND wer1.date = latest_id.date 
+          AND wer1.id = latest_id.max_id
       ) last_wer ON ua.id = last_wer.user_id
     `;
     

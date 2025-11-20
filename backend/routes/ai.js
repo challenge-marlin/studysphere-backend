@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const OpenAI = require('openai');
-const PDFProcessor = require('../scripts/pdfProcessor');
 const { pool } = require('../utils/database');
 const { s3Utils } = require('../config/s3');
+const { customLogger } = require('../utils/logger');
 
 // OpenAIクライアントの初期化
 const openai = new OpenAI({
@@ -12,11 +12,181 @@ const openai = new OpenAI({
 });
 
 /**
+ * PDFからテキストを抽出する関数（learningRoutes.jsと同じロジック）
+ * @param {Buffer} pdfBuffer - PDFファイルのバッファ
+ * @param {string} requestId - リクエストID
+ * @returns {Promise<string>} 抽出されたテキスト
+ */
+async function extractTextFromPdf(pdfBuffer, requestId) {
+  const startTime = Date.now();
+  const maxProcessingTime = 10 * 60 * 1000; // 10分のタイムアウト
+  
+  try {
+    // ファイルサイズチェック（100MB制限）
+    const maxFileSize = 100 * 1024 * 1024; // 100MB
+    if (pdfBuffer.length > maxFileSize) {
+      customLogger.warn('PDFファイルサイズが制限を超えています', { 
+        requestId,
+        fileSize: pdfBuffer.length, 
+        maxSize: maxFileSize 
+      });
+      throw new Error('PDFファイルサイズが大きすぎます（100MB以下にしてください）');
+    }
+
+    // PDF処理ライブラリの読み込み確認
+    let pdfProcessor;
+    let processorType = '';
+    
+    try {
+      // まずpdf-parseを試行
+      pdfProcessor = require('pdf-parse');
+      processorType = 'pdf-parse';
+      customLogger.debug('pdf-parseライブラリ読み込み成功', { requestId });
+    } catch (parseError) {
+      try {
+        // pdf-parseが失敗した場合、pdfjs-distを試行
+        pdfProcessor = require('pdfjs-dist');
+        processorType = 'pdfjs-dist';
+        customLogger.debug('pdfjs-distライブラリ読み込み成功', { requestId });
+      } catch (jsError) {
+        customLogger.error('すべてのPDF解析ライブラリの読み込みに失敗', { 
+          requestId,
+          pdfParseError: parseError.message,
+          pdfjsError: jsError.message
+        });
+        throw new Error('PDF解析ライブラリの読み込みに失敗しました');
+      }
+    }
+
+    customLogger.debug('PDF処理開始', { 
+      requestId,
+      fileSize: pdfBuffer.length,
+      fileSizeMB: Math.round(pdfBuffer.length / 1024 / 1024 * 100) / 100,
+      processorType
+    });
+
+    let data;
+    
+    if (processorType === 'pdf-parse') {
+      // pdf-parseライブラリでの処理
+      const pdfParsePromise = pdfProcessor(pdfBuffer);
+      
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('PDF処理がタイムアウトしました'));
+        }, maxProcessingTime);
+      });
+
+      data = await Promise.race([pdfParsePromise, timeoutPromise]);
+      
+    } else if (processorType === 'pdfjs-dist') {
+      // pdfjs-distライブラリでの処理
+      try {
+        const pdfjsLib = pdfProcessor;
+        const loadingTask = pdfjsLib.getDocument({ data: pdfBuffer });
+        const pdfDocument = await loadingTask.promise;
+        const numPages = pdfDocument.numPages;
+        
+        let fullText = '';
+        const maxPagesPerBatch = 5;
+        
+        for (let pageNum = 1; pageNum <= numPages; pageNum += maxPagesPerBatch) {
+          const endPage = Math.min(pageNum + maxPagesPerBatch - 1, numPages);
+          
+          for (let i = pageNum; i <= endPage; i++) {
+            try {
+              const page = await pdfDocument.getPage(i);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => item.str).join(' ');
+              fullText += pageText + '\n\n';
+            } catch (pageError) {
+              customLogger.warn(`ページ ${i} の処理でエラーが発生`, { 
+                requestId,
+                pageNum: i,
+                error: pageError.message
+              });
+              fullText += `[ページ ${i} の処理でエラーが発生]\n\n`;
+            }
+          }
+          
+          const currentTime = Date.now() - startTime;
+          if (currentTime > maxProcessingTime) {
+            throw new Error('PDF処理がタイムアウトしました');
+          }
+        }
+        
+        data = { text: fullText, numpages: numPages };
+        
+      } catch (pdfjsError) {
+        customLogger.error('pdfjs-dist処理エラー', { 
+          requestId,
+          error: pdfjsError.message 
+        });
+        // pdfjs-distが失敗した場合、pdf-parseにフォールバック
+        try {
+          const fallbackProcessor = require('pdf-parse');
+          const fallbackData = await fallbackProcessor(pdfBuffer);
+          data = fallbackData;
+          customLogger.info('pdf-parseへのフォールバック成功', { requestId });
+        } catch (fallbackError) {
+          throw new Error(`PDF処理に失敗しました: ${pdfjsError.message}`);
+        }
+      }
+    }
+    
+    // 処理時間をチェック
+    const processingTime = Date.now() - startTime;
+    if (processingTime > maxProcessingTime) {
+      throw new Error('PDF処理がタイムアウトしました');
+    }
+    
+    if (!data || !data.text) {
+      throw new Error('PDFからテキストを抽出できませんでした');
+    }
+    
+    // テキストを整形
+    let text = data.text
+      .replace(/\n\s*\n/g, '\n\n')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // テキスト長の制限（1MB制限）
+    const maxTextLength = 1024 * 1024;
+    if (text.length > maxTextLength) {
+      text = text.substring(0, maxTextLength) + '\n\n... (テキストが長すぎるため切り詰められました)';
+    }
+    
+    return text;
+  } catch (error) {
+    customLogger.error('PDFパースエラー', {
+      requestId,
+      error: error.message,
+      stack: error.stack,
+      fileSize: pdfBuffer.length
+    });
+    
+    if (error.message.includes('PDF解析ライブラリ')) {
+      throw new Error('PDF解析ライブラリの読み込みに失敗しました');
+    } else if (error.message.includes('テキストを抽出できませんでした')) {
+      throw new Error('PDFからテキストを抽出できませんでした');
+    } else if (error.message.includes('タイムアウト')) {
+      throw new Error('PDF処理がタイムアウトしました。ファイルサイズが大きすぎる可能性があります。');
+    } else if (error.message.includes('ファイルサイズ')) {
+      throw new Error('PDFファイルサイズが大きすぎます（100MB以下にしてください）');
+    } else {
+      throw new Error(`PDFファイルの解析に失敗しました: ${error.message}`);
+    }
+  }
+}
+
+/**
  * 現在のセクションのテキスト内容を取得（PDFの場合はTXTに変換）
  * @param {string} lessonId - レッスンID
  * @returns {Promise<string>} テキスト内容
  */
 async function getCurrentSectionText(lessonId) {
+  const requestId = `section-text-${lessonId}-${Date.now()}`;
+  
   try {
     // レッスン情報を取得
     const [lessons] = await pool.execute(`
@@ -47,37 +217,25 @@ async function getCurrentSectionText(lessonId) {
     // ファイルタイプに応じて処理
     if (lesson.file_type === 'pdf') {
       // PDFファイルの場合、TXTに変換
-      const processId = `section_${lessonId}_${Date.now()}`;
+      customLogger.info('PDFテキスト抽出開始', {
+        requestId,
+        lessonId,
+        fileName: lesson.title
+      });
       
-      // PDF処理を開始
-      const result = await PDFProcessor.startProcessing(
-        `section_${lessonId}`,
-        fileData.data,
-        lesson.title || 'section.pdf'
-      );
-
-      if (!result.success) {
-        throw new Error('PDF処理の開始に失敗しました');
-      }
-
-      // 処理完了まで待機（最大30秒）
-      let attempts = 0;
-      const maxAttempts = 30;
+      const textContent = await extractTextFromPdf(fileData.data, requestId);
       
-      while (attempts < maxAttempts) {
-        const status = PDFProcessor.getProcessingStatus(result.processId);
-        
-        if (status && status.status === 'completed') {
-          return status.result.text;
-        } else if (status && status.status === 'error') {
-          throw new Error(`PDF処理でエラーが発生しました: ${status.error}`);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒待機
-        attempts++;
+      if (!textContent || textContent.trim().length === 0) {
+        throw new Error('PDFからテキストを抽出できませんでした');
       }
       
-      throw new Error('PDF処理がタイムアウトしました');
+      customLogger.info('PDFテキスト抽出完了', {
+        requestId,
+        lessonId,
+        textLength: textContent.length
+      });
+      
+      return textContent;
       
     } else if (lesson.file_type === 'text/plain' || lesson.file_type === 'text/markdown' || lesson.file_type === 'md') {
       // テキストファイルの場合はそのまま返す
@@ -89,7 +247,12 @@ async function getCurrentSectionText(lessonId) {
     }
     
   } catch (error) {
-    console.error('セクションテキスト取得エラー:', error);
+    customLogger.error('セクションテキスト取得エラー', {
+      requestId,
+      lessonId,
+      error: error.message,
+      stack: error.stack
+    });
     throw error;
   }
 }
@@ -99,29 +262,48 @@ router.post('/assist', authenticateToken, async (req, res) => {
   try {
     const { question, context, lessonTitle, model = 'gpt-4o', maxTokens = 1000, temperature = 0.3, systemPrompt, userId, lessonId } = req.body;
 
+    // 入力値の検証（questionは必須）
+    if (!question) {
+      return res.status(400).json({
+        success: false,
+        message: '質問が必要です'
+      });
+    }
+
     // レッスンIDが指定されている場合、現在のセクションのPDFファイルをTXTに変換
     let processedContext = context;
     if (lessonId && !context) {
       try {
         const sectionText = await getCurrentSectionText(lessonId);
-        if (sectionText) {
+        if (sectionText && sectionText.trim().length > 0) {
           processedContext = sectionText;
+        } else {
+          customLogger.warn('セクションテキストが空です', { lessonId });
+          return res.status(400).json({
+            success: false,
+            message: 'セクションテキストが空です。PDF処理が完了していない可能性があります。',
+            error: 'SECTION_TEXT_EMPTY'
+          });
         }
       } catch (error) {
-        console.error('セクションテキスト取得エラー:', error);
+        customLogger.error('セクションテキスト取得エラー', {
+          lessonId,
+          error: error.message,
+          stack: error.stack
+        });
         return res.status(400).json({
           success: false,
-          message: 'セクションテキストの取得に失敗しました',
+          message: `セクションテキストの取得に失敗しました: ${error.message}`,
           error: 'SECTION_TEXT_FETCH_ERROR'
         });
       }
     }
 
-    // 入力値の検証
-    if (!question || !context) {
+    // コンテキストの検証（contextまたはlessonIdのいずれかが必要）
+    if (!processedContext) {
       return res.status(400).json({
         success: false,
-        message: '質問とコンテキストが必要です'
+        message: 'コンテキストまたはレッスンIDが必要です'
       });
     }
 
@@ -310,6 +492,229 @@ router.get('/pdf-status/:userId', authenticateToken, async (req, res) => {
       success: false,
       message: 'PDF処理状態の確認に失敗しました',
       error: error.message
+    });
+  }
+});
+
+// 作業内容のAI提案
+router.post('/suggest-work-content', authenticateToken, async (req, res) => {
+  try {
+    const { work_note } = req.body;
+
+    if (!work_note || work_note.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: '作業記録が必要です'
+      });
+    }
+
+    const systemPrompt = `あなたは在宅就労支援の専門家です。利用者の作業記録を基に、専門的で具体的な作業・訓練内容の記録を作成してください。`;
+
+    const userPrompt = `以下の作業記録を基に、「作業・訓練内容」欄に記録する内容を生成してください。
+
+【作業記録】
+${work_note}
+
+【指示】
+1. 作業記録の内容を整理し、専門的で具体的な表現に変換してください
+2. 実施した作業や訓練の内容を明確に記述してください
+3. 箇条書きで整理してください
+4. 在宅就労支援の文脈に適した内容にしてください
+
+作業・訓練内容の記録を生成してください。`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: userPrompt
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.7
+    });
+
+    const suggestion = completion.choices[0]?.message?.content || '提案を生成できませんでした';
+
+    res.json({
+      success: true,
+      suggestion,
+      usage: {
+        promptTokens: completion.usage?.prompt_tokens,
+        completionTokens: completion.usage?.completion_tokens,
+        totalTokens: completion.usage?.total_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('作業内容AI提案エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'AI提案の生成に失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : '内部エラー'
+    });
+  }
+});
+
+// 支援内容のAI提案
+router.post('/suggest-support-content', authenticateToken, async (req, res) => {
+  try {
+    const { start_time, end_time, support_method, work_result, daily_report, support_plan } = req.body;
+
+    if (!start_time || !end_time || !support_method) {
+      return res.status(400).json({
+        success: false,
+        message: '開始時刻、終了時刻、支援方法が必要です'
+      });
+    }
+
+    const systemPrompt = `あなたは在宅就労支援の専門家です。支援の実施状況を基に、時系列で複数回（2回以上）の支援・連絡内容を記録してください。`;
+
+    const userPrompt = `以下の情報を基に、「支援内容（1日2回以上）」欄に記録する内容を生成してください。
+
+【実施時間】
+開始: ${start_time}
+終了: ${end_time}
+
+【支援方法】
+${support_method}
+
+【作業結果】
+${work_result || '未記録'}
+
+【日報】
+${daily_report || '未記録'}
+
+【個別支援計画】
+${support_plan || '未記録'}
+
+【指示】
+1. 時系列で複数回（2回以上）の支援・連絡内容を記録してください
+2. 具体的な時刻と内容を記述してください
+3. 箇条書きで整理してください
+4. 在宅就労支援の文脈に適した内容にしてください
+5. 支援の流れが分かるように記述してください
+
+支援内容の記録を生成してください。`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: userPrompt
+        }
+      ],
+      max_tokens: 2000,
+      temperature: 0.7
+    });
+
+    const suggestion = completion.choices[0]?.message?.content || '提案を生成できませんでした';
+
+    res.json({
+      success: true,
+      suggestion,
+      usage: {
+        promptTokens: completion.usage?.prompt_tokens,
+        completionTokens: completion.usage?.completion_tokens,
+        totalTokens: completion.usage?.total_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('支援内容AI提案エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'AI提案の生成に失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : '内部エラー'
+    });
+  }
+});
+
+// 心身の状況・助言のAI提案
+router.post('/suggest-advice', authenticateToken, async (req, res) => {
+  try {
+    const { temperature, condition, sleep_hours, daily_report, start_time, end_time } = req.body;
+
+    if (!condition || !daily_report) {
+      return res.status(400).json({
+        success: false,
+        message: '体調と日報が必要です'
+      });
+    }
+
+    const systemPrompt = `あなたは在宅就労支援の専門家です。利用者の体調情報と日報を基に、心身の状況及びそれに対する助言の内容を記録してください。`;
+
+    const userPrompt = `以下の情報を基に、「対象者の心身の状況及びそれに対する助言の内容」欄に記録する内容を生成してください。
+
+【実施時間】
+開始: ${start_time || '未記録'}
+終了: ${end_time || '未記録'}
+
+【体温】
+${temperature || '未記録'}℃
+
+【体調】
+${condition}
+
+【睡眠時間】
+${sleep_hours || '未記録'}時間
+
+【日報】
+${daily_report}
+
+【指示】
+1. 時系列で体調確認と助言内容を記録してください
+2. 具体的な時刻と内容を記述してください
+3. 箇条書きで整理してください
+4. 在宅就労支援の文脈に適した内容にしてください
+5. 体調管理に関する適切な助言を含めてください
+
+心身の状況・助言の記録を生成してください。`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: userPrompt
+        }
+      ],
+      max_tokens: 1500,
+      temperature: 0.7
+    });
+
+    const suggestion = completion.choices[0]?.message?.content || '提案を生成できませんでした';
+
+    res.json({
+      success: true,
+      suggestion,
+      usage: {
+        promptTokens: completion.usage?.prompt_tokens,
+        completionTokens: completion.usage?.completion_tokens,
+        totalTokens: completion.usage?.total_tokens
+      }
+    });
+
+  } catch (error) {
+    console.error('心身の状況・助言AI提案エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'AI提案の生成に失敗しました',
+      error: process.env.NODE_ENV === 'development' ? error.message : '内部エラー'
     });
   }
 });

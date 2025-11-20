@@ -388,6 +388,176 @@ router.post('/learning/test/submit', async (req, res, next) => {
     });
     console.log('採点結果保存完了:', examResult);
 
+    // user_lesson_progressテーブルを更新（承認済みレッスンの承認状態を維持）
+    const connection = await pool.getConnection();
+    try {
+      // トランザクションを開始（承認状態の更新をアトミックに実行するため）
+      await connection.beginTransaction();
+      
+      // 既存のレッスン進捗を確認（承認済みレッスンの再受験時にステータスを維持するため）
+      // FOR UPDATEでロックを取得（トランザクション内で有効）
+      const [existingProgressRows] = await connection.execute(`
+        SELECT status, instructor_approved, completed_at, instructor_id, instructor_approved_at
+        FROM user_lesson_progress
+        WHERE user_id = ? AND lesson_id = ?
+        FOR UPDATE
+      `, [userId, lessonId]);
+
+      // 承認済みレッスンの判定：instructor_approvedが1であれば承認済みとみなす
+      const normalizeApprovalFlag = (value) => value === 1 || value === true || value === '1' || value === 'true';
+      const approvedProgress = existingProgressRows.find(row => normalizeApprovalFlag(row.instructor_approved));
+      const existingProgress = approvedProgress || existingProgressRows[0] || null;
+      const isAlreadyApprovedLesson = !!approvedProgress;
+
+      if (existingProgressRows.length > 1) {
+        console.warn('⚠️ user_lesson_progressに重複レコードを検出しました', {
+          userId,
+          lessonId,
+          rowCount: existingProgressRows.length,
+          hasApprovedRow: !!approvedProgress
+        });
+      }
+
+      // テスト合格の判定
+      const testPassed = testType === 'lesson' 
+        ? score >= 29  // レッスンテスト: 30問中29問以上
+        : score >= (questionsToUse.length - 1);  // セクションテスト: 全問正解または1問誤答まで
+
+      // テスト合格の場合のみ進捗を更新、指導員承認待ちの状態にする
+      let newStatus = 'in_progress'; // デフォルトは進行中
+      let completedAt = null;
+      let instructorApproved = null;
+      let instructorId = null;
+      let instructorApprovedAt = null;
+      
+      if (isAlreadyApprovedLesson) {
+        // 一度承認済みのレッスンは再受験しても承認状態と完了状態を維持
+        // 復習で不合格になっても承認状態は維持される
+        // statusが'completed'の場合は必ず'completed'を維持（完了から進行中に戻さない）
+        if (existingProgress.status === 'completed') {
+          newStatus = 'completed';
+          // completed_atも維持（nullの場合は現在時刻を設定）
+          completedAt = existingProgress.completed_at || new Date();
+        } else {
+          // statusが'completed'以外の場合は既存のstatusを維持
+          newStatus = existingProgress.status || 'in_progress';
+          completedAt = existingProgress?.completed_at || null;
+        }
+        // 承認済みレッスンの場合は、必ず承認状態を1に維持（復習で不合格でも承認は解除しない）
+        instructorApproved = 1;
+        instructorId = existingProgress.instructor_id;
+        instructorApprovedAt = existingProgress.instructor_approved_at;
+        console.log('🛡️ 承認済みレッスンの再受験: ステータスと承認情報を保持します（復習で不合格でも承認は維持）', {
+          existingStatus: existingProgress.status,
+          newStatus: newStatus,
+          instructor_approved: instructorApproved,
+          testPassed: testPassed,
+          completedAt: completedAt
+        });
+      } else if (testPassed) {
+        // テストは合格したが、指導員承認待ち
+        newStatus = 'in_progress'; // 指導員承認まで完了にはしない
+        console.log(`✅ テスト合格 (${percentage}%) - 指導員承認待ち`);
+      } else {
+        // テスト不合格
+        newStatus = 'in_progress'; // 再受験が必要
+        console.log(`❌ テスト不合格 (${percentage}%) - 再受験が必要`);
+      }
+      
+      // 承認済みレッスンの場合は承認情報も含めて更新
+      if (isAlreadyApprovedLesson) {
+        // デバッグログを追加
+        console.log('🛡️ 承認済みレッスンの更新パラメータ:', {
+          userId,
+          lessonId,
+          newStatus,
+          score,
+          completedAt,
+          instructorApproved,
+          instructorId,
+          instructorApprovedAt,
+          isAlreadyApprovedLesson,
+          existingInstructorId: existingProgress.instructor_id,
+          existingInstructorApprovedAt: existingProgress.instructor_approved_at
+        });
+        
+        // 承認済みレッスンの場合は、必ず承認状態を1に維持（復習で不合格でも承認は解除しない）
+        // まず、テストスコアとステータスのみ更新（承認情報は触らない）
+        await connection.execute(`
+          INSERT INTO user_lesson_progress (
+            user_id, lesson_id, status, test_score, completed_at
+          ) VALUES (?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            test_score = VALUES(test_score),
+            completed_at = COALESCE(VALUES(completed_at), completed_at),
+            updated_at = NOW()
+        `, [userId, lessonId, newStatus, score, completedAt]);
+        
+        // 承認情報を明示的に維持（既存値が存在する場合は保持、存在しない場合は設定した値を使用）
+        await connection.execute(`
+          UPDATE user_lesson_progress
+          SET instructor_approved = 1,
+              instructor_id = COALESCE(?, instructor_id),
+              instructor_approved_at = COALESCE(?, instructor_approved_at),
+              updated_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [instructorId || existingProgress.instructor_id, 
+            instructorApprovedAt || existingProgress.instructor_approved_at,
+            userId, lessonId]);
+        
+        console.log('🛡️ 承認済みレッスンの承認状態を維持しました:', {
+          userId,
+          lessonId,
+          instructor_approved: 1,
+          instructor_id: instructorId || existingProgress.instructor_id,
+          instructor_approved_at: instructorApprovedAt || existingProgress.instructor_approved_at
+        });
+        
+        // 更新後の承認状態を確認（デバッグ用）
+        const [verifyRows] = await connection.execute(`
+          SELECT instructor_approved, instructor_id, instructor_approved_at, status, test_score
+          FROM user_lesson_progress
+          WHERE user_id = ? AND lesson_id = ?
+        `, [userId, lessonId]);
+        
+        if (verifyRows.length > 0) {
+          console.log('🔍 更新後の承認状態確認:', {
+            userId,
+            lessonId,
+            instructor_approved: verifyRows[0].instructor_approved,
+            instructor_id: verifyRows[0].instructor_id,
+            instructor_approved_at: verifyRows[0].instructor_approved_at,
+            status: verifyRows[0].status,
+            test_score: verifyRows[0].test_score
+          });
+        }
+      } else {
+        await connection.execute(`
+          INSERT INTO user_lesson_progress (
+            user_id, lesson_id, status, test_score, completed_at
+          ) VALUES (?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            status = VALUES(status),
+            test_score = VALUES(test_score),
+            completed_at = VALUES(completed_at),
+            updated_at = NOW()
+        `, [userId, lessonId, newStatus, score, completedAt]);
+      }
+      
+      // トランザクションをコミット（承認状態の更新を確定）
+      await connection.commit();
+      console.log('✅ 進捗更新トランザクションコミット完了');
+    } catch (progressError) {
+      console.error('進捗更新エラー:', progressError);
+      // トランザクションをロールバック
+      await connection.rollback();
+      console.error('❌ 進捗更新トランザクションロールバック完了');
+      // 進捗更新に失敗してもテスト結果の保存は成功しているので、エラーをログに記録するだけ
+    } finally {
+      connection.release();
+    }
+
     res.json({
       success: true,
       data: {
@@ -1011,13 +1181,25 @@ router.post('/instructor/approve-test', authenticateToken, async (req, res) => {
       
       let shouldComplete = false;
       
-      if (currentProgress.length === 0) {
+      const isNewRecord = currentProgress.length === 0;
+      
+      if (isNewRecord) {
         // 進捗レコードが存在しない場合は作成
-        await connection.execute(`
-          INSERT INTO user_lesson_progress 
-          (user_id, lesson_id, status, instructor_approved, instructor_approved_at, instructor_id)
-          VALUES (?, ?, 'in_progress', 1, NOW(), ?)
-        `, [studentId, lessonId, instructorId]);
+        // 提出物がない場合は初めから completed で作成
+        if (has_assignment) {
+          await connection.execute(`
+            INSERT INTO user_lesson_progress 
+            (user_id, lesson_id, status, instructor_approved, instructor_approved_at, instructor_id)
+            VALUES (?, ?, 'in_progress', 1, NOW(), ?)
+          `, [studentId, lessonId, instructorId]);
+        } else {
+          await connection.execute(`
+            INSERT INTO user_lesson_progress 
+            (user_id, lesson_id, status, instructor_approved, instructor_approved_at, instructor_id, completed_at)
+            VALUES (?, ?, 'completed', 1, NOW(), ?, NOW())
+          `, [studentId, lessonId, instructorId]);
+          // 既に completed で作成したので、完了処理は不要
+        }
       } else {
         // 既存の進捗レコードを更新
         const progress = currentProgress[0];
@@ -1035,18 +1217,35 @@ router.post('/instructor/approve-test', authenticateToken, async (req, res) => {
             shouldComplete = true;
           }
         } else {
-          // 提出物がない場合：承認で完了
+          // 提出物がない場合：テスト承認と完了を同時に行う
           shouldComplete = true;
+          // instructor_approved = 1 も設定する（完了処理で一緒に更新）
         }
       }
       
       // 完了処理
-      if (shouldComplete) {
-        await connection.execute(`
-          UPDATE user_lesson_progress 
-          SET status = 'completed', completed_at = NOW()
-          WHERE user_id = ? AND lesson_id = ?
-        `, [studentId, lessonId]);
+      // 新規作成時に既に completed で作成した場合は完了処理不要
+      if (shouldComplete && !(isNewRecord && !has_assignment)) {
+        if (!has_assignment && !isNewRecord) {
+          // 提出物がない既存レコードの場合は instructor_approved = 1 も一緒に設定
+          await connection.execute(`
+            UPDATE user_lesson_progress 
+            SET status = 'completed', 
+                completed_at = NOW(),
+                instructor_approved = 1,
+                instructor_approved_at = NOW(),
+                instructor_id = ?
+            WHERE user_id = ? AND lesson_id = ?
+          `, [instructorId, studentId, lessonId]);
+        } else {
+          // 提出物がある既存レコードの場合（提出物も承認済み）は status と completed_at のみ更新
+          // （instructor_approved は既に設定済み）
+          await connection.execute(`
+            UPDATE user_lesson_progress 
+            SET status = 'completed', completed_at = NOW()
+            WHERE user_id = ? AND lesson_id = ?
+          `, [studentId, lessonId]);
+        }
       }
       
       await connection.commit();

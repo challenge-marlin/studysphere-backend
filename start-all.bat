@@ -104,14 +104,12 @@ echo.
 
 REM Check Docker
 echo [INFO] Checking Docker availability...
-echo [INFO] Checking Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Docker is not running. Please start Docker Desktop first.
     pause
     exit /b 1
 )
-echo [INFO] Docker is running successfully
 echo [OK] Docker is running.
 
 REM Detect compose command (plugin vs legacy)
@@ -140,7 +138,6 @@ echo [INFO] docker-compose.yml found successfully
 
 REM Stop any existing services first
 echo [INFO] Stopping any existing services...
-echo [INFO] Stopping any existing services...
 if defined USE_COMPOSE_PLUGIN (
     docker compose down >nul 2>&1
     if errorlevel 1 (
@@ -158,29 +155,31 @@ if defined USE_COMPOSE_PLUGIN (
 )
 
 REM Build images when requested
-if /I "%MODE%"=="rebuild" (
-    echo [INFO] Building images as requested...
-    echo [INFO] Building images...
-    echo [INFO] Building backend image directly...
-    
-    REM ビルドログをファイルに記録
-    if defined USE_COMPOSE_PLUGIN (
-        docker build -t studysphere-backend:latest ./backend > "%DATE_LOG_DIR%\build.log" 2>&1
-    ) else (
-        docker build -t studysphere-backend:latest ./backend > "%DATE_LOG_DIR%\build.log" 2>&1
-    )
-    
-    if errorlevel 1 (
-        echo [ERROR] Failed to build backend image. Check build.log for details.
-        echo [ERROR] Failed to build backend image.
-        echo [INFO] Build log saved to: %DATE_LOG_DIR%\build.log
-        type "%DATE_LOG_DIR%\build.log"
-        pause
-        exit /b 1
-    )
-    echo [INFO] Backend image built successfully
-    echo [OK] Backend image built successfully.
+if /I not "%MODE%"=="rebuild" goto skip_build
+echo [INFO] Building backend image (this may take several minutes)...
+echo [INFO] Build progress will be displayed below:
+echo.
+
+REM ビルドを実行（進行状況を表示）
+REM --no-cacheオプションを追加してキャッシュを使わずにビルド
+REM --progress=plainで詳細な進行状況を表示
+if defined USE_COMPOSE_PLUGIN (
+    docker build --no-cache --progress=plain -t studysphere-backend:latest ./backend
+) else (
+    docker build --no-cache --progress=plain -t studysphere-backend:latest ./backend
 )
+
+REM ビルド結果を確認
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Failed to build backend image.
+    pause
+    exit /b 1
+)
+echo.
+echo [OK] Backend image built successfully.
+
+:skip_build
 
 REM Start services according to mode
 if /I "%MODE%"=="recreate" goto do_up_recreate
@@ -188,7 +187,6 @@ if /I "%MODE%"=="rebuild" goto do_up_recreate
 goto do_up_default
 
 :do_up_recreate
-echo [INFO] Starting services with force recreate...
 echo [INFO] Starting services with force recreate...
 if defined USE_COMPOSE_PLUGIN (
     docker compose up -d --force-recreate > "%DATE_LOG_DIR%\startup.log" 2>&1
@@ -211,7 +209,6 @@ goto after_up
 
 :do_up_default
 echo [INFO] Starting services normally...
-echo [INFO] Starting services...
 if defined USE_COMPOSE_PLUGIN (
     docker compose up -d > "%DATE_LOG_DIR%\startup.log" 2>&1
     set COMPOSE_EXIT_CODE=!errorlevel!
@@ -238,7 +235,6 @@ if exist "%DATE_LOG_DIR%\startup.log" (
     findstr /i "error\|warning\|failed\|exception" "%DATE_LOG_DIR%\startup.log" >nul 2>&1
     if not errorlevel 1 (
         echo [WARN] Startup logs contain warnings or errors. Review startup.log for details.
-        echo [WARN] Startup logs contain warnings or errors. Review startup.log for details.
     )
 )
 
@@ -255,11 +251,9 @@ echo.
 
 REM Wait for database to be ready
 echo [INFO] Waiting for database to be ready...
-echo [INFO] Waiting for database to be ready...
 timeout /t 20 /nobreak >nul
 
 REM Check database connection
-echo [INFO] Checking database connection...
 echo [INFO] Checking database connection...
 if defined USE_COMPOSE_PLUGIN (
     docker compose exec -T db mysqladmin ping -h localhost -u root -pshinomoto926! >nul 2>&1
@@ -271,7 +265,6 @@ if defined USE_COMPOSE_PLUGIN (
 
 if !DB_CHECK_RESULT! neq 0 (
     echo [WARN] Database not ready, waiting additional 15 seconds...
-    echo [WARNING] Database not ready, waiting additional 15 seconds...
     timeout /t 15 /nobreak >nul
     if defined USE_COMPOSE_PLUGIN (
         docker compose exec -T db mysqladmin ping -h localhost -u root -pshinomoto926! >nul 2>&1
@@ -281,8 +274,7 @@ if !DB_CHECK_RESULT! neq 0 (
         set DB_CHECK_RESULT=!errorlevel!
     )
     if !DB_CHECK_RESULT! neq 0 (
-        echo [ERROR] Database connection failed after retry
-        echo [ERROR] Database connection failed.
+        echo [ERROR] Database connection failed after retry.
         if defined USE_COMPOSE_PLUGIN (
             docker compose logs db > "%DATE_LOG_DIR%\db-error.log" 2>&1
             echo [INFO] Database error logs saved to: %DATE_LOG_DIR%\db-error.log
@@ -293,11 +285,9 @@ if !DB_CHECK_RESULT! neq 0 (
         pause
         exit /b 1
     )
-echo [INFO] Database is ready
 echo [OK] Database is ready.
 
 REM Check if admin account exists and update role to 10
-echo [INFO] Checking and updating admin account...
 echo [INFO] Checking and updating admin account...
 if defined USE_COMPOSE_PLUGIN (
     docker compose exec -T db mysql -u root -pshinomoto926! curriculum-portal -e "
@@ -319,7 +309,6 @@ UPDATE user_accounts SET role = 10 WHERE name = 'admin001';
 
 if !ADMIN_SETUP_RESULT! neq 0 (
     echo [WARN] Admin account setup completed with warnings. Check admin-setup.log for details.
-    echo [WARN] Admin account setup completed with warnings. Check admin-setup.log for details.
 ) else (
     echo [INFO] Admin account setup completed successfully
 )
@@ -327,24 +316,20 @@ echo [OK] Admin account ready.
 
 REM Wait for backend to be ready
 echo [INFO] Waiting for backend to be ready...
-echo [INFO] Waiting for backend to be ready...
 timeout /t 15 /nobreak >nul
 
 REM Check backend health
-echo [INFO] Checking backend health...
 echo [INFO] Checking backend health...
 curl -f http://localhost:5050/ >nul 2>&1
 set BACKEND_CHECK_RESULT=!errorlevel!
 
     if !BACKEND_CHECK_RESULT! neq 0 (
         echo [WARN] Backend not ready, waiting additional 15 seconds...
-        echo [WARNING] Backend not ready, waiting additional 15 seconds...
         timeout /t 15 /nobreak >nul
         curl -f http://localhost:5050/ >nul 2>&1
         set BACKEND_CHECK_RESULT=!errorlevel!
         if !BACKEND_CHECK_RESULT! neq 0 (
-            echo [ERROR] Backend health check failed after retry
-            echo [ERROR] Backend health check failed.
+            echo [ERROR] Backend health check failed after retry.
             if defined USE_COMPOSE_PLUGIN (
                 docker compose logs backend > "%DATE_LOG_DIR%\backend-error.log" 2>&1
                 echo [INFO] Backend error logs saved to: %DATE_LOG_DIR%\backend-error.log
@@ -356,7 +341,6 @@ set BACKEND_CHECK_RESULT=!errorlevel!
             exit /b 1
         )
     )
-echo [INFO] Backend is ready
 echo [OK] Backend is ready.
 
 :skip_health_checks
@@ -388,7 +372,6 @@ echo.
 
 REM Show current status
 echo [INFO] Displaying current service status...
-echo [INFO] Current service status:
 if defined USE_COMPOSE_PLUGIN (
     docker compose ps > "%DATE_LOG_DIR%\service-status.log" 2>&1
     type "%DATE_LOG_DIR%\service-status.log"
@@ -398,18 +381,14 @@ if defined USE_COMPOSE_PLUGIN (
 )
 
 REM 起動完了ログ
-echo [INFO] Startup completed successfully
 echo.
 echo [INFO] Startup completed successfully!
 echo [INFO] Services are running in the background.
 echo [INFO] Use 'stop-all.bat' to stop services when done.
-echo.
 echo [INFO] All startup logs have been saved to the 'logs' directory.
-echo [INFO] Check the logs directory for detailed information about the startup process.
 echo.
 
 REM バックエンドサーバーの起動（Docker Composeの代わりに直接起動）
-echo [INFO] Starting backend server directly...
 echo [INFO] Starting backend server directly...
 
 REM バックエンドディレクトリに移動

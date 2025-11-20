@@ -681,26 +681,59 @@ const submitTestResult = async (req, res) => {
     
     // 既存のレッスン進捗を確認（承認済みレッスンの再受験時にステータスを維持するため）
     const [existingProgressRows] = await connection.execute(`
-      SELECT status, instructor_approved, completed_at
+      SELECT status, instructor_approved, completed_at, instructor_id, instructor_approved_at
       FROM user_lesson_progress
       WHERE user_id = ? AND lesson_id = ?
       FOR UPDATE
     `, [userId, lessonId]);
 
-    const existingProgress = existingProgressRows[0] || null;
-    const isAlreadyApprovedLesson = !!(existingProgress &&
-      existingProgress.status === 'completed' &&
-      (existingProgress.instructor_approved === 1 || existingProgress.instructor_approved === true));
+    // 承認済みレッスンの判定：instructor_approvedが1であれば承認済みとみなす
+    // （提出物があるレッスンではstatusがcompletedでなくても承認済みの場合がある）
+    const normalizeApprovalFlag = (value) => value === 1 || value === true || value === '1' || value === 'true';
+    const approvedProgress = existingProgressRows.find(row => normalizeApprovalFlag(row.instructor_approved));
+    const existingProgress = approvedProgress || existingProgressRows[0] || null;
+    const isAlreadyApprovedLesson = !!approvedProgress;
+
+    if (existingProgressRows.length > 1) {
+      console.warn('⚠️ user_lesson_progressに複数レコードが存在します', {
+        userId,
+        lessonId,
+        rowCount: existingProgressRows.length,
+        hasApprovedRow: !!approvedProgress
+      });
+    }
 
     // テスト合格の場合のみ進捗を更新、指導員承認待ちの状態にする
     let newStatus = 'in_progress'; // デフォルトは進行中
     let completedAt = null;
+    let instructorApproved = null;
+    let instructorId = null;
+    let instructorApprovedAt = null;
     
     if (isAlreadyApprovedLesson) {
-      // 一度承認済みのレッスンは再受験してもcompleted状態を維持
-      newStatus = 'completed';
-      completedAt = existingProgress?.completed_at || null;
-      console.log('🛡️ 承認済みレッスンの再受験: ステータスをcompletedのまま保持します');
+      // 一度承認済みのレッスンは再受験しても承認状態と完了状態を維持
+      // 復習で不合格になっても承認状態は維持される
+      // statusが'completed'の場合は必ず'completed'を維持（完了から進行中に戻さない）
+      if (existingProgress.status === 'completed') {
+        newStatus = 'completed';
+        // completed_atも維持（nullの場合は現在時刻を設定）
+        completedAt = existingProgress.completed_at || new Date();
+      } else {
+        // statusが'completed'以外の場合は既存のstatusを維持
+        newStatus = existingProgress.status || 'in_progress';
+        completedAt = existingProgress?.completed_at || null;
+      }
+      // 承認済みレッスンの場合は、instructor_approvedを必ず1に設定（復習で不合格でも承認は解除しない）
+      instructorApproved = 1;
+      instructorId = existingProgress.instructor_id;
+      instructorApprovedAt = existingProgress.instructor_approved_at;
+      console.log('🛡️ 承認済みレッスンの再受験: ステータスと承認情報を保持します（復習で不合格でも承認は維持）', {
+        existingStatus: existingProgress.status,
+        newStatus: newStatus,
+        instructor_approved: instructorApproved,
+        testPassed: testPassed,
+        completedAt: completedAt
+      });
     } else if (testPassed) {
       // テストは合格したが、指導員承認待ち
       newStatus = 'in_progress'; // 指導員承認まで完了にはしない
@@ -711,24 +744,73 @@ const submitTestResult = async (req, res) => {
       console.log(`❌ テスト不合格 (${progressPercentage}%) - 再受験が必要`);
     }
     
-    const insertParams = [userId, lessonId, newStatus, calculatedScore, completedAt];
-    console.log('user_lesson_progress挿入パラメータ:', insertParams.map((param, index) => ({
-      index,
-      value: param,
-      type: typeof param,
-      isUndefined: param === undefined
-    })));
-    
-    await connection.execute(`
-      INSERT INTO user_lesson_progress (
-        user_id, lesson_id, status, test_score, completed_at
-      ) VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        status = VALUES(status),
-        test_score = VALUES(test_score),
-        completed_at = VALUES(completed_at),
-        updated_at = NOW()
-    `, insertParams);
+    // 承認済みレッスンの場合は承認情報も含めて更新
+    if (isAlreadyApprovedLesson) {
+      console.log('🛡️ 承認済みレッスンの更新パラメータ:', {
+        userId,
+        lessonId,
+        newStatus,
+        calculatedScore,
+        completedAt,
+        instructorApproved,
+        instructorId,
+        instructorApprovedAt,
+        existingInstructorId: existingProgress.instructor_id,
+        existingInstructorApprovedAt: existingProgress.instructor_approved_at
+      });
+      
+      // 承認済みレッスンの場合は、必ず承認状態を1に維持（復習で不合格でも承認は解除しない）
+      // まず、テストスコアとステータスのみ更新（承認情報は触らない）
+      await connection.execute(`
+        INSERT INTO user_lesson_progress (
+          user_id, lesson_id, status, test_score, completed_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          status = VALUES(status),
+          test_score = VALUES(test_score),
+          completed_at = COALESCE(VALUES(completed_at), completed_at),
+          updated_at = NOW()
+      `, [userId, lessonId, newStatus, calculatedScore, completedAt]);
+      
+      // 承認情報を明示的に維持（既存値が存在する場合は保持、存在しない場合は設定した値を使用）
+      await connection.execute(`
+        UPDATE user_lesson_progress
+        SET instructor_approved = 1,
+            instructor_id = COALESCE(?, instructor_id),
+            instructor_approved_at = COALESCE(?, instructor_approved_at),
+            updated_at = NOW()
+        WHERE user_id = ? AND lesson_id = ?
+      `, [instructorId || existingProgress.instructor_id, 
+          instructorApprovedAt || existingProgress.instructor_approved_at,
+          userId, lessonId]);
+      
+      console.log('🛡️ 承認済みレッスンの承認状態を維持しました:', {
+        userId,
+        lessonId,
+        instructor_approved: 1,
+        instructor_id: instructorId || existingProgress.instructor_id,
+        instructor_approved_at: instructorApprovedAt || existingProgress.instructor_approved_at
+      });
+    } else {
+      const insertParams = [userId, lessonId, newStatus, calculatedScore, completedAt];
+      console.log('user_lesson_progress挿入パラメータ:', insertParams.map((param, index) => ({
+        index,
+        value: param,
+        type: typeof param,
+        isUndefined: param === undefined
+      })));
+      
+      await connection.execute(`
+        INSERT INTO user_lesson_progress (
+          user_id, lesson_id, status, test_score, completed_at
+        ) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          status = VALUES(status),
+          test_score = VALUES(test_score),
+          completed_at = VALUES(completed_at),
+          updated_at = NOW()
+      `, insertParams);
+    }
 
     // コース全体の進捗率を更新（エラーが発生しても処理を継続）
     try {
@@ -952,12 +1034,13 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
 }
 
 // テスト結果を取得（最新のレッスンテストのみ）
+// 承認済みの合格結果を優先的に取得する
 const getTestResults = async (req, res) => {
   const { userId } = req.params;
   const connection = await pool.getConnection();
   
   try {
-    // exam_resultsテーブルから最新のレッスンテスト結果を取得
+    // user_lesson_progressテーブルと結合して、承認済みの合格結果を優先的に取得
     const [results] = await connection.execute(`
       SELECT 
         er.lesson_id,
@@ -967,25 +1050,96 @@ const getTestResults = async (req, res) => {
         er.total_questions,
         er.percentage,
         er.exam_date as completed_at,
-        l.title as lesson_title
+        er.id as exam_result_id,
+        l.title as lesson_title,
+        ulp.instructor_approved,
+        ulp.test_score as progress_test_score
       FROM exam_results er
       JOIN lessons l ON er.lesson_id = l.id
+      LEFT JOIN user_lesson_progress ulp ON er.user_id = ulp.user_id AND er.lesson_id = ulp.lesson_id
       WHERE er.user_id = ? 
         AND er.test_type = 'lesson'
-      ORDER BY er.lesson_id, er.exam_date DESC
+      ORDER BY er.lesson_id, 
+        -- 承認済みの合格結果を優先（instructor_approved = 1 かつ passed = 1）
+        CASE 
+          WHEN ulp.instructor_approved = 1 AND er.passed = 1 THEN 0
+          ELSE 1
+        END,
+        -- 次に合格結果を優先
+        CASE 
+          WHEN er.passed = 1 THEN 0
+          ELSE 1
+        END,
+        -- 最後に日付でソート（新しい順）
+        er.exam_date DESC
     `, [userId]);
 
-    // レッスンごとに最新の結果のみを選択
-    const latestResults = {};
+    // レッスンごとに最適な結果を選択
+    // 優先順位: 1. 承認済みの合格結果, 2. 合格結果（最新）, 3. 最新の結果
+    const bestResults = {};
     results.forEach(result => {
       const lessonId = result.lesson_id;
-      if (!latestResults[lessonId] || new Date(result.completed_at) > new Date(latestResults[lessonId].completed_at)) {
-        latestResults[lessonId] = result;
+      const isApprovedPassed = result.instructor_approved === 1 && result.passed === 1;
+      const isPassed = result.passed === 1;
+      
+      if (!bestResults[lessonId]) {
+        // 最初の結果を設定
+        bestResults[lessonId] = result;
+      } else {
+        const current = bestResults[lessonId];
+        const currentIsApprovedPassed = current.instructor_approved === 1 && current.passed === 1;
+        const currentIsPassed = current.passed === 1;
+        
+        // 承認済みの合格結果を優先
+        if (isApprovedPassed && !currentIsApprovedPassed) {
+          bestResults[lessonId] = result;
+        } 
+        // 承認済みの合格結果がある場合は、それを維持（再受験の不合格結果で上書きしない）
+        else if (currentIsApprovedPassed) {
+          // 承認済みの合格結果は維持（何もしない）
+        }
+        // 承認済みの合格結果がない場合、合格結果を優先
+        else if (!currentIsApprovedPassed && isPassed && !currentIsPassed) {
+          bestResults[lessonId] = result;
+        }
+        // どちらも合格結果の場合、またはどちらも不合格の場合、最新のものを選択
+        else if (!currentIsApprovedPassed && !currentIsPassed && !isPassed) {
+          if (new Date(result.completed_at) > new Date(current.completed_at)) {
+            bestResults[lessonId] = result;
+          }
+        }
       }
     });
 
+    // user_lesson_progressテーブルから直接承認状態を取得（選択したテスト結果に関係なく承認状態を維持）
+    const lessonIds = Object.keys(bestResults).map(id => parseInt(id));
+    if (lessonIds.length > 0) {
+      // IN句のプレースホルダーを動的に生成
+      const placeholders = lessonIds.map(() => '?').join(',');
+      const [progressRows] = await connection.execute(`
+        SELECT lesson_id, instructor_approved
+        FROM user_lesson_progress
+        WHERE user_id = ? AND lesson_id IN (${placeholders})
+      `, [userId, ...lessonIds]);
+      
+      // 承認状態をマップに変換
+      const approvalMap = {};
+      progressRows.forEach(row => {
+        approvalMap[row.lesson_id] = row.instructor_approved === 1 || row.instructor_approved === true;
+      });
+      
+      // 承認状態を各結果に適用
+      Object.keys(bestResults).forEach(lessonId => {
+        const lessonIdNum = parseInt(lessonId);
+        if (approvalMap.hasOwnProperty(lessonIdNum)) {
+          // user_lesson_progressの承認状態を優先（承認済みの場合は、テスト結果が不合格でも承認状態を維持）
+          bestResults[lessonId].instructor_approved = approvalMap[lessonIdNum] ? 1 : 0;
+        }
+      });
+    }
+
     // 配列に変換
-    const finalResults = Object.values(latestResults).map(result => ({
+    const finalResults = Object.values(bestResults).map(result => ({
       lesson_id: result.lesson_id,
       test_score: result.test_score,
       total_questions: result.total_questions,
@@ -993,7 +1147,8 @@ const getTestResults = async (req, res) => {
       passed: result.passed,
       completed_at: result.completed_at,
       test_type: result.test_type,
-      lesson_title: result.lesson_title
+      lesson_title: result.lesson_title,
+      instructor_approved: result.instructor_approved === 1
     }));
 
     customLogger.info('Latest test results retrieved successfully from database', {

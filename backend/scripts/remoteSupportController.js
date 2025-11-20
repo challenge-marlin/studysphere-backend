@@ -361,8 +361,8 @@ class RemoteSupportController {
         } else {
           // 新規レコードを作成
           await pool.execute(
-            'INSERT INTO remote_support_daily_records (user_id, webcam_photos, screenshots, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())',
-            [user.id, JSON.stringify(webcamPhotos), JSON.stringify(screenshots)]
+            'INSERT INTO remote_support_daily_records (user_id, date, webcam_photos, screenshots, `condition`, work_note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())',
+            [user.id, today, JSON.stringify(webcamPhotos), JSON.stringify(screenshots), '普通', '']
           );
           customLogger.info('新規レコードの画像URL保存完了:', {
             userId: user.id,
@@ -595,11 +595,11 @@ class RemoteSupportController {
             insertValues += ', ?';
             insertParams.push(temperature);
           }
-          if (condition !== undefined && condition !== null && condition !== '') {
-            insertFields.push('`condition`');
-            insertValues += ', ?';
-            insertParams.push(condition);
-          }
+          // conditionはNOT NULLなので、値が空でもデフォルト値（'普通'）を設定
+          const conditionValue = (condition !== undefined && condition !== null && condition !== '') ? condition : '普通';
+          insertFields.push('`condition`');
+          insertValues += ', ?';
+          insertParams.push(conditionValue);
           if (condition_note !== undefined && condition_note !== null && condition_note !== '') {
             insertFields.push('condition_note');
             insertValues += ', ?';
@@ -826,8 +826,17 @@ class RemoteSupportController {
       }
 
       const user = users[0];
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD形式
-      const now = new Date().toISOString().replace('T', ' ').replace('Z', ''); // MySQL形式: YYYY-MM-DD HH:mm:ss
+      
+      // UTCで日付と時刻を取得（DB記録時間はUTCで統一）
+      const utcNow = new Date();
+      const today = utcNow.toISOString().split('T')[0]; // YYYY-MM-DD形式（UTC日付）
+      const now = utcNow.toISOString().replace('T', ' ').replace('Z', ''); // MySQL形式: YYYY-MM-DD HH:mm:ss（UTC）
+
+      // work_noteが空文字列またはnullの場合はデフォルト値を設定（NOT NULL制約対応）
+      const workNoteValue = (work_note && work_note.trim() !== '') ? work_note.trim() : '（未入力）';
+      
+      // conditionが空文字列の場合はデフォルト値を設定
+      const conditionValue = (condition && condition.trim() !== '') ? condition.trim() : '普通';
 
       // 日報データをデータベースに記録
       try {
@@ -851,16 +860,36 @@ class RemoteSupportController {
               user_id, date, mark_start, temperature, \`condition\`, 
               condition_note, work_note, sleep_hours, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-            [user.id, today, now, temperature || null, condition || '普通', 
-             condition_note || null, work_note || null, sleep_hours || null]
+            [
+              user.id, 
+              today, 
+              now, 
+              (temperature && temperature.trim() !== '') ? temperature.trim() : null, 
+              conditionValue,
+              (condition_note && condition_note.trim() !== '') ? condition_note.trim() : null, 
+              workNoteValue, 
+              (sleep_hours && sleep_hours.trim() !== '') ? sleep_hours.trim() : null
+            ]
           );
-          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}, 睡眠時間: ${sleep_hours || 'なし'}`);
+          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}, 作業内容: ${workNoteValue.substring(0, 50)}..., 睡眠時間: ${sleep_hours || 'なし'}`);
         }
       } catch (dbError) {
+        // エラーの詳細をログに記録
         customLogger.error('日報データの記録に失敗:', {
           error: dbError.message,
+          errorCode: dbError.code,
+          errorNumber: dbError.errno,
+          sqlState: dbError.sqlState,
+          sqlMessage: dbError.sqlMessage,
+          stack: dbError.stack,
           userId: user.id,
-          date: today
+          loginCode: login_code,
+          date: today,
+          workNote: workNoteValue,
+          condition: conditionValue,
+          temperature: temperature || null,
+          conditionNote: condition_note || null,
+          sleepHours: sleep_hours || null
         });
         // データベースエラーでもログインは成功させる
       }

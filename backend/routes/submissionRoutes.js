@@ -285,21 +285,78 @@ router.post('/instructor/approve-submission', authenticateToken, async (req, res
         throw new Error('提出物の承認に失敗しました');
       }
 
-      // レッスン進捗の承認フラグも更新
-      const [progressResult] = await connection.execute(`
-        UPDATE user_lesson_progress 
-        SET instructor_approved = TRUE,
-            instructor_approved_at = NOW(),
-            instructor_id = ?,
-            updated_at = NOW()
+      // レッスン情報を取得（提出物の有無を確認）
+      const [lessonInfo] = await connection.execute(`
+        SELECT has_assignment FROM lessons WHERE id = ?
+      `, [lessonId]);
+
+      if (lessonInfo.length === 0) {
+        throw new Error('レッスン情報が見つかりません');
+      }
+
+      const { has_assignment } = lessonInfo[0];
+
+      // 提出物がないレッスンの場合はエラー
+      if (!has_assignment) {
+        throw new Error('このレッスンには提出物がありません');
+      }
+
+      // 現在の進捗状況を取得
+      const [currentProgress] = await connection.execute(`
+        SELECT 
+          instructor_approved,
+          assignment_submitted,
+          status
+        FROM user_lesson_progress 
         WHERE user_id = ? AND lesson_id = ?
-      `, [instructorId, studentId, lessonId]);
+      `, [studentId, lessonId]);
+
+      let shouldComplete = false;
+
+      if (currentProgress.length === 0) {
+        // 進捗レコードが存在しない場合は作成
+        await connection.execute(`
+          INSERT INTO user_lesson_progress 
+          (user_id, lesson_id, status, instructor_approved, instructor_approved_at, instructor_id, assignment_submitted)
+          VALUES (?, ?, 'in_progress', 1, NOW(), ?, 1)
+        `, [studentId, lessonId, instructorId]);
+      } else {
+        // 既存の進捗レコードを更新
+        const progress = currentProgress[0];
+        
+        // 提出物の承認フラグを更新
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET instructor_approved = TRUE,
+              instructor_approved_at = NOW(),
+              instructor_id = ?,
+              assignment_submitted = TRUE,
+              assignment_submitted_at = NOW(),
+              updated_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [instructorId, studentId, lessonId]);
+        
+        // テストも承認済みの場合は完了にする（提出物があるレッスンでは、テストと提出物の両方が承認済みで完了）
+        if (progress.instructor_approved) {
+          shouldComplete = true;
+        }
+      }
+      
+      // 完了処理
+      if (shouldComplete) {
+        await connection.execute(`
+          UPDATE user_lesson_progress 
+          SET status = 'completed', completed_at = NOW()
+          WHERE user_id = ? AND lesson_id = ?
+        `, [studentId, lessonId]);
+      }
 
       await connection.commit();
 
       res.json({
         success: true,
-        message: '提出物の承認が完了しました',
+        message: shouldComplete ? 'レッスンが完了しました' : '提出物の承認が完了しました',
+        completed: shouldComplete,
         data: {
           submissionId,
           studentId,

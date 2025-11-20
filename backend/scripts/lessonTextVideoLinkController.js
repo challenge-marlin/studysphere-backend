@@ -2,11 +2,29 @@ const { customLogger } = require('../utils/logger');
 const { pool } = require('../utils/database');
 
 // テキストと動画の紐づけ一覧取得
+// 修正: レッスンのテキストファイル（s3_key）を基準に、そのテキストファイルに紐づいた動画を検索
 const getTextVideoLinks = async (req, res) => {
   const { lessonId } = req.params;
   const connection = await pool.getConnection();
   
   try {
+    // まずレッスンのs3_keyを取得
+    const [lessons] = await connection.execute(
+      'SELECT s3_key FROM lessons WHERE id = ? AND status != "deleted"',
+      [lessonId]
+    );
+    
+    if (lessons.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'レッスンが見つかりません'
+      });
+    }
+    
+    const lessonS3Key = lessons[0].s3_key;
+    
+    // レッスンのテキストファイル（s3_key）に紐づいた動画を検索
+    // text_file_keyがレッスンのs3_keyと一致するもののみを取得
     const query = `
       SELECT 
         ltv.id,
@@ -23,14 +41,16 @@ const getTextVideoLinks = async (req, res) => {
         lv.thumbnail_url
       FROM lesson_text_video_links ltv
       LEFT JOIN lesson_videos lv ON ltv.video_id = lv.id
-      WHERE ltv.lesson_id = ?
+      WHERE ltv.lesson_id = ? 
+        AND ltv.text_file_key = ?
       ORDER BY ltv.link_order ASC, ltv.created_at ASC
     `;
     
-    const [links] = await connection.execute(query, [lessonId]);
+    const [links] = await connection.execute(query, [lessonId, lessonS3Key]);
     
     customLogger.info('Text video links retrieved successfully', {
       lessonId: lessonId,
+      lessonS3Key: lessonS3Key,
       count: links.length,
       userId: req.user?.user_id || null
     });

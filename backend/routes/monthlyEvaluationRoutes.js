@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
+const { authenticateToken } = require('../middleware/auth');
 
 const formatDateToYmd = (dateObj) => {
   const year = dateObj.getUTCFullYear();
@@ -303,7 +304,7 @@ router.get('/user/:userId/latest', async (req, res) => {
 });
 
 // 月次評価記録作成
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const {
     user_id,
     date,
@@ -330,6 +331,89 @@ router.post('/', async (req, res) => {
   let connection;
   try {
     connection = await pool.getConnection();
+    
+    // 利用者が存在するかを確認
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーIDは必須です'
+      });
+    }
+    
+    // 利用者が存在し、指導員の所属拠点に所属しているかを確認
+    if (req.user && req.user.user_id) {
+      const [userRows] = await connection.execute(`
+        SELECT ua.id, ua.satellite_ids, ua.name
+        FROM user_accounts ua
+        WHERE ua.id = ? AND ua.status = 1
+      `, [user_id]);
+      
+      if (userRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '利用者が見つかりません'
+        });
+      }
+      
+      const targetUser = userRows[0];
+      
+      // 指導員の所属拠点を取得
+      const instructorId = req.user.user_id;
+      const [instructorRows] = await connection.execute(`
+        SELECT satellite_ids, role
+        FROM user_accounts
+        WHERE id = ? AND status = 1
+      `, [instructorId]);
+      
+      if (instructorRows.length > 0) {
+        const instructor = instructorRows[0];
+        
+        // システム管理者（ロール9以上）の場合はスキップ
+        if (instructor.role < 9) {
+          // 利用者の所属拠点を取得
+          let userSatelliteIds = [];
+          if (targetUser.satellite_ids) {
+            try {
+              const parsed = JSON.parse(targetUser.satellite_ids);
+              userSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (error) {
+              customLogger.warn('利用者の拠点IDパースエラー:', { user_id, error: error.message });
+            }
+          }
+          
+          // 指導員の所属拠点を取得
+          let instructorSatelliteIds = [];
+          if (instructor.satellite_ids) {
+            try {
+              const parsed = JSON.parse(instructor.satellite_ids);
+              instructorSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+            } catch (error) {
+              customLogger.warn('指導員の拠点IDパースエラー:', { instructorId, error: error.message });
+            }
+          }
+          
+          // 共通の拠点があるか確認
+          const hasCommonSatellite = userSatelliteIds.some(userSatId => 
+            instructorSatelliteIds.some(instSatId => 
+              parseInt(userSatId) === parseInt(instSatId)
+            )
+          );
+          
+          if (!hasCommonSatellite) {
+            customLogger.warn('月報保存 - 拠点不一致:', {
+              user_id,
+              userSatelliteIds,
+              instructorId,
+              instructorSatelliteIds
+            });
+            return res.status(403).json({
+              success: false,
+              message: '利用者が指導員の所属拠点に所属していません'
+            });
+          }
+        }
+      }
+    }
     
     // evaluation_methodの値を検証して正規化（ENUM値に一致させる）
     let normalizedMethod = '通所'; // デフォルト値
