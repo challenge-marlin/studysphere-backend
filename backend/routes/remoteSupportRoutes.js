@@ -324,7 +324,7 @@ router.get('/daily-attendance/:satelliteId', require('../middleware/auth').authe
         rsdr.mark_end,
         CASE 
           WHEN ovr.id IS NOT NULL THEN '通所'
-          WHEN rsdr.mark_start IS NOT NULL AND rsdr.mark_end IS NOT NULL THEN '作業中'
+          WHEN rsdr.mark_end IS NOT NULL THEN '業務終了'
           WHEN rsdr.mark_start IS NOT NULL AND rsdr.mark_lunch_start IS NOT NULL AND rsdr.mark_lunch_end IS NULL THEN '休憩中'
           WHEN rsdr.mark_start IS NOT NULL THEN '作業中'
           ELSE '未開始'
@@ -445,7 +445,10 @@ router.put('/daily-attendance/:recordId', require('../middleware/auth').authenti
     
     // JST時刻をUTC時刻に変換する関数
     const convertJSTToUTC = (dateStr, timeStr) => {
-      if (!dateStr || !timeStr) return null;
+      // 空文字列や空白文字列の場合はnullを返す
+      if (!dateStr || !timeStr || (typeof timeStr === 'string' && timeStr.trim() === '')) {
+        return null;
+      }
       try {
         // JST時刻として解釈（Asia/Tokyoタイムゾーン）
         const jstDateTimeString = `${dateStr}T${timeStr}:00+09:00`;
@@ -522,11 +525,19 @@ router.put('/daily-attendance/:recordId', require('../middleware/auth').authenti
           updated_at = CURRENT_TIMESTAMP
       `;
       
-      // JST時刻をUTC時刻に変換
-      const markStart = startTime && date ? convertJSTToUTC(date, startTime) : null;
-      const markEnd = endTime && date ? convertJSTToUTC(date, endTime) : null;
-      const markLunchStart = breakStartTime && date ? convertJSTToUTC(date, breakStartTime) : null;
-      const markLunchEnd = breakEndTime && date ? convertJSTToUTC(date, breakEndTime) : null;
+      // 時間フィールドが空文字列や空白の場合はnullに変換するヘルパー関数
+      const normalizeTimeField = (timeValue) => {
+        if (!timeValue || (typeof timeValue === 'string' && timeValue.trim() === '')) {
+          return null;
+        }
+        return timeValue;
+      };
+      
+      // JST時刻をUTC時刻に変換（空文字列の場合はnullを返す）
+      const markStart = (normalizeTimeField(startTime) && date) ? convertJSTToUTC(date, startTime) : null;
+      const markEnd = (normalizeTimeField(endTime) && date) ? convertJSTToUTC(date, endTime) : null;
+      const markLunchStart = (normalizeTimeField(breakStartTime) && date) ? convertJSTToUTC(date, breakStartTime) : null;
+      const markLunchEnd = (normalizeTimeField(breakEndTime) && date) ? convertJSTToUTC(date, breakEndTime) : null;
       
       const [result] = await pool.execute(insertQuery, [userId, date, markStart, markEnd, markLunchStart, markLunchEnd]);
       

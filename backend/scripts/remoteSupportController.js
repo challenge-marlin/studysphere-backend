@@ -1484,7 +1484,8 @@ class RemoteSupportController {
         try {
           customLogger.info(`時間変換開始: ${timeString} (型: ${typeof timeString})`);
           
-          if (!timeString || timeString.trim() === '' || timeString === '--') {
+          // null、undefined、空文字列、空白文字列の場合はnullを返す
+          if (!timeString || (typeof timeString === 'string' && timeString.trim() === '') || timeString === '--') {
             customLogger.info('時間が空のためnullを返します');
             return null;
           }

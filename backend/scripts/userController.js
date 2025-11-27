@@ -619,35 +619,56 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
         console.log('ユーザーのsatellite_ids（生データ）:', userRows[0]?.satellite_ids);
         console.log('satellite_idsの型:', typeof userRows[0]?.satellite_ids);
         
-        if (userRows.length > 0 && userRows[0].satellite_ids && userRows[0].satellite_ids !== 'null' && userRows[0].satellite_ids !== '[]') {
+        if (userRows.length > 0 && userRows[0].satellite_ids) {
           let userSatelliteIds = [];
+          const rawSatelliteIds = userRows[0].satellite_ids;
+          
           try {
-            userSatelliteIds = JSON.parse(userRows[0].satellite_ids);
-            if (!Array.isArray(userSatelliteIds)) {
-              userSatelliteIds = [userSatelliteIds];
+            // 既に配列の場合はそのまま使用
+            if (Array.isArray(rawSatelliteIds)) {
+              userSatelliteIds = rawSatelliteIds;
+            } else if (typeof rawSatelliteIds === 'string') {
+              // 文字列の場合、JSONパースを試行
+              if (rawSatelliteIds === 'null' || rawSatelliteIds === '[]' || rawSatelliteIds.trim() === '') {
+                userSatelliteIds = [];
+              } else {
+                userSatelliteIds = JSON.parse(rawSatelliteIds);
+                // パース後の型チェック
+                if (!Array.isArray(userSatelliteIds)) {
+                  userSatelliteIds = [userSatelliteIds];
+                }
+              }
+            } else {
+              // その他の型（数値など）の場合は配列に変換
+              userSatelliteIds = [rawSatelliteIds];
             }
           } catch (error) {
             console.error('ユーザーの拠点IDパースエラー:', error);
+            console.error('生データ:', rawSatelliteIds, '型:', typeof rawSatelliteIds);
             userSatelliteIds = [];
           }
           
           // すべてのIDを数値に統一して比較
           const normalizedUserSatelliteIds = userSatelliteIds.map(id => {
-            const numId = parseInt(id);
+            // 既に数値の場合はそのまま、文字列の場合はパース
+            const numId = typeof id === 'number' ? id : parseInt(String(id), 10);
             return isNaN(numId) ? null : numId;
-          }).filter(id => id !== null);
+          }).filter(id => id !== null && id > 0);
           
-          console.log('ユーザーの所属拠点（生データ）:', userSatelliteIds);
+          console.log('ユーザーの所属拠点（生データ）:', rawSatelliteIds);
+          console.log('ユーザーの所属拠点（パース後）:', userSatelliteIds);
           console.log('ユーザーの所属拠点（正規化後）:', normalizedUserSatelliteIds);
           console.log('要求された拠点ID（数値）:', numericSatelliteId);
           console.log('要求された拠点IDの型:', typeof numericSatelliteId);
           
-          // 型を統一して比較（数値と文字列の両方に対応）
-          const hasAccess = normalizedUserSatelliteIds.some(id => {
-            const result = id === numericSatelliteId;
-            console.log(`比較: ${id} (${typeof id}) === ${numericSatelliteId} (${typeof numericSatelliteId}) = ${result}`);
-            return result;
-          });
+          // 型を完全に統一して比較（数値同士で厳密等価比較）
+          const hasAccess = normalizedUserSatelliteIds.length > 0 && 
+            normalizedUserSatelliteIds.some(id => {
+              // 数値同士の厳密等価比較
+              const result = Number(id) === Number(numericSatelliteId);
+              console.log(`比較: ${id} (${typeof id}) === ${numericSatelliteId} (${typeof numericSatelliteId}) = ${result}`);
+              return result;
+            });
           
           console.log('アクセス権限チェック結果:', hasAccess);
           
@@ -656,7 +677,8 @@ const getSatelliteUsers = async (satelliteId, req = null) => {
             console.log('詳細:', {
               requestedSatelliteId: numericSatelliteId,
               userSatelliteIds: normalizedUserSatelliteIds,
-              originalUserSatelliteIds: userSatelliteIds
+              originalUserSatelliteIds: userSatelliteIds,
+              rawSatelliteIds: rawSatelliteIds
             });
             return {
               success: false,
@@ -3248,9 +3270,28 @@ const removeHomeSupportFlag = async (req, res) => {
 const getSatelliteInstructorsForHomeSupport = async (req, res) => {
   const { satelliteId } = req.params;
   const connection = await pool.getConnection();
-  
+
   try {
-    const [rows] = await connection.execute(`
+    // 拠点IDの妥当性チェック
+    if (!satelliteId || satelliteId === 'null' || satelliteId === 'undefined') {
+      return res.status(400).json({
+        success: false,
+        message: '有効な拠点IDが指定されていません',
+      });
+    }
+
+    const numericSatelliteId = parseInt(satelliteId, 10);
+    if (Number.isNaN(numericSatelliteId)) {
+      return res.status(400).json({
+        success: false,
+        message: '拠点IDが数値ではありません',
+      });
+    }
+
+    const satelliteIdStr = String(numericSatelliteId);
+
+    const [rows] = await connection.execute(
+      `
       SELECT DISTINCT
         ua.id,
         ua.name,
@@ -3259,31 +3300,70 @@ const getSatelliteInstructorsForHomeSupport = async (req, res) => {
       FROM user_accounts ua
       LEFT JOIN user_accounts students ON ua.id = students.instructor_id 
         AND students.role = 1 
-        AND JSON_CONTAINS(students.satellite_ids, ?)
         AND students.status = 1
+        AND students.satellite_ids IS NOT NULL 
+        AND students.satellite_ids != 'null' 
+        AND students.satellite_ids != '[]'
+        AND (
+          CASE 
+            WHEN students.satellite_ids LIKE '[%]' THEN (
+              JSON_CONTAINS(students.satellite_ids, JSON_QUOTE(CAST(? AS CHAR))) OR 
+              JSON_CONTAINS(students.satellite_ids, CAST(? AS JSON)) OR
+              JSON_SEARCH(students.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
+            WHEN students.satellite_ids LIKE '%,%' THEN FIND_IN_SET(?, students.satellite_ids)
+            ELSE students.satellite_ids = ?
+          END
+        )
       WHERE ua.role = 4 
-        AND JSON_CONTAINS(ua.satellite_ids, ?)
         AND ua.status = 1
+        AND ua.satellite_ids IS NOT NULL 
+        AND ua.satellite_ids != 'null' 
+        AND ua.satellite_ids != '[]'
+        AND (
+          CASE 
+            WHEN ua.satellite_ids LIKE '[%]' THEN (
+              JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(? AS CHAR))) OR 
+              JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR
+              JSON_SEARCH(ua.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
+            WHEN ua.satellite_ids LIKE '%,%' THEN FIND_IN_SET(?, ua.satellite_ids)
+            ELSE ua.satellite_ids = ?
+          END
+        )
       GROUP BY ua.id, ua.name, ua.login_code
       ORDER BY ua.name
-    `, [JSON.stringify(parseInt(satelliteId)), JSON.stringify(parseInt(satelliteId))]);
-    
+    `,
+      [
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+        satelliteIdStr,
+      ],
+    );
+
     customLogger.info('Satellite instructors for home support retrieved successfully', {
-      satelliteId,
+      satelliteId: numericSatelliteId,
       count: rows.length,
-      userId: req.user?.user_id
+      userId: req.user?.user_id,
     });
 
     res.json({
       success: true,
-      data: rows
+      data: rows,
     });
   } catch (error) {
     customLogger.error('Error fetching satellite instructors for home support:', error);
     res.status(500).json({
       success: false,
       message: '拠点指導員の取得に失敗しました',
-      error: error.message
+      error: error.message,
     });
   } finally {
     connection.release();

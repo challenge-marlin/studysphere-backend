@@ -293,6 +293,11 @@ class TempPasswordController {
                     c.name as company_name,
                     instructor.name as instructor_name,
                     CASE WHEN ua.instructor_id = ? THEN 1 ELSE 0 END as is_my_assigned,
+                    CASE 
+                        WHEN ua.instructor_id = ? THEN 'my_user'
+                        WHEN ua.instructor_id IS NULL THEN 'no_instructor_no_temp'
+                        ELSE 'other_instructor'
+                    END as user_type,
                     GROUP_CONCAT(ut.tag_name) as tags
                 FROM user_accounts ua
                 ${satelliteJoin}
@@ -303,13 +308,13 @@ class TempPasswordController {
                 GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
             `;
 
-            const params = [user_id, ...queryParams];
+            const params = [user_id, user_id, ...queryParams];
 
             // 選択された指導員の利用者も含める場合のUNIONクエリを追加
             if (selectedInstructorIds.length > 0) {
                 const placeholders = selectedInstructorIds.map(() => '?').join(',');
                 query += `
-                    UNION
+                    UNION DISTINCT
                     SELECT 
                         ua.id,
                         ua.name,
@@ -320,6 +325,11 @@ class TempPasswordController {
                         c.name as company_name,
                         instructor.name as instructor_name,
                         CASE WHEN ua.instructor_id IN (${placeholders}) THEN 1 ELSE 0 END as is_my_assigned,
+                        CASE 
+                            WHEN ua.instructor_id IN (${placeholders}) THEN 'selected_instructor'
+                            WHEN ua.instructor_id IS NULL THEN 'no_instructor_no_temp'
+                            ELSE 'other_instructor'
+                        END as user_type,
                         GROUP_CONCAT(ut.tag_name) as tags
                     FROM user_accounts ua
                     ${satelliteJoin}
@@ -330,6 +340,7 @@ class TempPasswordController {
                     AND ua.instructor_id IN (${placeholders})
                     GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
                 `;
+                params.push(...selectedInstructorIds);
                 params.push(...selectedInstructorIds);
                 params.push(...selectedInstructorIds);
             }
