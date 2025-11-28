@@ -194,27 +194,59 @@ router.post('/', authenticateToken, async (req, res) => {
       charCodes: evaluation_method ? Array.from(evaluation_method).map(c => c.charCodeAt(0)) : null
     });
     
-    let normalizedMethod = '通所'; // デフォルト値
-    // 文字列の正規化（前後の空白を削除、全角・半角の統一）
-    const trimmedMethod = evaluation_method ? String(evaluation_method).trim() : '';
+    // ENUM値の定義（データベースと完全一致させる）
+    const VALID_ENUM_VALUES = ['通所', '訪問', 'その他'];
     
-    // ENUM値との比較（完全一致）
-    if (trimmedMethod === '通所' || trimmedMethod === '訪問' || trimmedMethod === 'その他') {
-      normalizedMethod = trimmedMethod;
-    } else {
-      customLogger.warn('週次評価記録作成 - 無効なevaluation_method値:', {
-        originalValue: evaluation_method,
-        trimmedValue: trimmedMethod,
-        type: typeof evaluation_method,
-        charCodes: Array.from(trimmedMethod).map(c => c.charCodeAt(0)),
-        defaultValue: '通所'
+    let normalizedMethod = '通所'; // デフォルト値
+    
+    if (evaluation_method) {
+      // 文字列に変換し、前後の空白を削除
+      const trimmedMethod = String(evaluation_method).trim();
+      
+      // 文字コードを正規化（UTF-8として扱う）
+      // ENUM値と完全一致するかチェック
+      const matchedValue = VALID_ENUM_VALUES.find(enumValue => {
+        // 文字列として完全一致を確認
+        return trimmedMethod === enumValue;
       });
-      normalizedMethod = '通所';
+      
+      if (matchedValue) {
+        normalizedMethod = matchedValue;
+      } else {
+        // 部分一致や類似文字をチェック（念のため）
+        const lowerTrimmed = trimmedMethod.toLowerCase();
+        if (lowerTrimmed.includes('通所') || trimmedMethod.includes('通所')) {
+          normalizedMethod = '通所';
+        } else if (lowerTrimmed.includes('訪問') || trimmedMethod.includes('訪問')) {
+          normalizedMethod = '訪問';
+        } else if (lowerTrimmed.includes('その他') || trimmedMethod.includes('その他')) {
+          normalizedMethod = 'その他';
+        } else {
+          customLogger.warn('週次評価記録作成 - 無効なevaluation_method値:', {
+            originalValue: evaluation_method,
+            trimmedValue: trimmedMethod,
+            type: typeof evaluation_method,
+            charCodes: Array.from(trimmedMethod).map(c => c.charCodeAt(0)),
+            defaultValue: '通所'
+          });
+          normalizedMethod = '通所';
+        }
+      }
+    }
+    
+    // 最終的な正規化値がENUM値と一致することを確認
+    if (!VALID_ENUM_VALUES.includes(normalizedMethod)) {
+      customLogger.error('週次評価記録作成 - 正規化後の値がENUM値と一致しません:', {
+        normalizedMethod,
+        validValues: VALID_ENUM_VALUES
+      });
+      normalizedMethod = '通所'; // 強制的にデフォルト値を使用
     }
     
     customLogger.info('週次評価記録作成 - normalizedMethod:', {
       normalizedValue: normalizedMethod,
-      charCodes: Array.from(normalizedMethod).map(c => c.charCodeAt(0))
+      charCodes: Array.from(normalizedMethod).map(c => c.charCodeAt(0)),
+      isValid: VALID_ENUM_VALUES.includes(normalizedMethod)
     });
     
     // 必須パラメータの検証
@@ -310,9 +342,10 @@ router.post('/', authenticateToken, async (req, res) => {
           instructorId,
           instructorSatelliteIds
         });
-        return res.status(403).json({
+        return res.status(400).json({
           success: false,
-          message: '利用者が指導員の所属拠点に所属していません'
+          message: '利用者が指導員の所属拠点に所属していません',
+          errorType: 'SATELLITE_ACCESS_DENIED'
         });
       }
     }
@@ -472,17 +505,53 @@ router.put('/:id', async (req, res) => {
     connection = await pool.getConnection();
     
     // evaluation_methodの値を検証して正規化（ENUM値に一致させる）
+    // ENUM値の定義（データベースと完全一致させる）
+    const VALID_ENUM_VALUES = ['通所', '訪問', 'その他'];
+    
     let normalizedMethod = '通所'; // デフォルト値
-    if (evaluation_method === '通所' || evaluation_method === '訪問' || evaluation_method === 'その他') {
-      normalizedMethod = evaluation_method;
-    } else {
-      customLogger.warn('週次評価記録更新 - 無効なevaluation_method値:', {
-        id,
-        originalValue: evaluation_method,
-        type: typeof evaluation_method,
-        defaultValue: '通所'
+    
+    if (evaluation_method) {
+      // 文字列に変換し、前後の空白を削除
+      const trimmedMethod = String(evaluation_method).trim();
+      
+      // ENUM値と完全一致するかチェック
+      const matchedValue = VALID_ENUM_VALUES.find(enumValue => {
+        return trimmedMethod === enumValue;
       });
-      normalizedMethod = '通所';
+      
+      if (matchedValue) {
+        normalizedMethod = matchedValue;
+      } else {
+        // 部分一致や類似文字をチェック（念のため）
+        const lowerTrimmed = trimmedMethod.toLowerCase();
+        if (lowerTrimmed.includes('通所') || trimmedMethod.includes('通所')) {
+          normalizedMethod = '通所';
+        } else if (lowerTrimmed.includes('訪問') || trimmedMethod.includes('訪問')) {
+          normalizedMethod = '訪問';
+        } else if (lowerTrimmed.includes('その他') || trimmedMethod.includes('その他')) {
+          normalizedMethod = 'その他';
+        } else {
+          customLogger.warn('週次評価記録更新 - 無効なevaluation_method値:', {
+            id,
+            originalValue: evaluation_method,
+            trimmedValue: trimmedMethod,
+            type: typeof evaluation_method,
+            charCodes: Array.from(trimmedMethod).map(c => c.charCodeAt(0)),
+            defaultValue: '通所'
+          });
+          normalizedMethod = '通所';
+        }
+      }
+    }
+    
+    // 最終的な正規化値がENUM値と一致することを確認
+    if (!VALID_ENUM_VALUES.includes(normalizedMethod)) {
+      customLogger.error('週次評価記録更新 - 正規化後の値がENUM値と一致しません:', {
+        id,
+        normalizedMethod,
+        validValues: VALID_ENUM_VALUES
+      });
+      normalizedMethod = '通所'; // 強制的にデフォルト値を使用
     }
     
     // prev_eval_dateの正規化（空文字列、null、undefinedの場合はnullに変換）
