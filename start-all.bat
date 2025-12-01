@@ -290,20 +290,10 @@ echo [OK] Database is ready.
 REM Check if admin account exists and update role to 10
 echo [INFO] Checking and updating admin account...
 if defined USE_COMPOSE_PLUGIN (
-    docker compose exec -T db mysql -u root -pshinomoto926! curriculum-portal -e "
-INSERT IGNORE INTO companies (id, name) VALUES (1, 'アドミニストレータ');
-INSERT IGNORE INTO user_accounts (id, name, role, status, login_code, company_id) VALUES (1, 'admin001', 10, 1, 'ADMN-0001-0001', 1);
-INSERT IGNORE INTO admin_credentials (user_id, username, password_hash) VALUES (1, 'admin001', '\$2a\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O');
-UPDATE user_accounts SET role = 10 WHERE name = 'admin001';
-" > "%DATE_LOG_DIR%\admin-setup.log" 2>&1
+    docker compose exec -T db mysql -u root -pshinomoto926! curriculum-portal -e "INSERT IGNORE INTO companies (id, name) VALUES (1, 'アドミニストレータ'); INSERT IGNORE INTO user_accounts (id, name, role, status, login_code, company_id) VALUES (1, 'admin001', 10, 1, 'ADMN-0001-0001', 1); INSERT IGNORE INTO admin_credentials (user_id, username, password_hash) VALUES (1, 'admin001', '\$2a\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O'); UPDATE user_accounts SET role = 10 WHERE name = 'admin001';" > "%DATE_LOG_DIR%\admin-setup.log" 2>&1
     set ADMIN_SETUP_RESULT=!errorlevel!
 ) else (
-    docker-compose exec -T db mysql -u root -pshinomoto926! curriculum-portal -e "
-INSERT IGNORE INTO companies (id, name) VALUES (1, 'アドミニストレータ');
-INSERT IGNORE INTO user_accounts (id, name, role, status, login_code, company_id) VALUES (1, 'admin001', 10, 1, 'ADMN-0001-0001', 1);
-INSERT IGNORE INTO admin_credentials (user_id, username, password_hash) VALUES (1, 'admin001', '\$2a\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O');
-UPDATE user_accounts SET role = 10 WHERE name = 'admin001';
-" > "%DATE_LOG_DIR%\admin-setup.log" 2>&1
+    docker-compose exec -T db mysql -u root -pshinomoto926! curriculum-portal -e "INSERT IGNORE INTO companies (id, name) VALUES (1, 'アドミニストレータ'); INSERT IGNORE INTO user_accounts (id, name, role, status, login_code, company_id) VALUES (1, 'admin001', 10, 1, 'ADMN-0001-0001', 1); INSERT IGNORE INTO admin_credentials (user_id, username, password_hash) VALUES (1, 'admin001', '\$2a\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBPj4J/HS.iK2O'); UPDATE user_accounts SET role = 10 WHERE name = 'admin001';" > "%DATE_LOG_DIR%\admin-setup.log" 2>&1
     set ADMIN_SETUP_RESULT=!errorlevel!
 )
 

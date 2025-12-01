@@ -65,6 +65,53 @@ const convertJSTDateTimeToUTC = (jstDateTimeString) => {
   }
 };
 
+/**
+ * 日付文字列をMySQLのDATE型形式（YYYY-MM-DD）に変換
+ * ISO形式（2025-11-28T00:00:00.000Z）やその他の形式からYYYY-MM-DD形式に変換
+ * @param {string|Date|null} dateValue - 日付文字列またはDateオブジェクト
+ * @returns {string|null} MySQLのDATE型形式（YYYY-MM-DD）またはnull
+ */
+const convertToMySQLDate = (dateValue) => {
+  if (!dateValue) {
+    return null;
+  }
+  
+  try {
+    let dateObj;
+    
+    if (dateValue instanceof Date) {
+      dateObj = dateValue;
+    } else if (typeof dateValue === 'string') {
+      // 既にYYYY-MM-DD形式の場合はそのまま返す
+      const ymdMatch = dateValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (ymdMatch) {
+        return dateValue.substring(0, 10); // YYYY-MM-DD部分のみを返す
+      }
+      
+      // ISO形式やその他の形式をDateオブジェクトに変換
+      dateObj = new Date(dateValue);
+    } else {
+      customLogger.warn('convertToMySQLDate - 無効な型:', { dateValue, type: typeof dateValue });
+      return null;
+    }
+    
+    if (isNaN(dateObj.getTime())) {
+      customLogger.warn('convertToMySQLDate - 無効な日付:', { dateValue });
+      return null;
+    }
+    
+    // YYYY-MM-DD形式に変換
+    const year = dateObj.getUTCFullYear();
+    const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getUTCDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
+  } catch (e) {
+    customLogger.warn('convertToMySQLDate - 変換エラー:', { dateValue, error: e.message });
+    return null;
+  }
+};
+
 const computeDefaultPeriodFromEvaluationDate = (evaluationDate) => {
   if (!evaluationDate) {
     return { start: null, end: null };
@@ -325,7 +372,8 @@ router.post('/', authenticateToken, async (req, res) => {
     evaluator_name,
     prev_evaluation_date,
     recipient_number,
-    user_name
+    user_name,
+    satellite_id
   } = req.body;
   
   let connection;
@@ -374,10 +422,27 @@ router.post('/', authenticateToken, async (req, res) => {
           let userSatelliteIds = [];
           if (targetUser.satellite_ids) {
             try {
-              const parsed = JSON.parse(targetUser.satellite_ids);
+              let parsed;
+              if (Array.isArray(targetUser.satellite_ids)) {
+                // 既に配列の場合はそのまま使用
+                parsed = targetUser.satellite_ids;
+              } else if (typeof targetUser.satellite_ids === 'string') {
+                // 文字列の場合はパース
+                parsed = JSON.parse(targetUser.satellite_ids);
+              } else {
+                // その他の場合は配列に変換
+                parsed = [targetUser.satellite_ids];
+              }
               userSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+              // 数値に変換
+              userSatelliteIds = userSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
             } catch (error) {
-              customLogger.warn('利用者の拠点IDパースエラー:', { user_id, error: error.message });
+              customLogger.warn('利用者の拠点IDパースエラー:', { 
+                user_id, 
+                error: error.message,
+                satellite_ids_type: typeof targetUser.satellite_ids,
+                satellite_ids_value: targetUser.satellite_ids
+              });
             }
           }
           
@@ -385,31 +450,116 @@ router.post('/', authenticateToken, async (req, res) => {
           let instructorSatelliteIds = [];
           if (instructor.satellite_ids) {
             try {
-              const parsed = JSON.parse(instructor.satellite_ids);
+              let parsed;
+              if (Array.isArray(instructor.satellite_ids)) {
+                // 既に配列の場合はそのまま使用
+                parsed = instructor.satellite_ids;
+              } else if (typeof instructor.satellite_ids === 'string') {
+                // 文字列の場合はパース
+                parsed = JSON.parse(instructor.satellite_ids);
+              } else {
+                // その他の場合は配列に変換
+                parsed = [instructor.satellite_ids];
+              }
               instructorSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+              // 数値に変換
+              instructorSatelliteIds = instructorSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
             } catch (error) {
-              customLogger.warn('指導員の拠点IDパースエラー:', { instructorId, error: error.message });
+              customLogger.warn('指導員の拠点IDパースエラー:', { 
+                instructorId, 
+                error: error.message,
+                satellite_ids_type: typeof instructor.satellite_ids,
+                satellite_ids_value: instructor.satellite_ids
+              });
             }
           }
           
-          // 共通の拠点があるか確認
-          const hasCommonSatellite = userSatelliteIds.some(userSatId => 
-            instructorSatelliteIds.some(instSatId => 
-              parseInt(userSatId) === parseInt(instSatId)
-            )
-          );
+          customLogger.info('月報保存 - 拠点ID解析結果:', {
+            user_id,
+            instructorId,
+            userSatelliteIds,
+            instructorSatelliteIds,
+            received_satellite_id: satellite_id,
+            targetUser_satellite_ids_raw: targetUser.satellite_ids,
+            instructor_satellite_ids_raw: instructor.satellite_ids
+          });
+          
+          // 現在選択中の拠点IDがある場合、それを優先して検証
+          let hasCommonSatellite = false;
+          if (satellite_id) {
+            const selectedSatelliteId = parseInt(satellite_id);
+            if (isNaN(selectedSatelliteId)) {
+              customLogger.warn('月報保存 - satellite_idが数値に変換できません:', { satellite_id });
+            } else {
+              // 選択中の拠点が利用者と指導員の両方に所属しているか確認
+              const userHasSelectedSatellite = userSatelliteIds.includes(selectedSatelliteId);
+              const instructorHasSelectedSatellite = instructorSatelliteIds.includes(selectedSatelliteId);
+            
+              customLogger.info('月報保存 - 選択中の拠点検証:', {
+                user_id,
+                instructorId,
+                selectedSatelliteId,
+                userHasSelectedSatellite,
+                instructorHasSelectedSatellite,
+                userSatelliteIds,
+                instructorSatelliteIds
+              });
+              
+              if (userHasSelectedSatellite && instructorHasSelectedSatellite) {
+                hasCommonSatellite = true;
+                customLogger.info('月報保存 - 選択中の拠点で検証成功:', {
+                  user_id,
+                  selectedSatelliteId,
+                  userSatelliteIds,
+                  instructorSatelliteIds
+                });
+              } else {
+                customLogger.warn('月報保存 - 選択中の拠点で検証失敗:', {
+                  user_id,
+                  selectedSatelliteId,
+                  userHasSelectedSatellite,
+                  instructorHasSelectedSatellite,
+                  userSatelliteIds,
+                  instructorSatelliteIds
+                });
+              }
+            }
+          }
+          
+          // 選択中の拠点で検証が失敗した場合、全拠点で共通の拠点があるか確認
+          if (!hasCommonSatellite) {
+            hasCommonSatellite = userSatelliteIds.some(userSatId => 
+              instructorSatelliteIds.includes(userSatId)
+            );
+            
+            customLogger.info('月報保存 - 全拠点検証結果:', {
+              user_id,
+              instructorId,
+              hasCommonSatellite,
+              userSatelliteIds,
+              instructorSatelliteIds
+            });
+          }
           
           if (!hasCommonSatellite) {
             customLogger.warn('月報保存 - 拠点不一致:', {
               user_id,
               userSatelliteIds,
               instructorId,
-              instructorSatelliteIds
+              instructorSatelliteIds,
+              selectedSatelliteId: satellite_id,
+              targetUser_satellite_ids_raw: targetUser.satellite_ids,
+              instructor_satellite_ids_raw: instructor.satellite_ids
             });
             return res.status(400).json({
               success: false,
               message: '利用者が指導員の所属拠点に所属していません',
-              errorType: 'SATELLITE_ACCESS_DENIED'
+              errorType: 'SATELLITE_ACCESS_DENIED',
+              debug: {
+                user_satellite_ids: userSatelliteIds,
+                instructor_satellite_ids: instructorSatelliteIds,
+                selected_satellite_id: satellite_id
+              }
             });
           }
         }
@@ -418,7 +568,16 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // evaluation_methodの値を検証して正規化（ENUM値に一致させる）
     // ENUM値の定義（データベースと完全一致させる）
+    // 文字化け対策: 文字コードを明示的に確認
     const VALID_ENUM_VALUES = ['通所', '訪問', 'その他'];
+    
+    // 有効なENUM値の文字コードをログ出力（デバッグ用）
+    const validEnumCharCodes = VALID_ENUM_VALUES.map(val => ({
+      value: val,
+      charCodes: Array.from(val).map(c => c.charCodeAt(0)),
+      bytes: Buffer.from(val, 'utf8').toString('hex')
+    }));
+    customLogger.info('月次評価記録作成 - 有効なENUM値の文字コード:', validEnumCharCodes);
     
     let normalizedMethod = '通所'; // デフォルト値
     
@@ -426,28 +585,52 @@ router.post('/', authenticateToken, async (req, res) => {
       // 文字列に変換し、前後の空白を削除
       const trimmedMethod = String(evaluation_method).trim();
       
-      // ENUM値と完全一致するかチェック
+      // 受信した値の文字コードをログ出力
+      const receivedCharCodes = Array.from(trimmedMethod).map(c => c.charCodeAt(0));
+      const receivedBytes = Buffer.from(trimmedMethod, 'utf8').toString('hex');
+      customLogger.info('月次評価記録作成 - 受信したevaluation_method:', {
+        originalValue: evaluation_method,
+        trimmedValue: trimmedMethod,
+        type: typeof evaluation_method,
+        charCodes: receivedCharCodes,
+        bytes: receivedBytes,
+        length: trimmedMethod.length
+      });
+      
+      // ENUM値と完全一致するかチェック（文字コードレベルで比較）
       const matchedValue = VALID_ENUM_VALUES.find(enumValue => {
-        return trimmedMethod === enumValue;
+        const isExactMatch = trimmedMethod === enumValue;
+        // 文字コードレベルでも確認
+        const enumCharCodes = Array.from(enumValue).map(c => c.charCodeAt(0));
+        const isCharCodeMatch = JSON.stringify(receivedCharCodes) === JSON.stringify(enumCharCodes);
+        return isExactMatch || isCharCodeMatch;
       });
       
       if (matchedValue) {
         normalizedMethod = matchedValue;
+        customLogger.info('月次評価記録作成 - ENUM値が一致しました:', {
+          matchedValue,
+          receivedValue: trimmedMethod
+        });
       } else {
         // 部分一致や類似文字をチェック（念のため）
         const lowerTrimmed = trimmedMethod.toLowerCase();
         if (lowerTrimmed.includes('通所') || trimmedMethod.includes('通所')) {
           normalizedMethod = '通所';
+          customLogger.warn('月次評価記録作成 - 部分一致で「通所」に設定:', { trimmedMethod });
         } else if (lowerTrimmed.includes('訪問') || trimmedMethod.includes('訪問')) {
           normalizedMethod = '訪問';
+          customLogger.warn('月次評価記録作成 - 部分一致で「訪問」に設定:', { trimmedMethod });
         } else if (lowerTrimmed.includes('その他') || trimmedMethod.includes('その他')) {
           normalizedMethod = 'その他';
+          customLogger.warn('月次評価記録作成 - 部分一致で「その他」に設定:', { trimmedMethod });
         } else {
           customLogger.warn('月次評価記録作成 - 無効なevaluation_method値:', {
             originalValue: evaluation_method,
             trimmedValue: trimmedMethod,
             type: typeof evaluation_method,
-            charCodes: Array.from(trimmedMethod).map(c => c.charCodeAt(0)),
+            charCodes: receivedCharCodes,
+            bytes: receivedBytes,
             defaultValue: '通所'
           });
           normalizedMethod = '通所';
@@ -459,14 +642,19 @@ router.post('/', authenticateToken, async (req, res) => {
     if (!VALID_ENUM_VALUES.includes(normalizedMethod)) {
       customLogger.error('月次評価記録作成 - 正規化後の値がENUM値と一致しません:', {
         normalizedMethod,
+        normalizedCharCodes: Array.from(normalizedMethod).map(c => c.charCodeAt(0)),
         validValues: VALID_ENUM_VALUES
       });
       normalizedMethod = '通所'; // 強制的にデフォルト値を使用
     }
     
-    customLogger.info('月次評価記録作成 - normalizedMethod:', {
+    // 最終的な正規化値の文字コードを確認
+    const finalCharCodes = Array.from(normalizedMethod).map(c => c.charCodeAt(0));
+    const finalBytes = Buffer.from(normalizedMethod, 'utf8').toString('hex');
+    customLogger.info('月次評価記録作成 - 最終的なnormalizedMethod:', {
       normalizedValue: normalizedMethod,
-      charCodes: Array.from(normalizedMethod).map(c => c.charCodeAt(0)),
+      charCodes: finalCharCodes,
+      bytes: finalBytes,
       isValid: VALID_ENUM_VALUES.includes(normalizedMethod)
     });
     
@@ -486,6 +674,9 @@ router.post('/', authenticateToken, async (req, res) => {
     // mark_startとmark_endを日本時間からUTCに変換
     const convertedMarkStart = mark_start ? convertJSTDateTimeToUTC(mark_start) : null;
     const convertedMarkEnd = mark_end ? convertJSTDateTimeToUTC(mark_end) : null;
+    
+    // prev_evaluation_dateをMySQLのDATE型形式（YYYY-MM-DD）に変換
+    const convertedPrevEvaluationDate = convertToMySQLDate(prev_evaluation_date);
 
     // デバッグログ：挿入される値を確認
     customLogger.info('月次評価記録作成 - 挿入データ:', {
@@ -498,7 +689,9 @@ router.post('/', authenticateToken, async (req, res) => {
       mark_end_original: mark_end,
       mark_end_converted: convertedMarkEnd,
       evaluation_method: normalizedMethod,
-      original_evaluation_method: evaluation_method
+      original_evaluation_method: evaluation_method,
+      prev_evaluation_date_original: prev_evaluation_date,
+      prev_evaluation_date_converted: convertedPrevEvaluationDate
     });
     
     const [result] = await connection.execute(`
@@ -511,7 +704,7 @@ router.post('/', authenticateToken, async (req, res) => {
     `, [
       user_id, date, normalizedPeriod.start, normalizedPeriod.end, convertedMarkStart, convertedMarkEnd, normalizedMethod, method_other,
       goal, effort, achievement, issues, improvement, health, others,
-      appropriateness, evaluator_name, prev_evaluation_date,
+      appropriateness, evaluator_name, convertedPrevEvaluationDate,
       recipient_number, user_name
     ]);
     
@@ -600,6 +793,9 @@ router.put('/:id', async (req, res) => {
     // mark_startとmark_endを日本時間からUTCに変換
     const convertedMarkStart = mark_start !== undefined ? (mark_start ? convertJSTDateTimeToUTC(mark_start) : null) : undefined;
     const convertedMarkEnd = mark_end !== undefined ? (mark_end ? convertJSTDateTimeToUTC(mark_end) : null) : undefined;
+    
+    // prev_evaluation_dateをMySQLのDATE型形式（YYYY-MM-DD）に変換
+    const convertedPrevEvaluationDate = prev_evaluation_date !== undefined ? convertToMySQLDate(prev_evaluation_date) : undefined;
 
     // evaluation_methodの値を検証して正規化（ENUM値に一致させる）
     const VALID_ENUM_VALUES = ['通所', '訪問', 'その他'];
@@ -612,28 +808,55 @@ router.put('/:id', async (req, res) => {
         // 文字列に変換し、前後の空白を削除
         const trimmedMethod = String(evaluation_method).trim();
         
-        // ENUM値と完全一致するかチェック
+        // 受信した値の文字コードをログ出力
+        const receivedCharCodes = Array.from(trimmedMethod).map(c => c.charCodeAt(0));
+        const receivedBytes = Buffer.from(trimmedMethod, 'utf8').toString('hex');
+        customLogger.info('月次評価記録更新 - 受信したevaluation_method:', {
+          id,
+          originalValue: evaluation_method,
+          trimmedValue: trimmedMethod,
+          type: typeof evaluation_method,
+          charCodes: receivedCharCodes,
+          bytes: receivedBytes,
+          length: trimmedMethod.length
+        });
+        
+        // ENUM値と完全一致するかチェック（文字コードレベルで比較）
         const matchedValue = VALID_ENUM_VALUES.find(enumValue => {
-          return trimmedMethod === enumValue;
+          const isExactMatch = trimmedMethod === enumValue;
+          // 文字コードレベルでも確認
+          const enumCharCodes = Array.from(enumValue).map(c => c.charCodeAt(0));
+          const isCharCodeMatch = JSON.stringify(receivedCharCodes) === JSON.stringify(enumCharCodes);
+          return isExactMatch || isCharCodeMatch;
         });
         
         if (matchedValue) {
           normalizedEvaluationMethod = matchedValue;
+          customLogger.info('月次評価記録更新 - ENUM値が一致しました:', {
+            id,
+            matchedValue,
+            receivedValue: trimmedMethod
+          });
         } else {
           // 部分一致や類似文字をチェック（念のため）
           const lowerTrimmed = trimmedMethod.toLowerCase();
           if (lowerTrimmed.includes('通所') || trimmedMethod.includes('通所')) {
             normalizedEvaluationMethod = '通所';
+            customLogger.warn('月次評価記録更新 - 部分一致で「通所」に設定:', { id, trimmedMethod });
           } else if (lowerTrimmed.includes('訪問') || trimmedMethod.includes('訪問')) {
             normalizedEvaluationMethod = '訪問';
+            customLogger.warn('月次評価記録更新 - 部分一致で「訪問」に設定:', { id, trimmedMethod });
           } else if (lowerTrimmed.includes('その他') || trimmedMethod.includes('その他')) {
             normalizedEvaluationMethod = 'その他';
+            customLogger.warn('月次評価記録更新 - 部分一致で「その他」に設定:', { id, trimmedMethod });
           } else {
             customLogger.warn('月次評価記録更新 - 無効なevaluation_method値:', {
               id,
               originalValue: evaluation_method,
               trimmedValue: trimmedMethod,
               type: typeof evaluation_method,
+              charCodes: receivedCharCodes,
+              bytes: receivedBytes,
               defaultValue: '通所'
             });
             normalizedEvaluationMethod = '通所';
@@ -643,12 +866,25 @@ router.put('/:id', async (req, res) => {
       
       // 最終的な正規化値がENUM値と一致することを確認
       if (!VALID_ENUM_VALUES.includes(normalizedEvaluationMethod)) {
+        const finalCharCodes = Array.from(normalizedEvaluationMethod).map(c => c.charCodeAt(0));
         customLogger.error('月次評価記録更新 - 正規化後の値がENUM値と一致しません:', {
           id,
           normalizedMethod: normalizedEvaluationMethod,
+          normalizedCharCodes: finalCharCodes,
           validValues: VALID_ENUM_VALUES
         });
         normalizedEvaluationMethod = '通所'; // 強制的にデフォルト値を使用
+      } else {
+        // 最終的な正規化値の文字コードを確認
+        const finalCharCodes = Array.from(normalizedEvaluationMethod).map(c => c.charCodeAt(0));
+        const finalBytes = Buffer.from(normalizedEvaluationMethod, 'utf8').toString('hex');
+        customLogger.info('月次評価記録更新 - 最終的なnormalizedMethod:', {
+          id,
+          normalizedValue: normalizedEvaluationMethod,
+          charCodes: finalCharCodes,
+          bytes: finalBytes,
+          isValid: VALID_ENUM_VALUES.includes(normalizedEvaluationMethod)
+        });
       }
     }
 
@@ -720,9 +956,9 @@ router.put('/:id', async (req, res) => {
       updateFields.push('evaluator_name = ?');
       updateValues.push(evaluator_name);
     }
-    if (prev_evaluation_date !== undefined) {
+    if (convertedPrevEvaluationDate !== undefined) {
       updateFields.push('prev_evaluation_date = ?');
-      updateValues.push(prev_evaluation_date);
+      updateValues.push(convertedPrevEvaluationDate);
     }
     if (recipient_number !== undefined) {
       updateFields.push('recipient_number = ?');

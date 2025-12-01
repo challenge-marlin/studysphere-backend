@@ -14,14 +14,29 @@ if (process.env.NODE_ENV !== 'production') {
   const path = require('path');
   require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 }
-const app = require('./app');
+console.log('[DEBUG] Loading app.js...');
+let app;
+try {
+  app = require('./app');
+  console.log('[DEBUG] app.js loaded successfully');
+} catch (error) {
+  console.error('[ERROR] Failed to load app.js:', error);
+  console.error('[ERROR] Stack:', error.stack);
+  process.exit(1);
+}
+console.log('[DEBUG] Loading database utils...');
 const { testConnection, endPool } = require('./utils/database');
+console.log('[DEBUG] Database utils loaded successfully');
+console.log('[DEBUG] Loading memory monitor...');
 const { memoryMonitor } = require('./utils/memoryMonitor');
+console.log('[DEBUG] Memory monitor loaded successfully');
 
 const port = process.env.PORT || 5050;
+console.log('[DEBUG] Port set to:', port);
 
 // データベース接続を確認してからサーバーを起動
 const startServer = async () => {
+  console.log('[DEBUG] startServer() called');
   try {
     // SKIP_DB_CHECK環境変数が設定されている場合はDBチェックをスキップ
     if (process.env.SKIP_DB_CHECK === 'true') {
@@ -182,4 +197,6 @@ const startServer = async () => {
   }
 };
 
-startServer(); 
+console.log('[DEBUG] About to call startServer()');
+startServer();
+console.log('[DEBUG] startServer() call completed (async)'); 

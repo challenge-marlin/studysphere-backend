@@ -393,7 +393,7 @@ class AnnouncementController {
     // 管理者用：アナウンス作成
     static async createAnnouncement(req, res) {
         try {
-            const { title, message, recipient_ids } = req.body;
+            const { title, message, recipient_ids, satellite_id } = req.body;
             const created_by = req.user.user_id;
 
             // バリデーション
@@ -411,10 +411,25 @@ class AnnouncementController {
                 });
             }
 
-            // 受信者の存在確認
+            // 送信者（指導員）の情報を取得
+            const [senderRows] = await pool.execute(
+                'SELECT id, name, role, satellite_ids FROM user_accounts WHERE id = ? AND status = 1',
+                [created_by]
+            );
+
+            if (senderRows.length === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: '送信者情報が見つかりません'
+                });
+            }
+
+            const sender = senderRows[0];
+
+            // 受信者の存在確認と拠点情報を取得
             const placeholders = recipient_ids.map(() => '?').join(',');
             const [recipients] = await pool.execute(
-                `SELECT id, name FROM user_accounts WHERE id IN (${placeholders}) AND status = 1`,
+                `SELECT id, name, satellite_ids FROM user_accounts WHERE id IN (${placeholders}) AND status = 1`,
                 recipient_ids
             );
 
@@ -423,6 +438,88 @@ class AnnouncementController {
                     success: false,
                     message: '無効な受信者が含まれています'
                 });
+            }
+
+            // システム管理者（ロール9以上）の場合はスキップ
+            if (sender.role < 9) {
+                // 送信者（指導員）の所属拠点を取得
+                let senderSatelliteIds = [];
+                if (sender.satellite_ids) {
+                    try {
+                        const parsed = JSON.parse(sender.satellite_ids);
+                        senderSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+                    } catch (error) {
+                        console.warn('送信者の拠点IDパースエラー:', { created_by, error: error.message });
+                    }
+                }
+
+                // 各受信者が送信者の所属拠点に所属しているか確認
+                for (const recipient of recipients) {
+                    // 受信者の所属拠点を取得
+                    let recipientSatelliteIds = [];
+                    if (recipient.satellite_ids) {
+                        try {
+                            const parsed = JSON.parse(recipient.satellite_ids);
+                            recipientSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+                        } catch (error) {
+                            console.warn('受信者の拠点IDパースエラー:', { recipient_id: recipient.id, error: error.message });
+                        }
+                    }
+
+                    // 現在選択中の拠点IDがある場合、それを優先して検証
+                    let hasCommonSatellite = false;
+                    if (satellite_id) {
+                        const selectedSatelliteId = parseInt(satellite_id);
+                        // 選択中の拠点が受信者と送信者の両方に所属しているか確認
+                        const recipientHasSelectedSatellite = recipientSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
+                        const senderHasSelectedSatellite = senderSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
+                        
+                        if (recipientHasSelectedSatellite && senderHasSelectedSatellite) {
+                            hasCommonSatellite = true;
+                            console.log('アナウンス送信 - 選択中の拠点で検証成功:', {
+                                recipient_id: recipient.id,
+                                sender_id: created_by,
+                                selectedSatelliteId,
+                                recipientSatelliteIds,
+                                senderSatelliteIds
+                            });
+                        } else {
+                            console.warn('アナウンス送信 - 選択中の拠点で検証失敗:', {
+                                recipient_id: recipient.id,
+                                sender_id: created_by,
+                                selectedSatelliteId,
+                                recipientHasSelectedSatellite,
+                                senderHasSelectedSatellite,
+                                recipientSatelliteIds,
+                                senderSatelliteIds
+                            });
+                        }
+                    }
+
+                    // 選択中の拠点で検証が失敗した場合、全拠点で共通の拠点があるか確認
+                    if (!hasCommonSatellite) {
+                        hasCommonSatellite = recipientSatelliteIds.some(recSatId => 
+                            senderSatelliteIds.some(sendSatId => 
+                                parseInt(recSatId) === parseInt(sendSatId)
+                            )
+                        );
+                    }
+
+                    if (!hasCommonSatellite) {
+                        console.warn('アナウンス送信 - 拠点不一致:', {
+                            recipient_id: recipient.id,
+                            recipientSatelliteIds,
+                            sender_id: created_by,
+                            senderSatelliteIds,
+                            selectedSatelliteId: satellite_id
+                        });
+                        return res.status(400).json({
+                            success: false,
+                            message: `利用者「${recipient.name}」が指導員の所属拠点に所属していません`,
+                            errorType: 'SATELLITE_ACCESS_DENIED'
+                        });
+                    }
+                }
             }
 
             // トランザクション処理用の接続を取得
@@ -528,7 +625,35 @@ class AnnouncementController {
             if (currentUserRows.length > 0) {
                 const currentUser = currentUserRows[0];
                 currentCompanyId = currentUser.company_id;
-                currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+                
+                // 指導員の所属拠点を取得（改善されたパース処理）
+                if (currentUser.satellite_ids) {
+                    try {
+                        let parsed;
+                        if (Array.isArray(currentUser.satellite_ids)) {
+                            // 既に配列の場合はそのまま使用
+                            parsed = currentUser.satellite_ids;
+                        } else if (typeof currentUser.satellite_ids === 'string') {
+                            // 文字列の場合はパース
+                            parsed = JSON.parse(currentUser.satellite_ids);
+                        } else {
+                            // その他の場合は配列に変換
+                            parsed = [currentUser.satellite_ids];
+                        }
+                        currentSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+                        // 数値に変換
+                        currentSatelliteIds = currentSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+                    } catch (error) {
+                        console.error('指導員の拠点IDパースエラー:', { 
+                            user_id: current_user.user_id, 
+                            error: error.message,
+                            satellite_ids_type: typeof currentUser.satellite_ids,
+                            satellite_ids_value: currentUser.satellite_ids
+                        });
+                        currentSatelliteIds = [];
+                    }
+                }
+                
                 console.log('Current user company/satellite info:', { currentCompanyId, currentSatelliteIds });
             } else {
                 console.log('No current user found for user_id:', current_user.user_id);

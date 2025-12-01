@@ -1,6 +1,10 @@
+console.log('[DEBUG app.js] Starting app.js load...');
 const express = require('express');
+console.log('[DEBUG app.js] express loaded');
 const cors = require('cors');
+console.log('[DEBUG app.js] cors loaded');
 const helmet = require('helmet');
+console.log('[DEBUG app.js] helmet loaded');
 
 /**
  * 任意機能のルートを安全に読み込むヘルパー
@@ -10,6 +14,7 @@ const helmet = require('helmet');
  * @returns {express.Router}
  */
 const loadOptionalRoute = (routePath, featureName = 'この機能') => {
+  console.log(`[DEBUG app.js] loadOptionalRoute called: ${routePath}`);
   try {
     return require(routePath);
   } catch (error) {
@@ -32,7 +37,10 @@ const loadOptionalRoute = (routePath, featureName = 'この機能') => {
 };
 
 // ログシステムのインポート
+console.log('[DEBUG app.js] Loading logger...');
 const { customLogger } = require('./utils/logger');
+console.log('[DEBUG app.js] Logger loaded');
+console.log('[DEBUG app.js] Loading requestLogger middleware...');
 const { 
   requestLogger, 
   detailedLogger, 
@@ -40,8 +48,10 @@ const {
   authLogger, 
   dbLogger 
 } = require('./middleware/requestLogger');
+console.log('[DEBUG app.js] requestLogger middleware loaded');
 
 // ミドルウェアのインポート
+console.log('[DEBUG app.js] Loading validation middleware...');
 const { 
   loginValidation, 
   satelliteValidation, 
@@ -52,6 +62,7 @@ const {
   officeTypeUpdateValidation,
   handleValidationErrors 
 } = require('./middleware/validation');
+console.log('[DEBUG app.js] Validation middleware loaded');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { authenticateToken, requireAdmin } = require('./middleware/auth');
 
@@ -218,7 +229,9 @@ try {
   aiRoutes = null;
 }
 
+console.log('[DEBUG app.js] Creating express app...');
 const app = express();
+console.log('[DEBUG app.js] Express app created');
 
 // セキュリティミドルウェア
 app.use(helmet({
@@ -603,4 +616,5 @@ setTimeout(() => {
   }
 }, 1000);
 
+console.log('[DEBUG app.js] app.js load complete');
 module.exports = app; 
