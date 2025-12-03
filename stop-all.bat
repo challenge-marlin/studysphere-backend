@@ -59,6 +59,42 @@ if errorlevel 1 (
 )
 
 echo.
-echo [INFO] StudySphere Environment stopped.
+REM Clean up Docker resources (excluding volumes to preserve database data)
+echo [INFO] Cleaning up Docker resources...
+echo [INFO] Removing stopped containers...
+docker container prune -f >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Failed to clean up stopped containers.
+) else (
+    echo [OK] Stopped containers removed.
+)
+
+echo [INFO] Removing unused images...
+docker image prune -f >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Failed to clean up unused images.
+) else (
+    echo [OK] Unused images removed.
+)
+
+echo [INFO] Removing unused networks...
+docker network prune -f >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Failed to clean up unused networks.
+) else (
+    echo [OK] Unused networks removed.
+)
+
+echo [INFO] Removing build cache...
+docker builder prune -f >nul 2>&1
+if errorlevel 1 (
+    echo [WARNING] Failed to clean up build cache.
+) else (
+    echo [OK] Build cache removed.
+)
+
+echo.
+echo [INFO] StudySphere Environment stopped and cleaned up.
+echo [INFO] Note: Database volumes are preserved to keep your data.
 echo [INFO] You can restart with: start-all.bat
 pause

@@ -260,7 +260,7 @@ async function getCurrentSectionText(lessonId) {
 // AIアシスタントAPI - GPT-4oモデルを使用
 router.post('/assist', authenticateToken, async (req, res) => {
   try {
-    const { question, context, lessonTitle, model = 'gpt-4o', maxTokens = 1000, temperature = 0.3, systemPrompt, userId, lessonId } = req.body;
+    const { question, context, lessonTitle, model = 'gpt-4o', maxTokens = 2000, temperature = 0.3, systemPrompt, userId, lessonId, conversationHistory = [] } = req.body;
 
     // 入力値の検証（questionは必須）
     if (!question) {
@@ -310,12 +310,46 @@ router.post('/assist', authenticateToken, async (req, res) => {
     // システムプロンプトの設定
     const defaultSystemPrompt = `あなたは学習支援AIアシスタントです。以下の指示に厳密に従ってください：
 
-1. **回答の範囲**: 提供されたテキスト内容をベースに回答してください
-2. **推論の活用**: テキストに明記されていない内容についても、関連する知識を活用して推論し、有益な回答を提供してください
-3. **情報の補完**: テキストの内容に基づき、足りない情報はAIの知識を活用して補完してください
-4. **明確性**: 分かりやすく、構造化された回答を心がけてください
-5. **引用**: 可能であれば、テキストの該当部分を引用して回答してください
-6. **情報源の明示**: テキスト以外の知識を使用した場合は、その旨を明記してください
+1. **中学生レベルの語彙で説明**: 
+   - 専門用語は必ず中学生でも理解できる言葉に言い換えて説明してください
+   - 難しい概念は、身近な例え話や具体例を使って説明してください
+   - 「つまり」「例えば」「たとえば」などの接続詞を使って、段階的に理解できるようにしてください
+
+2. **例を交えた説明（簡潔に）**: 
+   - 参考テキストの内容をそのまま抜粋するのではなく、必ず具体例や身近な例を交えて説明してください
+   - 抽象的な説明の後には、必ず「例えば」で始まる具体例を1つだけ含めてください（複数の例は不要）
+   - 例は、中学生が日常的に経験するような身近なものを使ってください
+   - 例は簡潔に、1〜2文程度に留めてください
+
+3. **かみ砕いた説明**: 
+   - 参考テキストの内容をそのまま引用するのではなく、自分の言葉で分かりやすくかみ砕いて説明してください
+   - 複雑な内容は、小さなステップに分けて順番に説明してください
+   - 「これは、簡単に言うと...」のような表現を使って、要点を明確にしてください
+
+4. **抜粋の要約**: 
+   - 参考テキストから抜粋が必要な場合は、必ず要約してから使用してください
+   - 長い文章は短くまとめ、要点だけを抽出してください
+   - 抜粋は最小限に留め、自分の言葉での説明を優先してください
+
+5. **回答の範囲**: 提供されたテキスト内容をベースに回答してください
+6. **推論の活用**: テキストに明記されていない内容についても、関連する知識を活用して推論し、有益な回答を提供してください
+7. **情報の補完**: テキストの内容に基づき、足りない情報はAIの知識を活用して補完してください
+8. **簡潔さ**: 回答は端的に、要点を簡潔に伝えてください。冗長な表現や繰り返しは避けてください
+9. **明確性**: 分かりやすく、構造化された回答を心がけてください
+10. **引用**: 可能であれば、テキストの該当部分を引用して回答してください（引用する場合は必ず要約してください）
+11. **情報源の明示**: テキスト以外の知識を使用した場合は、その旨を明記してください
+12. **対話形式での対応**: 
+   - 過去の会話履歴を考慮して、文脈に応じた柔軟な回答をしてください
+   - ユーザーが前の回答について追加質問をしている場合は、前の回答を参照して説明してください
+   - 「先ほどの説明について...」のような質問には、前の会話内容を踏まえて回答してください
+   - 会話の流れを理解し、自然な対話を心がけてください
+
+**重要な注意事項**:
+- 参考テキストの抜粋のみを返すのではなく、必ず中学生レベルの語彙でかみ砕き、具体例を交えて説明してください
+- 抜粋が必要な場合は、必ず要約してから使用してください（長い文章は短くまとめ、要点だけを抽出）
+- 専門用語を使う場合は、必ずその後に「これは、簡単に言うと...」のような説明を追加してください（ただし簡潔に）
+- 各説明には、必ず1つの具体例を含めてください（複数の例は不要）
+- **回答は簡潔に、要点を端的に伝えてください。長い説明や繰り返しは避けてください**
 
 テキストに含まれていない質問についても、関連する知識を活用して可能な限り回答してください。完全に回答できない場合は、「この内容についてはDiscordサーバーにてご相談ください。」と回答してください。`;
 
@@ -329,29 +363,59 @@ ${processedContext}
 
 質問: ${question}
 
-上記のテキスト内容をベースに、質問に回答してください。テキストに含まれていない内容についても、関連する知識を活用して可能な限り回答してください。完全に回答できない場合のみ、「この内容についてはDiscordサーバーにてご相談ください。」と回答してください。`;
+上記のテキスト内容をベースに、質問に回答してください。
+
+**重要な指示**:
+- 参考テキストの内容をそのまま抜粋するのではなく、中学生レベルの語彙でかみ砕いて説明してください
+- 抜粋が必要な場合は、必ず要約してから使用してください（長い文章は短くまとめ、要点だけを抽出）
+- 必ず具体例や身近な例を交えて説明してください（「例えば」で始まる例を1つだけ含めてください、1〜2文程度に留める）
+- 専門用語を使う場合は、必ずその後に「これは、簡単に言うと...」のような説明を追加してください
+- 複雑な内容は、小さなステップに分けて順番に説明してください
+- 過去の会話履歴がある場合は、その文脈を考慮して回答してください
+
+テキストに含まれていない内容についても、関連する知識を活用して可能な限り回答してください。完全に回答できない場合のみ、「この内容についてはDiscordサーバーにてご相談ください。」と回答してください。`;
+
+    // メッセージ配列を構築（会話履歴 + 現在の質問）
+    const messages = [
+      {
+        role: 'system',
+        content: finalSystemPrompt
+      }
+    ];
+
+    // 会話履歴を追加（形式: [{role: 'user'|'assistant', content: string}]
+    if (conversationHistory && Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+      // 会話履歴を追加
+      conversationHistory.forEach(msg => {
+        if (msg.role && msg.content && (msg.role === 'user' || msg.role === 'assistant')) {
+          messages.push({
+            role: msg.role,
+            content: msg.content
+          });
+        }
+      });
+    }
+
+    // 現在の質問を追加
+    messages.push({
+      role: 'user',
+      content: userPrompt
+    });
 
     console.log('AIアシスタント呼び出し:', {
       model,
       maxTokens,
       temperature,
       questionLength: question.length,
-      contextLength: context.length
+      contextLength: processedContext.length,
+      conversationHistoryLength: conversationHistory.length,
+      totalMessages: messages.length
     });
 
     // OpenAI APIを呼び出し
     const completion = await openai.chat.completions.create({
       model: model,
-      messages: [
-        {
-          role: 'system',
-          content: finalSystemPrompt
-        },
-        {
-          role: 'user',
-          content: userPrompt
-        }
-      ],
+      messages: messages,
       max_tokens: maxTokens,
       temperature: temperature,
       top_p: 1,
@@ -369,9 +433,74 @@ ${processedContext}
       totalTokens: usage?.total_tokens
     });
 
+    // 回答の要約を生成（会話履歴用、フロントエンドには表示しない）
+    let summary = '';
+    try {
+      // 回答が短い場合は要約をスキップ（100文字以下）
+      if (answer.length <= 100) {
+        summary = answer.replace(/[#*\[\]()_`]/g, '').trim();
+      } else {
+        const summaryPrompt = `以下のAIアシスタントの回答を、会話履歴として使用するための簡潔な要約に変換してください。
+
+【回答】
+${answer}
+
+【指示】
+- 要点だけを抽出して、100文字以内の簡潔な要約にしてください
+- 会話の文脈を理解するために必要な情報だけを残してください
+- マークダウン形式（**太字**、#見出し、リスト記号など）は削除して、平文で記述してください
+- 「要約:」などの接頭辞や説明文は不要です
+- 回答の核心となる情報だけを残してください
+
+要約のみを出力してください。`;
+
+        const summaryCompletion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini', // 要約には軽量モデルを使用
+          messages: [
+            {
+              role: 'system',
+              content: 'あなたは回答を簡潔に要約する専門家です。要点だけを抽出して100文字以内の要約を生成してください。'
+            },
+            {
+              role: 'user',
+              content: summaryPrompt
+            }
+          ],
+          max_tokens: 100,
+          temperature: 0.2 // 要約は低温度で一貫性を保つ
+        });
+
+        summary = summaryCompletion.choices[0]?.message?.content?.trim() || '';
+        
+        // マークダウン記号を削除
+        summary = summary.replace(/[#*\[\]()_`-]/g, '').trim();
+        
+        // 要約が長すぎる場合は手動で切り詰め
+        if (summary.length > 120) {
+          summary = summary.substring(0, 117).trim() + '...';
+        }
+      }
+      
+      // 要約が空の場合はフォールバック
+      if (!summary || summary.length === 0) {
+        summary = answer.replace(/[#*\[\]()_`-]/g, '').substring(0, 100).trim();
+        if (answer.length > 100) {
+          summary += '...';
+        }
+      }
+    } catch (summaryError) {
+      console.error('要約生成エラー:', summaryError);
+      // 要約生成に失敗した場合は、回答からマークダウンを除去して最初の100文字を要約として使用
+      summary = answer.replace(/[#*\[\]()_`-]/g, '').substring(0, 100).trim();
+      if (answer.length > 100) {
+        summary += '...';
+      }
+    }
+
     res.json({
       success: true,
       answer,
+      summary, // 会話履歴用の要約
       usage: {
         promptTokens: usage?.prompt_tokens,
         completionTokens: usage?.completion_tokens,
