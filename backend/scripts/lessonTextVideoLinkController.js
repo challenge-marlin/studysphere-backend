@@ -3,6 +3,7 @@ const { pool } = require('../utils/database');
 
 // テキストと動画の紐づけ一覧取得
 // レッスンIDに一致するすべての紐づけを取得
+// 動画のないセクション（lesson_text_filesに存在するがlesson_text_video_linksに紐づけられていないテキストファイル）も含める
 const getTextVideoLinks = async (req, res) => {
   const { lessonId } = req.params;
   const connection = await pool.getConnection();
@@ -22,7 +23,6 @@ const getTextVideoLinks = async (req, res) => {
     }
     
     // レッスンIDに一致するすべての紐づけを取得
-    // text_file_keyの条件を削除し、lesson_idのみでフィルタリング
     const query = `
       SELECT 
         ltv.id,
@@ -45,15 +45,278 @@ const getTextVideoLinks = async (req, res) => {
     
     const [links] = await connection.execute(query, [lessonId]);
     
+    // lesson_text_filesから完全パスとfile_typeを取得してマージ
+    const processedLinks = await Promise.all(links.map(async (link) => {
+      // lesson_text_filesから該当するファイルを検索（ファイル名で比較）
+      const extractFileName = (key) => {
+        if (!key) return '';
+        const parts = key.split('/');
+        return parts[parts.length - 1].trim().toLowerCase();
+      };
+      
+      const linkFileName = extractFileName(link.text_file_key);
+      
+      // lesson_text_filesから該当するファイルを検索
+      const [matchingFiles] = await connection.execute(`
+        SELECT s3_key, file_type
+        FROM lesson_text_files
+        WHERE lesson_id = ? 
+          AND status = 'active'
+          AND (
+            LOWER(SUBSTRING_INDEX(s3_key, '/', -1)) = ?
+            OR LOWER(file_name) = ?
+          )
+        LIMIT 1
+      `, [lessonId, linkFileName, linkFileName]);
+      
+      let finalTextFileKey = link.text_file_key;
+      let finalFileType = null;
+      
+      if (matchingFiles.length > 0) {
+        // lesson_text_filesから完全パスとfile_typeを取得
+        finalTextFileKey = matchingFiles[0].s3_key;
+        finalFileType = matchingFiles[0].file_type;
+        
+        // file_typeがnullまたは短い形式の場合は正規化
+        if (!finalFileType || finalFileType.toLowerCase() === 'md') {
+          const lowerKey = finalTextFileKey.toLowerCase();
+          if (lowerKey.endsWith('.md')) {
+            finalFileType = 'text/markdown';
+          } else if (lowerKey.endsWith('.txt')) {
+            finalFileType = 'text/plain';
+          } else if (lowerKey.endsWith('.pdf')) {
+            finalFileType = 'application/pdf';
+          } else if (lowerKey.endsWith('.rtf')) {
+            finalFileType = 'application/rtf';
+          } else {
+            finalFileType = finalFileType || 'text/plain';
+          }
+        }
+        
+        customLogger.info('Found matching lesson_text_file for link', {
+          lessonId: lessonId,
+          linkTextFileKey: link.text_file_key,
+          matchedS3Key: finalTextFileKey,
+          originalFileType: matchingFiles[0].file_type,
+          finalFileType: finalFileType
+        });
+      } else {
+        // file_typeを拡張子から判定
+        const lowerKey = link.text_file_key.toLowerCase();
+        if (lowerKey.endsWith('.md')) {
+          finalFileType = 'text/markdown';
+        } else if (lowerKey.endsWith('.txt')) {
+          finalFileType = 'text/plain';
+        } else if (lowerKey.endsWith('.pdf')) {
+          finalFileType = 'application/pdf';
+        } else if (lowerKey.endsWith('.rtf')) {
+          finalFileType = 'application/rtf';
+        } else {
+          finalFileType = 'text/plain';
+        }
+      }
+      
+      return {
+        ...link,
+        text_file_key: finalTextFileKey, // 完全パスを使用
+        file_type: finalFileType
+      };
+    }));
+    
+    // lesson_text_video_linksに存在するtext_file_keyのセットを作成（重複チェック用）
+    // ファイル名のみを抽出して比較（text_file_keyはファイル名のみ、s3_keyは完全パスの可能性がある）
+    // 大文字小文字を区別せず、前後の空白を削除して比較
+    const extractFileName = (key) => {
+      if (!key) return '';
+      // スラッシュで分割して最後の部分（ファイル名）を取得
+      const parts = key.split('/');
+      return parts[parts.length - 1].trim().toLowerCase();
+    };
+    
+    const linkedTextFileKeys = new Set(
+      links
+        .map(link => link.text_file_key)
+        .filter(key => key != null && key !== '')
+        .map(key => extractFileName(key)) // ファイル名のみを抽出
+    );
+    
+    customLogger.info('Linked text file keys for duplicate check', {
+      lessonId: lessonId,
+      linkedKeys: Array.from(linkedTextFileKeys),
+      linkedCount: linkedTextFileKeys.size,
+      originalLinks: links.map(l => ({ text_file_key: l.text_file_key, extracted: extractFileName(l.text_file_key) }))
+    });
+    
+    // 動画のないセクションを取得（lesson_text_filesに存在するがlesson_text_video_linksに紐づけられていないテキストファイル）
+    let textFilesWithoutVideo = [];
+    try {
+      // lesson_text_filesテーブルからすべてのテキストファイルを取得
+      const [textFiles] = await connection.execute(`
+        SELECT 
+          ltf.id,
+          ltf.lesson_id,
+          ltf.file_name,
+          ltf.s3_key as text_file_key,
+          ltf.file_type,
+          ltf.order_index as link_order,
+          ltf.created_at,
+          ltf.updated_at
+        FROM lesson_text_files ltf
+        WHERE ltf.lesson_id = ? 
+          AND ltf.status = 'active'
+        ORDER BY ltf.order_index ASC, ltf.created_at ASC
+      `, [lessonId]);
+      
+      customLogger.info('Text files from lesson_text_files', {
+        lessonId: lessonId,
+        textFilesCount: textFiles.length,
+        textFileKeys: textFiles.map(f => f.text_file_key)
+      });
+      
+      // lesson_text_video_linksに紐づけられていないテキストファイルのみをフィルタリング
+      // ファイル名のみを抽出して比較（s3_keyは完全パス、text_file_keyはファイル名のみの可能性がある）
+      // 大文字小文字を区別せず、前後の空白を削除して比較
+      const unlinkedTextFiles = textFiles.filter(file => {
+        if (!file.text_file_key) {
+          customLogger.warn('Text file without text_file_key found', {
+            fileId: file.id,
+            fileName: file.file_name
+          });
+          return false;
+        }
+        // s3_keyからファイル名を抽出
+        const fileName = extractFileName(file.text_file_key);
+        const isLinked = linkedTextFileKeys.has(fileName);
+        
+        if (isLinked) {
+          customLogger.info('Text file already linked, excluding from textFilesWithoutVideo', {
+            fileId: file.id,
+            fileName: file.file_name,
+            s3_key: file.text_file_key,
+            extractedFileName: fileName,
+            matchedLinkedKey: Array.from(linkedTextFileKeys).find(k => k === fileName)
+          });
+        }
+        
+        return fileName !== '' && !isLinked;
+      });
+      
+      customLogger.info('Unlinked text files after filtering', {
+        lessonId: lessonId,
+        unlinkedCount: unlinkedTextFiles.length,
+        unlinkedKeys: unlinkedTextFiles.map(f => f.text_file_key)
+      });
+      
+      // 動画のないセクションをフォーマット
+      textFilesWithoutVideo = unlinkedTextFiles.map(file => {
+        // file_typeを正しく設定（拡張子から判定するフォールバックも含む）
+        let fileType = file.file_type;
+        const originalFileType = fileType;
+        
+        if (!fileType && file.text_file_key) {
+          const lowerKey = file.text_file_key.toLowerCase();
+          if (lowerKey.endsWith('.md')) {
+            fileType = 'text/markdown';
+          } else if (lowerKey.endsWith('.txt')) {
+            fileType = 'text/plain';
+          } else if (lowerKey.endsWith('.pdf')) {
+            fileType = 'application/pdf';
+          } else if (lowerKey.endsWith('.rtf')) {
+            fileType = 'application/rtf';
+          } else {
+            fileType = 'text/plain'; // デフォルト
+          }
+        }
+        
+        // file_typeが'text/markdown'以外の値（例: 'md'）の場合は正規化
+        if (fileType && fileType.toLowerCase() === 'md') {
+          fileType = 'text/markdown';
+        }
+        
+        customLogger.info('Text file without video - file_type設定', {
+          lessonId: file.lesson_id,
+          fileName: file.file_name,
+          s3Key: file.text_file_key,
+          originalFileType: originalFileType,
+          finalFileType: fileType
+        });
+        
+        return {
+          id: null, // lesson_text_video_linksに存在しないためIDはnull
+          lesson_id: file.lesson_id,
+          text_file_key: file.text_file_key, // 完全パス（s3_key）
+          file_type: fileType, // file_typeを追加
+          video_id: null,
+          link_order: file.link_order,
+          created_at: file.created_at,
+          updated_at: file.updated_at,
+          video_title: null,
+          youtube_url: null,
+          video_description: null,
+          video_duration: null,
+          thumbnail_url: null,
+          section_title: file.file_name // ファイル名をセクションタイトルとして使用
+        };
+      });
+    } catch (textFilesError) {
+      // lesson_text_filesテーブルが存在しない場合やエラーが発生した場合は無視
+      customLogger.warn('Failed to retrieve text files without video (table may not exist)', {
+        error: textFilesError.message,
+        lessonId: lessonId
+      });
+    }
+    
+    // すべてのセクションを結合（単独登録を先、複数登録を後）
+    // 単独登録（lesson_text_video_links）にソース情報を追加
+    const linkedSections = processedLinks.map(link => ({
+      ...link,
+      source: 'lesson_text_video_links' // 単独登録
+    }));
+    
+    // 複数登録（lesson_text_files）にソース情報を追加
+    const textFileSections = textFilesWithoutVideo.map(file => ({
+      ...file,
+      source: 'lesson_text_files' // 複数登録
+    }));
+    
+    const allSections = [...linkedSections, ...textFileSections];
+    
+    // ソート: まずソース（単独登録を先）、次にlink_order、最後にcreated_at
+    allSections.sort((a, b) => {
+      // 1. ソースでソート（lesson_text_video_linksを先、lesson_text_filesを後）
+      const sourceOrder = { 'lesson_text_video_links': 0, 'lesson_text_files': 1 };
+      const sourceA = sourceOrder[a.source] ?? 1;
+      const sourceB = sourceOrder[b.source] ?? 1;
+      
+      if (sourceA !== sourceB) {
+        return sourceA - sourceB;
+      }
+      
+      // 2. link_orderでソート（link_orderがNULLの場合は最後に配置）
+      const orderA = a.link_order != null ? Number(a.link_order) : 999999;
+      const orderB = b.link_order != null ? Number(b.link_order) : 999999;
+      
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      
+      // 3. link_orderが同じ場合はcreated_atでソート
+      const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
+      const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
+      return dateA - dateB;
+    });
+    
     customLogger.info('Text video links retrieved successfully', {
       lessonId: lessonId,
-      count: links.length,
+      count: allSections.length,
+      withVideo: links.length,
+      withoutVideo: textFilesWithoutVideo.length,
       userId: req.user?.user_id || null
     });
     
     res.json({
       success: true,
-      data: links
+      data: allSections
     });
   } catch (error) {
     customLogger.error('Failed to retrieve text video links', {

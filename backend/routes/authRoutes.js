@@ -166,38 +166,72 @@ router.post('/reauthenticate-satellite', authenticateToken, async (req, res) => 
 // 設定用認証エンドポイント（ロール4以上）
 router.post('/config', loginValidation, handleValidationErrors, async (req, res) => {
   console.log('=== Config Auth Route Debug ===');
+  console.log('Request received at:', new Date().toISOString());
   console.log('Request body:', req.body);
+  console.log('Request headers:', req.headers);
   
   const { username, password } = req.body;
+  
+  if (!username || !password) {
+    console.log('Config auth: ユーザー名またはパスワードが未入力');
+    return res.status(400).json({
+      success: false,
+      message: 'ユーザー名とパスワードを入力してください'
+    });
+  }
+  
+  console.log('Config auth: 認証開始 - username:', username);
   
   try {
     const result = await adminLogin(username, password);
     console.log('Config auth result:', result);
     
-    if (result.success && result.data && result.data.role >= 4) {
+    console.log('Config auth result details:', {
+      success: result.success,
+      hasData: !!result.data,
+      role: result.data?.role,
+      roleType: typeof result.data?.role,
+      user_id: result.data?.user_id,
+      user_name: result.data?.user_name
+    });
+    
+    // ロールを数値型に変換して比較（データベースから文字列型で取得される可能性があるため）
+    const userRole = result.data?.role ? parseInt(result.data.role, 10) : 0;
+    console.log('Config auth: 変換後のロール:', userRole, 'type:', typeof userRole);
+    
+    if (result.success && result.data && userRole >= 4) {
+      console.log('Config auth: 認証成功、ロール:', userRole);
       res.status(200).json({
         success: true,
         message: '認証に成功しました',
-        role: result.data.role,
+        role: userRole,
         data: {
-          userId: result.data.userId,
-          userName: result.data.userName,
-          role: result.data.role
+          userId: result.data.user_id,
+          userName: result.data.user_name,
+          role: userRole
         }
       });
     } else {
+      console.log('Config auth: 認証失敗', {
+        success: result.success,
+        hasData: !!result.data,
+        role: result.data?.role,
+        roleType: typeof result.data?.role,
+        parsedRole: userRole
+      });
       res.status(403).json({
         success: false,
         message: 'ロール4以上の権限が必要です',
-        role: result.data ? result.data.role : null
+        role: result.data ? userRole : null
       });
     }
   } catch (error) {
     console.error('Config auth route error:', error);
+    console.error('Config auth route error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: '認証処理中にエラーが発生しました',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : '内部サーバーエラー'
     });
   }
 });

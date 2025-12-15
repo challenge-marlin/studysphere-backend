@@ -1300,91 +1300,164 @@ const downloadLessonFile = async (req, res) => {
 
       const lesson = rows[0];
 
-      if (!lesson.s3_key) {
-        return res.status(404).json({
-          success: false,
-          message: 'ファイルがアップロードされていません'
+      // lessonsテーブルの現在のs3_keyに対応する単一ファイルを処理（存在する場合）
+      let fileName = null;
+      let fileExtension = null;
+      let originalFileName = null;
+      let metadataInfo = null;
+      let resolvedFileSize = 0;
+      let lastModified = null;
+      let rawMetadata = null;
+      let mimeType = null;
+      
+      if (lesson.s3_key) {
+        fileName = lesson.s3_key.split('/').pop();
+        fileExtension = fileName.split('.').pop().toLowerCase();
+        originalFileName = fileName;
+        resolvedFileSize = lesson.file_size || 0;
+
+        try {
+          const metadataResult = await s3Utils.getFileMetadata(lesson.s3_key);
+          if (metadataResult.success) {
+            metadataInfo = metadataResult.metadata || {};
+            rawMetadata = metadataResult.metadataRaw || {};
+            if (metadataInfo['original-name']) {
+              originalFileName = metadataInfo['original-name'];
+            }
+
+            if (!resolvedFileSize && metadataResult.contentLength) {
+              resolvedFileSize = metadataResult.contentLength;
+            }
+
+            if (metadataResult.lastModified) {
+              lastModified = metadataResult.lastModified;
+            }
+          } else {
+            customLogger.warn('Lesson file metadata not found on S3', {
+              lessonId: id,
+              s3Key: lesson.s3_key,
+              message: metadataResult.message,
+              userId: req.user?.user_id || null
+            });
+          }
+        } catch (metadataError) {
+          customLogger.warn('Failed to retrieve S3 metadata for lesson file', {
+            error: metadataError.message,
+            lessonId: id,
+            s3Key: lesson.s3_key,
+            userId: req.user?.user_id || null
+          });
+        }
+        
+        // ファイル拡張子からMIMEタイプを推定
+        mimeType = lesson.file_type || fileExtension;
+        if (!lesson.file_type) {
+          switch (fileExtension) {
+            case 'pdf':
+              mimeType = 'application/pdf';
+              break;
+            case 'md':
+              mimeType = 'text/markdown';
+              break;
+            case 'txt':
+              mimeType = 'text/plain';
+              break;
+            case 'rtf':
+              mimeType = 'application/rtf';
+              break;
+            default:
+              mimeType = fileExtension;
+          }
+        }
+      }
+      
+      // 現在のファイル情報を配列に追加
+      const files = [];
+      
+      // lessonsテーブルのメインファイルを追加（存在する場合）
+      if (lesson.s3_key) {
+        files.push({
+          key: lesson.s3_key,
+          file_name: fileName,
+          original_file_name: originalFileName,
+          display_name: originalFileName || fileName,
+          file_type: mimeType,
+          file_extension: fileExtension,
+          size: resolvedFileSize,
+          lastModified: lastModified,
+          metadata: metadataInfo,
+          metadataRaw: rawMetadata,
+          sizeFormatted: resolvedFileSize ? formatFileSize(resolvedFileSize) : '不明'
         });
       }
-
-      // lessonsテーブルの現在のs3_keyに対応する単一ファイルのみを返す
-      // これにより、古いファイルとの混同を防ぐ
-    const fileName = lesson.s3_key.split('/').pop();
-    const fileExtension = fileName.split('.').pop().toLowerCase();
-    let originalFileName = fileName;
-    let metadataInfo = null;
-    let resolvedFileSize = lesson.file_size || 0;
-    let lastModified = null;
-    let rawMetadata = null;
-
-    try {
-      const metadataResult = await s3Utils.getFileMetadata(lesson.s3_key);
-      if (metadataResult.success) {
-        metadataInfo = metadataResult.metadata || {};
-        rawMetadata = metadataResult.metadataRaw || {};
-        if (metadataInfo['original-name']) {
-          originalFileName = metadataInfo['original-name'];
+      
+      // lesson_text_filesテーブルから複数テキストファイルを取得
+      try {
+        // 文字セットを明示的に設定してクエリを実行
+        await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+        const [textFiles] = await connection.execute(`
+          SELECT 
+            id,
+            file_name,
+            s3_key,
+            file_type,
+            file_size,
+            order_index,
+            created_at,
+            updated_at
+          FROM lesson_text_files
+          WHERE lesson_id = ? AND status = 'active'
+          ORDER BY order_index ASC, created_at ASC
+        `, [id]);
+        
+        // 複数テキストファイルを配列に追加
+        for (const textFile of textFiles) {
+          const textFileExtension = textFile.file_name.toLowerCase().substring(textFile.file_name.lastIndexOf('.'));
+          let textFileMimeType = textFile.file_type;
+          
+          // file_typeが未設定または拡張子のみの場合は、MIMEタイプを推定
+          if (!textFileMimeType || !textFileMimeType.includes('/')) {
+            switch (textFileExtension) {
+              case '.pdf':
+                textFileMimeType = 'application/pdf';
+                break;
+              case '.md':
+                textFileMimeType = 'text/markdown';
+                break;
+              case '.txt':
+                textFileMimeType = 'text/plain';
+                break;
+              case '.rtf':
+                textFileMimeType = 'application/rtf';
+                break;
+              default:
+                textFileMimeType = textFile.file_type || textFileExtension.replace('.', '');
+            }
+          }
+          
+          files.push({
+            key: textFile.s3_key,
+            file_name: textFile.file_name,
+            original_file_name: textFile.file_name,
+            display_name: textFile.file_name,
+            file_type: textFileMimeType,
+            file_extension: textFileExtension.replace('.', ''),
+            size: textFile.file_size || 0,
+            lastModified: textFile.updated_at || textFile.created_at,
+            metadata: null,
+            metadataRaw: null,
+            sizeFormatted: textFile.file_size ? formatFileSize(textFile.file_size) : '不明',
+            order_index: textFile.order_index
+          });
         }
-
-        if (!resolvedFileSize && metadataResult.contentLength) {
-          resolvedFileSize = metadataResult.contentLength;
-        }
-
-        if (metadataResult.lastModified) {
-          lastModified = metadataResult.lastModified;
-        }
-      } else {
-        customLogger.warn('Lesson file metadata not found on S3', {
+      } catch (textFilesError) {
+        // lesson_text_filesテーブルが存在しない場合もエラーにしない
+        customLogger.warn('Failed to retrieve lesson text files (table may not exist)', {
+          error: textFilesError.message,
           lessonId: id,
-          s3Key: lesson.s3_key,
-          message: metadataResult.message,
           userId: req.user?.user_id || null
         });
       }
-    } catch (metadataError) {
-      customLogger.warn('Failed to retrieve S3 metadata for lesson file', {
-        error: metadataError.message,
-        lessonId: id,
-        s3Key: lesson.s3_key,
-        userId: req.user?.user_id || null
-      });
-    }
-      
-      // ファイル拡張子からMIMEタイプを推定
-      let mimeType = lesson.file_type || fileExtension;
-      if (!lesson.file_type) {
-        switch (fileExtension) {
-          case 'pdf':
-            mimeType = 'application/pdf';
-            break;
-          case 'md':
-            mimeType = 'text/markdown';
-            break;
-          case 'txt':
-            mimeType = 'text/plain';
-            break;
-          case 'rtf':
-            mimeType = 'application/rtf';
-            break;
-          default:
-            mimeType = fileExtension;
-        }
-      }
-      
-      // 現在のファイル情報のみを配列で返す
-    const files = [{
-      key: lesson.s3_key,
-      file_name: fileName,
-      original_file_name: originalFileName,
-      display_name: originalFileName || fileName,
-      file_type: mimeType,
-      file_extension: fileExtension,
-      size: resolvedFileSize,
-      lastModified: lastModified,
-      metadata: metadataInfo,
-      metadataRaw: rawMetadata,
-      sizeFormatted: resolvedFileSize ? formatFileSize(resolvedFileSize) : '不明'
-    }];
 
       customLogger.info('Lesson files retrieved successfully', {
         lessonId: id,
@@ -1394,6 +1467,8 @@ const downloadLessonFile = async (req, res) => {
         userId: req.user?.user_id || null
       });
 
+      // レスポンスヘッダーにcharsetを明示的に設定
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.json({
         success: true,
         data: files

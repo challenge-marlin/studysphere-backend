@@ -6,6 +6,8 @@ const {
   sendPushNotificationToUser,
   pushNotificationsConfigured,
 } = require('../utils/pushNotifications');
+const { customLogger } = require('../utils/logger');
+const { verifySatelliteAccess } = require('../utils/satelliteAuth');
 
 // サニタイズ関数
 const sanitizeInput = (input) => {
@@ -58,6 +60,14 @@ router.post('/send', authenticateToken, async (req, res) => {
   try {
     const { receiver_id, message, satellite_id } = req.body;
     const sender_id = req.user.user_id;
+    
+    customLogger.debug('メッセージ送信 - リクエスト受信:', {
+      sender_id,
+      receiver_id,
+      satellite_id,
+      message_length: message?.length,
+      request_body: req.body
+    });
 
     // バリデーション
     if (!receiver_id || !message) {
@@ -79,6 +89,18 @@ router.post('/send', authenticateToken, async (req, res) => {
       'SELECT id, name, role, satellite_ids FROM user_accounts WHERE id = ? AND status = 1',
       [sender_id]
     );
+    
+    customLogger.debug('送信者情報取得結果:', {
+      sender_id,
+      row_count: senderRows.length,
+      sender_data: senderRows.length > 0 ? {
+        id: senderRows[0].id,
+        name: senderRows[0].name,
+        role: senderRows[0].role,
+        satellite_ids: senderRows[0].satellite_ids,
+        satellite_ids_type: typeof senderRows[0].satellite_ids
+      } : null
+    });
 
     if (senderRows.length === 0) {
       return res.status(404).json({
@@ -106,74 +128,16 @@ router.post('/send', authenticateToken, async (req, res) => {
 
     // システム管理者（ロール9以上）の場合はスキップ
     if (sender.role < 9) {
-      // 利用者の所属拠点を取得
-      let receiverSatelliteIds = [];
-      if (receiver.satellite_ids) {
-        try {
-          const parsed = JSON.parse(receiver.satellite_ids);
-          receiverSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-        } catch (error) {
-          console.warn('受信者の拠点IDパースエラー:', { receiver_id, error: error.message });
-        }
-      }
+      // 拠点アクセス権限をチェック（ユーティリティを使用）
+      const accessCheck = verifySatelliteAccess(sender, receiver, satellite_id);
       
-      // 送信者（指導員）の所属拠点を取得
-      let senderSatelliteIds = [];
-      if (sender.satellite_ids) {
-        try {
-          const parsed = JSON.parse(sender.satellite_ids);
-          senderSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-        } catch (error) {
-          console.warn('送信者の拠点IDパースエラー:', { sender_id, error: error.message });
-        }
-      }
-      
-      // 現在選択中の拠点IDがある場合、それを優先して検証
-      let hasCommonSatellite = false;
-      if (satellite_id) {
-        const selectedSatelliteId = parseInt(satellite_id);
-        // 選択中の拠点が受信者と送信者の両方に所属しているか確認
-        const receiverHasSelectedSatellite = receiverSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
-        const senderHasSelectedSatellite = senderSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
-        
-        if (receiverHasSelectedSatellite && senderHasSelectedSatellite) {
-          hasCommonSatellite = true;
-          console.log('メッセージ送信 - 選択中の拠点で検証成功:', {
-            receiver_id,
-            sender_id,
-            selectedSatelliteId,
-            receiverSatelliteIds,
-            senderSatelliteIds
-          });
-        } else {
-          console.warn('メッセージ送信 - 選択中の拠点で検証失敗:', {
-            receiver_id,
-            sender_id,
-            selectedSatelliteId,
-            receiverHasSelectedSatellite,
-            senderHasSelectedSatellite,
-            receiverSatelliteIds,
-            senderSatelliteIds
-          });
-        }
-      }
-      
-      // 選択中の拠点で検証が失敗した場合、全拠点で共通の拠点があるか確認
-      if (!hasCommonSatellite) {
-        hasCommonSatellite = receiverSatelliteIds.some(recSatId => 
-          senderSatelliteIds.some(sendSatId => 
-            parseInt(recSatId) === parseInt(sendSatId)
-          )
-        );
-      }
-      
-      if (!hasCommonSatellite) {
-        console.warn('メッセージ送信 - 拠点不一致:', {
+      if (!accessCheck.hasAccess) {
+        customLogger.warn('メッセージ送信 - 拠点不一致:', {
           receiver_id,
-          receiverSatelliteIds,
           sender_id,
-          senderSatelliteIds,
-          selectedSatelliteId: satellite_id
+          selectedSatelliteId: satellite_id,
+          reason: accessCheck.reason,
+          commonSatellites: accessCheck.commonSatellites
         });
         return res.status(400).json({
           success: false,
@@ -181,6 +145,13 @@ router.post('/send', authenticateToken, async (req, res) => {
           errorType: 'SATELLITE_ACCESS_DENIED'
         });
       }
+      
+      customLogger.debug('メッセージ送信 - 拠点認証成功:', {
+        receiver_id,
+        sender_id,
+        commonSatellites: accessCheck.commonSatellites,
+        reason: accessCheck.reason
+      });
     }
 
     // 有効期限を設定（日本時間の翌日24:30）
@@ -1062,7 +1033,35 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
 
     const currentUser = currentUserRows[0];
     const currentCompanyId = currentUser.company_id;
-    let currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+    
+    // 指導員の所属拠点を取得（改善されたパース処理）
+    let currentSatelliteIds = [];
+    if (currentUser.satellite_ids) {
+      try {
+        let parsed;
+        if (Array.isArray(currentUser.satellite_ids)) {
+          // 既に配列の場合はそのまま使用
+          parsed = currentUser.satellite_ids;
+        } else if (typeof currentUser.satellite_ids === 'string') {
+          // 文字列の場合はパース
+          parsed = JSON.parse(currentUser.satellite_ids);
+        } else {
+          // その他の場合は配列に変換
+          parsed = [currentUser.satellite_ids];
+        }
+        currentSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+        // 数値に変換
+        currentSatelliteIds = currentSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+      } catch (error) {
+        console.error('指導員の拠点IDパースエラー:', { 
+          user_id, 
+          error: error.message,
+          satellite_ids_type: typeof currentUser.satellite_ids,
+          satellite_ids_value: currentUser.satellite_ids
+        });
+        currentSatelliteIds = [];
+      }
+    }
 
     // フロントエンドから送信された拠点IDがある場合は、それを使用
     if (satellite_id) {
@@ -1070,10 +1069,9 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
       currentSatelliteIds = [parseInt(satellite_id)];
     }
 
-    // 1対1メッセージは管理者・指導員⇔利用者間のやり取り
-    // 管理者・指導員（ロール4以上）は利用者（ロール1）のみを対象とする
-    let whereConditions = ['ua.role = 1', 'ua.status = 1'];
-    let queryParams = [];
+    // 同じ拠点の他の指導員一覧を取得（ロール4以上の指導員）
+    let whereConditions = ['ua.role = 4', 'ua.status = 1', 'ua.id != ?'];
+    let queryParams = [user_id];
 
     if (currentCompanyId) {
       whereConditions.push('ua.company_id = ?');
@@ -1082,11 +1080,16 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
 
     if (currentSatelliteIds.length > 0) {
       // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+      // JSON_CONTAINSは数値またはJSON形式の文字列を受け取る
       const satelliteConditions = currentSatelliteIds.map(() => 
-        'JSON_CONTAINS(ua.satellite_ids, ?)'
+        '(JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(? AS CHAR))))'
       ).join(' OR ');
       whereConditions.push(`(${satelliteConditions})`);
-      queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
+      // 各IDを2回追加（CAST(? AS JSON)とJSON_QUOTE(CAST(? AS CHAR))の両方に対応）
+      currentSatelliteIds.forEach(id => {
+        queryParams.push(id);
+        queryParams.push(id);
+      });
     }
 
     // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
@@ -1107,12 +1110,20 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
         )`;
     }
 
+    // デバッグログ
+    console.log('指導員一覧取得クエリ:', {
+      whereConditions: whereConditions.join(' AND '),
+      queryParams,
+      satellite_id,
+      currentSatelliteIds,
+      currentCompanyId,
+      user_id
+    });
+
     const [instructors] = await pool.execute(`
       SELECT 
         ua.id,
         ua.name,
-        ua.role,
-        '利用者' as role_name,
         ${satelliteSelect},
         c.name as company_name
       FROM user_accounts ua
@@ -1121,6 +1132,11 @@ router.get('/instructors-for-filter', authenticateToken, async (req, res) => {
       WHERE ${whereConditions.join(' AND ')}
       ORDER BY ua.name ASC
     `, queryParams);
+
+    console.log('指導員一覧取得結果:', {
+      count: instructors.length,
+      instructors: instructors.map(i => ({ id: i.id, name: i.name }))
+    });
 
     res.json({
       success: true,

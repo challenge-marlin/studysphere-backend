@@ -218,7 +218,33 @@ class TempPasswordController {
 
             const currentUser = currentUserRows[0];
             const currentCompanyId = currentUser.company_id;
-            let currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+            
+            // satellite_idsを安全にパース（monthlyEvaluationRoutes.jsと同じ方法）
+            let currentSatelliteIds = [];
+            if (currentUser.satellite_ids) {
+                try {
+                    let parsed;
+                    if (Array.isArray(currentUser.satellite_ids)) {
+                        // 既に配列の場合はそのまま使用
+                        parsed = currentUser.satellite_ids;
+                    } else if (typeof currentUser.satellite_ids === 'string') {
+                        // 文字列の場合はパース
+                        parsed = JSON.parse(currentUser.satellite_ids);
+                    } else {
+                        // その他の場合は配列に変換
+                        parsed = [currentUser.satellite_ids];
+                    }
+                    currentSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+                    // 数値に変換
+                    currentSatelliteIds = currentSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+                } catch (error) {
+                    console.error('satellite_idsのパースエラー:', error, {
+                        satellite_ids_type: typeof currentUser.satellite_ids,
+                        satellite_ids_value: currentUser.satellite_ids
+                    });
+                    currentSatelliteIds = [];
+                }
+            }
 
             // フロントエンドから送信された拠点IDがある場合は、それを使用
             if (satellite_id) {
@@ -228,31 +254,34 @@ class TempPasswordController {
 
             // WHERE条件を構築（1対1メッセージと同じロジック）
             let whereConditions = ['ua.role = 1', 'ua.status = 1'];
-            let queryParams = [];
+            let whereParams = []; // WHERE条件用のパラメータ
 
             // 企業・拠点フィルタ（現在選択中の企業・拠点に所属するロール1ユーザのみ）
             if (currentCompanyId) {
                 whereConditions.push('ua.company_id = ?');
-                queryParams.push(currentCompanyId);
+                whereParams.push(currentCompanyId);
             }
 
             if (currentSatelliteIds.length > 0) {
                 // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+                // announcementController.jsと同じ方法を使用（シンプルな方法）
                 const satelliteConditions = currentSatelliteIds.map(() => 
                     'JSON_CONTAINS(ua.satellite_ids, ?)'
                 ).join(' OR ');
                 whereConditions.push(`(${satelliteConditions})`);
-                queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
+                // 各拠点IDをJSON文字列として追加
+                whereParams.push(...currentSatelliteIds.map(id => JSON.stringify(parseInt(id))));
             }
 
             // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
             let satelliteJoin = '';
             let satelliteSelect = 'NULL as satellite_name';
+            let satelliteJoinParam = null; // satelliteJoin用のパラメータを分離
             
             if (satellite_id) {
                 satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
                 satelliteSelect = 's.name as satellite_name';
-                queryParams.unshift(parseInt(satellite_id)); // 先頭に追加
+                satelliteJoinParam = parseInt(satellite_id);
             } else {
                 satelliteJoin = `LEFT JOIN satellites s ON (
                     s.id IS NOT NULL AND ua.satellite_ids IS NOT NULL AND (
@@ -308,11 +337,17 @@ class TempPasswordController {
                 GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
             `;
 
-            const params = [user_id, user_id, ...queryParams];
+            // パラメータの順序を明確に: user_id(2回) -> satelliteJoinParam -> whereParams
+            const params = [user_id, user_id];
+            if (satelliteJoinParam !== null) {
+                params.push(satelliteJoinParam);
+            }
+            params.push(...whereParams);
 
             // 選択された指導員の利用者も含める場合のUNIONクエリを追加
             if (selectedInstructorIds.length > 0) {
                 const placeholders = selectedInstructorIds.map(() => '?').join(',');
+                
                 query += `
                     UNION DISTINCT
                     SELECT 
@@ -340,6 +375,12 @@ class TempPasswordController {
                     AND ua.instructor_id IN (${placeholders})
                     GROUP BY ua.id, ua.name, ua.email, ua.login_code, ua.instructor_id, s.name, c.name, instructor.name
                 `;
+                
+                // UNIONクエリのパラメータを追加（最初のクエリと同じ順序）
+                if (satelliteJoinParam !== null) {
+                    params.push(satelliteJoinParam);
+                }
+                params.push(...whereParams);
                 params.push(...selectedInstructorIds);
                 params.push(...selectedInstructorIds);
                 params.push(...selectedInstructorIds);
@@ -368,7 +409,15 @@ class TempPasswordController {
 
         } catch (error) {
             console.error('一時パスワード対象利用者取得エラー詳細:', error);
-            customLogger.error('一時パスワード対象利用者取得エラー:', error);
+            console.error('エラースタック:', error.stack);
+            console.error('エラーコード:', error.code);
+            console.error('エラーSQLステート:', error.sqlState);
+            customLogger.error('一時パスワード対象利用者取得エラー:', {
+                message: error.message,
+                stack: error.stack,
+                code: error.code,
+                sqlState: error.sqlState
+            });
             res.status(500).json({
                 success: false,
                 message: '利用者一覧の取得に失敗しました',

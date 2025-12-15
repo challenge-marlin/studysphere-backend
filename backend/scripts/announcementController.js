@@ -1,5 +1,6 @@
 const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
+const { verifySatelliteAccess } = require('../utils/satelliteAuth');
 
 // サニタイズ関数
 const sanitizeInput = (input) => {
@@ -442,76 +443,25 @@ class AnnouncementController {
 
             // システム管理者（ロール9以上）の場合はスキップ
             if (sender.role < 9) {
-                // 送信者（指導員）の所属拠点を取得
-                let senderSatelliteIds = [];
-                if (sender.satellite_ids) {
-                    try {
-                        const parsed = JSON.parse(sender.satellite_ids);
-                        senderSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-                    } catch (error) {
-                        console.warn('送信者の拠点IDパースエラー:', { created_by, error: error.message });
-                    }
-                }
+                customLogger.info('アナウンス送信 - 拠点チェック開始:', {
+                    sender_id: created_by,
+                    satellite_id_from_request: satellite_id,
+                    sender_satellite_ids_raw: sender.satellite_ids,
+                    recipient_count: recipients.length
+                });
 
                 // 各受信者が送信者の所属拠点に所属しているか確認
                 for (const recipient of recipients) {
-                    // 受信者の所属拠点を取得
-                    let recipientSatelliteIds = [];
-                    if (recipient.satellite_ids) {
-                        try {
-                            const parsed = JSON.parse(recipient.satellite_ids);
-                            recipientSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-                        } catch (error) {
-                            console.warn('受信者の拠点IDパースエラー:', { recipient_id: recipient.id, error: error.message });
-                        }
-                    }
-
-                    // 現在選択中の拠点IDがある場合、それを優先して検証
-                    let hasCommonSatellite = false;
-                    if (satellite_id) {
-                        const selectedSatelliteId = parseInt(satellite_id);
-                        // 選択中の拠点が受信者と送信者の両方に所属しているか確認
-                        const recipientHasSelectedSatellite = recipientSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
-                        const senderHasSelectedSatellite = senderSatelliteIds.some(id => parseInt(id) === selectedSatelliteId);
-                        
-                        if (recipientHasSelectedSatellite && senderHasSelectedSatellite) {
-                            hasCommonSatellite = true;
-                            console.log('アナウンス送信 - 選択中の拠点で検証成功:', {
-                                recipient_id: recipient.id,
-                                sender_id: created_by,
-                                selectedSatelliteId,
-                                recipientSatelliteIds,
-                                senderSatelliteIds
-                            });
-                        } else {
-                            console.warn('アナウンス送信 - 選択中の拠点で検証失敗:', {
-                                recipient_id: recipient.id,
-                                sender_id: created_by,
-                                selectedSatelliteId,
-                                recipientHasSelectedSatellite,
-                                senderHasSelectedSatellite,
-                                recipientSatelliteIds,
-                                senderSatelliteIds
-                            });
-                        }
-                    }
-
-                    // 選択中の拠点で検証が失敗した場合、全拠点で共通の拠点があるか確認
-                    if (!hasCommonSatellite) {
-                        hasCommonSatellite = recipientSatelliteIds.some(recSatId => 
-                            senderSatelliteIds.some(sendSatId => 
-                                parseInt(recSatId) === parseInt(sendSatId)
-                            )
-                        );
-                    }
-
-                    if (!hasCommonSatellite) {
-                        console.warn('アナウンス送信 - 拠点不一致:', {
+                    // 拠点アクセス権限をチェック（ユーティリティを使用）
+                    const accessCheck = verifySatelliteAccess(sender, recipient, satellite_id);
+                    
+                    if (!accessCheck.hasAccess) {
+                        customLogger.warn('アナウンス送信 - 拠点不一致:', {
                             recipient_id: recipient.id,
-                            recipientSatelliteIds,
                             sender_id: created_by,
-                            senderSatelliteIds,
-                            selectedSatelliteId: satellite_id
+                            selectedSatelliteId: satellite_id,
+                            reason: accessCheck.reason,
+                            commonSatellites: accessCheck.commonSatellites
                         });
                         return res.status(400).json({
                             success: false,
@@ -519,6 +469,13 @@ class AnnouncementController {
                             errorType: 'SATELLITE_ACCESS_DENIED'
                         });
                     }
+                    
+                    customLogger.debug('アナウンス送信 - 拠点認証成功:', {
+                        recipient_id: recipient.id,
+                        sender_id: created_by,
+                        commonSatellites: accessCheck.commonSatellites,
+                        reason: accessCheck.reason
+                    });
                 }
             }
 
@@ -822,7 +779,35 @@ class AnnouncementController {
 
             const currentUser = currentUserRows[0];
             const currentCompanyId = currentUser.company_id;
-            let currentSatelliteIds = currentUser.satellite_ids ? JSON.parse(currentUser.satellite_ids) : [];
+            
+            // 指導員の所属拠点を取得（改善されたパース処理）
+            let currentSatelliteIds = [];
+            if (currentUser.satellite_ids) {
+                try {
+                    let parsed;
+                    if (Array.isArray(currentUser.satellite_ids)) {
+                        // 既に配列の場合はそのまま使用
+                        parsed = currentUser.satellite_ids;
+                    } else if (typeof currentUser.satellite_ids === 'string') {
+                        // 文字列の場合はパース
+                        parsed = JSON.parse(currentUser.satellite_ids);
+                    } else {
+                        // その他の場合は配列に変換
+                        parsed = [currentUser.satellite_ids];
+                    }
+                    currentSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+                    // 数値に変換
+                    currentSatelliteIds = currentSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+                } catch (error) {
+                    customLogger.error('指導員の拠点IDパースエラー:', { 
+                        user_id, 
+                        error: error.message,
+                        satellite_ids_type: typeof currentUser.satellite_ids,
+                        satellite_ids_value: currentUser.satellite_ids
+                    });
+                    currentSatelliteIds = [];
+                }
+            }
 
             // フロントエンドから送信された拠点IDがある場合は、それを使用
             if (satellite_id) {
@@ -841,11 +826,16 @@ class AnnouncementController {
 
             if (currentSatelliteIds.length > 0) {
                 // JSON_OVERLAPSの代わりに、各拠点IDを個別にチェック
+                // JSON_CONTAINSは数値またはJSON形式の文字列を受け取る
                 const satelliteConditions = currentSatelliteIds.map(() => 
-                    'JSON_CONTAINS(ua.satellite_ids, ?)'
+                    '(JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON)) OR JSON_CONTAINS(ua.satellite_ids, JSON_QUOTE(CAST(? AS CHAR))))'
                 ).join(' OR ');
                 whereConditions.push(`(${satelliteConditions})`);
-                queryParams.push(...currentSatelliteIds.map(id => JSON.stringify(id)));
+                // 各IDを2回追加（CAST(? AS JSON)とJSON_QUOTE(CAST(? AS CHAR))の両方に対応）
+                currentSatelliteIds.forEach(id => {
+                    queryParams.push(id);
+                    queryParams.push(id);
+                });
             }
 
             // フロントエンドから送信された拠点IDがある場合は、直接拠点情報を取得
@@ -866,6 +856,16 @@ class AnnouncementController {
                 )`;
             }
 
+            // デバッグログ
+            console.log('Announcement 指導員一覧取得クエリ:', {
+                whereConditions: whereConditions.join(' AND '),
+                queryParams,
+                satellite_id,
+                currentSatelliteIds,
+                currentCompanyId,
+                user_id
+            });
+
             const [instructors] = await pool.execute(`
                 SELECT 
                     ua.id,
@@ -878,6 +878,11 @@ class AnnouncementController {
                 WHERE ${whereConditions.join(' AND ')}
                 ORDER BY ua.name ASC
             `, queryParams);
+
+            console.log('Announcement 指導員一覧取得結果:', {
+                count: instructors.length,
+                instructors: instructors.map(i => ({ id: i.id, name: i.name }))
+            });
 
             res.json({
                 success: true,

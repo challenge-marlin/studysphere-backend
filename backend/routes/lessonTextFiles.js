@@ -13,18 +13,32 @@ const upload = multer({
     fileSize: 50 * 1024 * 1024, // 50MB
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      'application/pdf',
-      'text/plain',
-      'text/markdown',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    // 許可するファイル形式（PDF、MD、TXT、RTF）
+    const allowedMimeTypes = [
+      'application/pdf',  // PDF
+      'text/plain',  // TXT
+      'text/markdown',  // MD
+      'text/x-markdown',  // MD（別のMIMEタイプ）
+      'application/x-markdown',  // MD（別のMIMEタイプ）
+      'application/rtf',  // RTF
+      'text/rtf',  // RTF（別のMIMEタイプ）
+      'application/x-rtf'  // RTF（別のMIMEタイプ）
     ];
     
-    if (allowedTypes.includes(file.mimetype)) {
+    // 許可するファイル拡張子
+    const allowedExtensions = ['.pdf', '.md', '.txt', '.rtf'];
+    
+    // ファイル拡張子を取得
+    const fileExtension = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+    
+    // MIMEタイプまたは拡張子でチェック
+    const isValidMimeType = allowedMimeTypes.includes(file.mimetype);
+    const isValidExtension = allowedExtensions.includes(fileExtension);
+    
+    if (isValidMimeType || isValidExtension) {
       cb(null, true);
     } else {
-      cb(new Error('サポートされていないファイル形式です'), false);
+      cb(new Error('サポートされていないファイル形式です。PDF、MD、TXT、RTFファイルのみアップロード可能です。'), false);
     }
   }
 });
@@ -89,7 +103,7 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
   const connection = await pool.getConnection();
   
   try {
-    const { lessonId, order } = req.body;
+    const { lessonId, order, fileName: requestedFileName } = req.body;
     const file = req.file;
     const userId = req.user?.user_id || req.user?.id;
     
@@ -107,8 +121,14 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
       });
     }
     
-    // レッスンの存在確認
-    const [lessons] = await connection.execute('SELECT id, title FROM lessons WHERE id = ?', [lessonId]);
+    // レッスンの存在確認（コース名も取得）
+    const [lessons] = await connection.execute(
+      `SELECT l.id, l.title, l.course_id, c.title as course_title 
+       FROM lessons l 
+       JOIN courses c ON l.course_id = c.id 
+       WHERE l.id = ?`,
+      [lessonId]
+    );
     if (lessons.length === 0) {
       return res.status(400).json({
         success: false,
@@ -118,24 +138,45 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
     
     const lesson = lessons[0];
     
-    // ファイルタイプの判定
+    // ファイル名とサイズを取得（リクエストボディのfileNameを優先、なければfile.originalname）
+    // リクエストボディから送られてきたファイル名を優先使用（文字化け対策）
+    const fileName = requestedFileName || file.originalname;
+    const fileSize = file.size;
+    
+    // ファイルタイプの判定（拡張子も考慮）
+    const fileExtension = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
     const fileTypeMap = {
       'application/pdf': 'pdf',
       'text/plain': 'text/plain',
       'text/markdown': 'text/markdown',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx'
+      'text/x-markdown': 'text/markdown',
+      'application/x-markdown': 'text/markdown',
+      'application/rtf': 'application/rtf',
+      'text/rtf': 'application/rtf',
+      'application/x-rtf': 'application/rtf'
     };
     
-    const fileType = fileTypeMap[file.mimetype] || 'unknown';
-    const fileName = file.originalname;
-    const fileSize = file.size;
+    // 拡張子ベースの判定（MIMEタイプが正しく認識されない場合のフォールバック）
+    const extensionTypeMap = {
+      '.pdf': 'pdf',
+      '.txt': 'text/plain',
+      '.md': 'text/markdown',
+      '.rtf': 'application/rtf'
+    };
     
-    // S3にアップロード
+    let fileType = fileTypeMap[file.mimetype];
+    if (!fileType && extensionTypeMap[fileExtension]) {
+      fileType = extensionTypeMap[fileExtension];
+    }
+    if (!fileType) {
+      fileType = 'unknown';
+    }
+    
+    // S3にアップロード（コース名とレッスン名を正しく渡す）
     const uploadResult = await s3Utils.uploadFile(
       file, 
-      lesson.title, 
-      'additional-text', 
+      lesson.course_title || lesson.title,  // コース名を使用
+      lesson.title,  // レッスン名
       fileName
     );
     
@@ -144,6 +185,8 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
     // 順序の自動設定
     let finalOrder = parseInt(order) || 0;
     if (finalOrder === 0) {
+      // 文字セットを明示的に設定してクエリを実行
+      await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
       const [maxOrder] = await connection.execute(
         'SELECT COALESCE(MAX(order_index), -1) + 1 as next_order FROM lesson_text_files WHERE lesson_id = ?',
         [lessonId]
@@ -151,7 +194,14 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
       finalOrder = maxOrder[0].next_order;
     }
     
-    // データベースに保存
+    // データベースに保存（ファイル名がUTF-8として正しく保存されるように）
+    // ファイル名をUTF-8として確実に処理
+    const utf8FileName = Buffer.isBuffer(fileName) 
+      ? fileName.toString('utf8') 
+      : String(fileName);
+    
+    // 文字セットを明示的に設定してからINSERT実行
+    await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
     const query = `
       INSERT INTO lesson_text_files 
       (lesson_id, file_name, s3_key, file_type, file_size, order_index, created_by, updated_by)
@@ -160,7 +210,7 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
     
     const [result] = await connection.execute(query, [
       lessonId,
-      fileName,
+      utf8FileName,
       s3Key,
       fileType,
       fileSize,
@@ -194,11 +244,17 @@ router.post('/', authenticateToken, upload.single('file'), async (req, res) => {
       message: 'テキストファイルがアップロードされました'
     });
   } catch (error) {
-    customLogger.error('Lesson text file upload error:', error);
+    customLogger.error('Lesson text file upload error:', {
+      error: error.message,
+      stack: error.stack,
+      lessonId: req.body?.lessonId,
+      fileName: req.file?.originalname,
+      userId: req.user?.user_id || req.user?.id
+    });
     res.status(500).json({
       success: false,
       message: 'テキストファイルのアップロード中にエラーが発生しました',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'INTERNAL_SERVER_ERROR'
     });
   } finally {
     connection.release();

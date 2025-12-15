@@ -3,6 +3,7 @@ const router = express.Router();
 const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
 const { authenticateToken } = require('../middleware/auth');
+const { verifySatelliteAccess } = require('../utils/satelliteAuth');
 
 const formatDateToYmd = (dateObj) => {
   const year = dateObj.getUTCFullYear();
@@ -418,136 +419,16 @@ router.post('/', authenticateToken, async (req, res) => {
         
         // システム管理者（ロール9以上）の場合はスキップ
         if (instructor.role < 9) {
-          // 利用者の所属拠点を取得
-          let userSatelliteIds = [];
-          if (targetUser.satellite_ids) {
-            try {
-              let parsed;
-              if (Array.isArray(targetUser.satellite_ids)) {
-                // 既に配列の場合はそのまま使用
-                parsed = targetUser.satellite_ids;
-              } else if (typeof targetUser.satellite_ids === 'string') {
-                // 文字列の場合はパース
-                parsed = JSON.parse(targetUser.satellite_ids);
-              } else {
-                // その他の場合は配列に変換
-                parsed = [targetUser.satellite_ids];
-              }
-              userSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-              // 数値に変換
-              userSatelliteIds = userSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
-            } catch (error) {
-              customLogger.warn('利用者の拠点IDパースエラー:', { 
-                user_id, 
-                error: error.message,
-                satellite_ids_type: typeof targetUser.satellite_ids,
-                satellite_ids_value: targetUser.satellite_ids
-              });
-            }
-          }
+          // 拠点アクセス権限をチェック（ユーティリティを使用）
+          const accessCheck = verifySatelliteAccess(instructor, targetUser, satellite_id);
           
-          // 指導員の所属拠点を取得
-          let instructorSatelliteIds = [];
-          if (instructor.satellite_ids) {
-            try {
-              let parsed;
-              if (Array.isArray(instructor.satellite_ids)) {
-                // 既に配列の場合はそのまま使用
-                parsed = instructor.satellite_ids;
-              } else if (typeof instructor.satellite_ids === 'string') {
-                // 文字列の場合はパース
-                parsed = JSON.parse(instructor.satellite_ids);
-              } else {
-                // その他の場合は配列に変換
-                parsed = [instructor.satellite_ids];
-              }
-              instructorSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
-              // 数値に変換
-              instructorSatelliteIds = instructorSatelliteIds.map(id => parseInt(id)).filter(id => !isNaN(id));
-            } catch (error) {
-              customLogger.warn('指導員の拠点IDパースエラー:', { 
-                instructorId, 
-                error: error.message,
-                satellite_ids_type: typeof instructor.satellite_ids,
-                satellite_ids_value: instructor.satellite_ids
-              });
-            }
-          }
-          
-          customLogger.info('月報保存 - 拠点ID解析結果:', {
-            user_id,
-            instructorId,
-            userSatelliteIds,
-            instructorSatelliteIds,
-            received_satellite_id: satellite_id,
-            targetUser_satellite_ids_raw: targetUser.satellite_ids,
-            instructor_satellite_ids_raw: instructor.satellite_ids
-          });
-          
-          // 現在選択中の拠点IDがある場合、それを優先して検証
-          let hasCommonSatellite = false;
-          if (satellite_id) {
-            const selectedSatelliteId = parseInt(satellite_id);
-            if (isNaN(selectedSatelliteId)) {
-              customLogger.warn('月報保存 - satellite_idが数値に変換できません:', { satellite_id });
-            } else {
-              // 選択中の拠点が利用者と指導員の両方に所属しているか確認
-              const userHasSelectedSatellite = userSatelliteIds.includes(selectedSatelliteId);
-              const instructorHasSelectedSatellite = instructorSatelliteIds.includes(selectedSatelliteId);
-            
-              customLogger.info('月報保存 - 選択中の拠点検証:', {
-                user_id,
-                instructorId,
-                selectedSatelliteId,
-                userHasSelectedSatellite,
-                instructorHasSelectedSatellite,
-                userSatelliteIds,
-                instructorSatelliteIds
-              });
-              
-              if (userHasSelectedSatellite && instructorHasSelectedSatellite) {
-                hasCommonSatellite = true;
-                customLogger.info('月報保存 - 選択中の拠点で検証成功:', {
-                  user_id,
-                  selectedSatelliteId,
-                  userSatelliteIds,
-                  instructorSatelliteIds
-                });
-              } else {
-                customLogger.warn('月報保存 - 選択中の拠点で検証失敗:', {
-                  user_id,
-                  selectedSatelliteId,
-                  userHasSelectedSatellite,
-                  instructorHasSelectedSatellite,
-                  userSatelliteIds,
-                  instructorSatelliteIds
-                });
-              }
-            }
-          }
-          
-          // 選択中の拠点で検証が失敗した場合、全拠点で共通の拠点があるか確認
-          if (!hasCommonSatellite) {
-            hasCommonSatellite = userSatelliteIds.some(userSatId => 
-              instructorSatelliteIds.includes(userSatId)
-            );
-            
-            customLogger.info('月報保存 - 全拠点検証結果:', {
-              user_id,
-              instructorId,
-              hasCommonSatellite,
-              userSatelliteIds,
-              instructorSatelliteIds
-            });
-          }
-          
-          if (!hasCommonSatellite) {
+          if (!accessCheck.hasAccess) {
             customLogger.warn('月報保存 - 拠点不一致:', {
               user_id,
-              userSatelliteIds,
               instructorId,
-              instructorSatelliteIds,
               selectedSatelliteId: satellite_id,
+              reason: accessCheck.reason,
+              commonSatellites: accessCheck.commonSatellites,
               targetUser_satellite_ids_raw: targetUser.satellite_ids,
               instructor_satellite_ids_raw: instructor.satellite_ids
             });
@@ -556,12 +437,19 @@ router.post('/', authenticateToken, async (req, res) => {
               message: '利用者が指導員の所属拠点に所属していません',
               errorType: 'SATELLITE_ACCESS_DENIED',
               debug: {
-                user_satellite_ids: userSatelliteIds,
-                instructor_satellite_ids: instructorSatelliteIds,
+                user_satellite_ids: accessCheck.receiverSatelliteIds || [],
+                instructor_satellite_ids: accessCheck.senderSatelliteIds || [],
                 selected_satellite_id: satellite_id
               }
             });
           }
+          
+          customLogger.info('月報保存 - 拠点認証成功:', {
+            user_id,
+            instructorId,
+            commonSatellites: accessCheck.commonSatellites,
+            reason: accessCheck.reason
+          });
         }
       }
     }

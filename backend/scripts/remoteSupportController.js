@@ -1237,10 +1237,11 @@ class RemoteSupportController {
    */
   static async getDailyReports(req, res) {
     try {
-      const { userId, startDate, endDate, page = 1, limit = 20 } = req.query;
+      const { userId, startDate, endDate, page = 1, limit } = req.query;
       
       customLogger.info('日報一覧取得リクエスト:', {
         userId,
+        userIdType: typeof userId,
         startDate,
         endDate,
         page,
@@ -1251,54 +1252,96 @@ class RemoteSupportController {
       const params = [];
       
       if (userId) {
-        whereClause += ' AND rsdr.user_id = ?';
-        params.push(userId);
+        // userIdを数値に変換して比較（文字列と数値の不一致を防ぐ）
+        const userIdNum = parseInt(userId, 10);
+        if (isNaN(userIdNum)) {
+          customLogger.warn('無効なuserId:', userId);
+        } else {
+          whereClause += ' AND rsdr.user_id = ?';
+          params.push(userIdNum);
+          customLogger.info('userIdフィルタ追加:', { userId, userIdNum, params });
+        }
       }
       
       if (startDate) {
+        // 日付の比較（DATE型のカラムと文字列を直接比較、MySQLが自動的に型変換）
         whereClause += ' AND rsdr.date >= ?';
         params.push(startDate);
       }
       
       if (endDate) {
+        // 日付の比較（DATE型のカラムと文字列を直接比較、MySQLが自動的に型変換）
         whereClause += ' AND rsdr.date <= ?';
         params.push(endDate);
       }
       
-      const offset = (parseInt(page) - 1) * parseInt(limit);
+      // limitが指定されていない、または0の場合は全件取得
+      const shouldFetchAll = !limit || limit === '0' || limit === 0;
+      const limitValue = shouldFetchAll ? null : parseInt(limit);
+      const pageValue = parseInt(page);
+      const offset = shouldFetchAll ? 0 : (pageValue - 1) * limitValue;
       
       customLogger.info('SQLクエリ構築:', {
         whereClause,
         params,
+        paramsTypes: params.map(p => ({ value: p, type: typeof p })),
         offset,
-        limit,
-        page,
+        limit: limitValue,
+        page: pageValue,
+        shouldFetchAll,
         limitType: typeof limit,
         pageType: typeof page
       });
       
       // 日報データを取得（ユーザー情報も含む）
-      const queryParams = [...params, limit.toString(), offset.toString()];
-      customLogger.info('SQLクエリパラメータ:', {
-        params: queryParams,
-        paramsLength: queryParams.length,
-        expectedPlaceholders: (whereClause.match(/\?/g) || []).length + 2 // +2 for LIMIT and OFFSET
-      });
-      
-      const [reports] = await pool.execute(`
-        SELECT 
-          rsdr.*,
-          ua.name as user_name,
-          ua.login_code,
-          ua.instructor_id,
-          i.name as instructor_name
-        FROM remote_support_daily_records rsdr
-        LEFT JOIN user_accounts ua ON rsdr.user_id = ua.id
-        LEFT JOIN user_accounts i ON ua.instructor_id = i.id
-        ${whereClause}
-        ORDER BY rsdr.date DESC, rsdr.created_at DESC
-        LIMIT ? OFFSET ?
-      `, queryParams);
+      let reports;
+      if (shouldFetchAll) {
+        // 全件取得の場合、LIMIT句を付けない
+        const [reportsResult] = await pool.execute(`
+          SELECT 
+            rsdr.*,
+            ua.name as user_name,
+            ua.login_code,
+            ua.instructor_id,
+            i.name as instructor_name
+          FROM remote_support_daily_records rsdr
+          LEFT JOIN user_accounts ua ON rsdr.user_id = ua.id
+          LEFT JOIN user_accounts i ON ua.instructor_id = i.id
+          ${whereClause}
+          ORDER BY rsdr.date ASC, rsdr.created_at ASC
+        `, params);
+        reports = reportsResult;
+        customLogger.info('全件取得クエリ実行結果:', {
+          query: `SELECT ... FROM remote_support_daily_records ... ${whereClause}`,
+          params,
+          resultCount: reportsResult.length,
+          firstFew: reportsResult.slice(0, 5).map(r => ({ id: r.id, user_id: r.user_id, date: r.date }))
+        });
+      } else {
+        // ページネーションありの場合
+        const queryParams = [...params, limitValue.toString(), offset.toString()];
+        customLogger.info('SQLクエリパラメータ:', {
+          params: queryParams,
+          paramsLength: queryParams.length,
+          expectedPlaceholders: (whereClause.match(/\?/g) || []).length + 2 // +2 for LIMIT and OFFSET
+        });
+        
+        const [reportsResult] = await pool.execute(`
+          SELECT 
+            rsdr.*,
+            ua.name as user_name,
+            ua.login_code,
+            ua.instructor_id,
+            i.name as instructor_name
+          FROM remote_support_daily_records rsdr
+          LEFT JOIN user_accounts ua ON rsdr.user_id = ua.id
+          LEFT JOIN user_accounts i ON ua.instructor_id = i.id
+          ${whereClause}
+          ORDER BY rsdr.date ASC, rsdr.created_at ASC
+          LIMIT ? OFFSET ?
+        `, queryParams);
+        reports = reportsResult;
+      }
       
       // 総件数を取得
       const [countResult] = await pool.execute(`
@@ -1310,18 +1353,28 @@ class RemoteSupportController {
       
       const total = countResult[0].total;
       
-      customLogger.info(`日報一覧取得: ${reports.length}件 (総件数: ${total}件)`);
+      customLogger.info(`日報一覧取得: ${reports.length}件 (総件数: ${total}件)`, {
+        userId,
+        startDate,
+        endDate,
+        reports: reports.map(r => ({ id: r.id, date: r.date, user_id: r.user_id }))
+      });
       
       // データが存在しない場合でも正常にレスポンスを返す
       res.json({
         success: true,
         data: {
           reports: reports || [],
-          pagination: {
-            page: parseInt(page),
-            limit: parseInt(limit),
+          pagination: shouldFetchAll ? {
+            page: 1,
+            limit: total,
             total,
-            totalPages: Math.ceil(total / limit)
+            totalPages: 1
+          } : {
+            page: pageValue,
+            limit: limitValue,
+            total,
+            totalPages: Math.ceil(total / limitValue)
           }
         }
       });

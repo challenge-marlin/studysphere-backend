@@ -13,7 +13,9 @@ const s3Config = {
 const s3 = new AWS.S3({
   accessKeyId: s3Config.accessKeyId,
   secretAccessKey: s3Config.secretAccessKey,
-  region: s3Config.region
+  region: s3Config.region,
+  // UTF-8エンコーディングを明示的に指定
+  signatureVersion: 'v4'
 });
 
 // メタデータの文字列を安全な形式に変換する関数
@@ -31,10 +33,21 @@ const sanitizeFileName = (fileName) => {
   if (!fileName) return 'file';
   
   try {
+    // まず、UTF-8として正しくデコードされているか確認
+    // 文字列が既に文字化けしている場合は、それを検出できないが、
+    // 少なくともUTF-8として正しく扱えるようにする
+    const utf8String = Buffer.isBuffer(fileName) 
+      ? fileName.toString('utf8') 
+      : String(fileName);
+    
     // 日本語文字を保持し、S3で問題となる特殊文字のみを置換
-    const sanitized = fileName
-      .replace(/[<>:"|?*]/g, '_') // S3で使用できない文字をアンダースコアに変換
-      .replace(/\\/g, '_') // バックスラッシュをアンダースコアに変換
+    // コロン(:)は実際にはS3で使用可能だが、一部のシステムで問題を起こす可能性があるため置換
+    // ただし、全角コロン（：）は保持
+    const sanitized = utf8String
+      .replace(/[<>"|?*]/g, '_') // S3で使用できない文字をアンダースコアに変換（コロンは除外）
+      .replace(/[\\/]/g, '_') // バックスラッシュとスラッシュをアンダースコアに変換
+      .replace(/^\.+/, '') // 先頭のドットを削除（隠しファイル対策）
+      .replace(/\.+$/, '') // 末尾のドットを削除
       .trim() // 前後の空白を削除
       .substring(0, 255); // 長さ制限
     
@@ -42,14 +55,13 @@ const sanitizeFileName = (fileName) => {
     Buffer.from(sanitized, 'utf8');
     return sanitized;
   } catch (error) {
-    // UTF-8エラーが発生した場合は、ASCII文字のみに変換
-    console.warn('UTF-8 encoding error, converting to ASCII:', error.message);
-    return fileName
-      .replace(/[^\x00-\x7F]/g, '_') // 非ASCII文字をアンダースコアに変換
-      .replace(/[<>:"|?*]/g, '_')
-      .replace(/\\/g, '_')
-      .trim()
-      .substring(0, 255);
+    // UTF-8エラーが発生した場合は、エラーをログに記録して元のファイル名を返す
+    customLogger.warn('UTF-8 encoding error in sanitizeFileName', {
+      error: error.message,
+      fileName: fileName
+    });
+    // エラーが発生しても、できる限り元のファイル名を保持
+    return String(fileName).substring(0, 255);
   }
 };
 
@@ -92,17 +104,30 @@ const s3Utils = {
   // ファイルアップロード
   uploadFile: async (file, courseName, lessonName, fileName) => {
     try {
-      // S3キーは日本語文字を保持（S3はUTF-8をサポート）
-      const key = `lessons/${courseName}/${lessonName}/${fileName}`;
+      // ファイル名が正しくUTF-8として処理されているか確認
+      const originalFileName = Buffer.isBuffer(fileName) 
+        ? fileName.toString('utf8') 
+        : String(fileName);
+      
+      // S3キーのパス部分とファイル名をサニタイズ（S3はUTF-8をサポートしているが、問題のある文字を除去）
+      const sanitizedCourseName = sanitizeFileName(courseName);
+      const sanitizedLessonName = sanitizeFileName(lessonName);
+      const sanitizedFileName = sanitizeFileName(originalFileName);
+      
+      // S3キーはUTF-8文字列として直接使用（AWS SDKが自動的にエンコード）
+      const key = `lessons/${sanitizedCourseName}/${sanitizedLessonName}/${sanitizedFileName}`;
+      
+      // ファイル名をUTF-8として確実にエンコード
+      const utf8FileName = Buffer.from(originalFileName, 'utf8').toString('utf8');
       
       const params = {
         Bucket: s3Config.bucketName,
         Key: key,
         Body: file.buffer,
         ContentType: file.mimetype,
-        ContentDisposition: `attachment; filename*=UTF-8''${encodeRFC5987(fileName)}`,
+        ContentDisposition: `attachment; filename*=UTF-8''${encodeRFC5987(utf8FileName)}`,
         Metadata: {
-          'original-name': Buffer.from(file.originalname, 'utf8').toString('base64'),
+          'original-name': Buffer.from(file.originalname || originalFileName, 'utf8').toString('base64'),
           'upload-date': new Date().toISOString(),
           'course-name': Buffer.from(courseName, 'utf8').toString('base64'),
           'lesson-name': Buffer.from(lessonName, 'utf8').toString('base64')

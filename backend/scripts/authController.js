@@ -82,9 +82,14 @@ const adminLogin = async (username, password) => {
       };
     }
 
+    // ロールを数値型に変換（データベースから文字列型で取得される可能性があるため）
+    const adminRole = parseInt(admin.role, 10);
+    console.log('Admin role (raw):', admin.role, 'type:', typeof admin.role);
+    console.log('Admin role (parsed):', adminRole, 'type:', typeof adminRole);
+
     // 拠点管理者判定: ロール4の場合は拠点管理者かどうかをチェック
-    let effectiveRole = admin.role;
-    if (admin.role === 4) {
+    let effectiveRole = adminRole;
+    if (adminRole === 4) {
       // ユーザーの所属拠点を取得
       const [userRows] = await connection.execute(`
         SELECT satellite_ids
@@ -132,7 +137,7 @@ const adminLogin = async (username, password) => {
             });
 
             if (isManager) {
-              console.log(`拠点管理者としてロールを更新: user_id=${admin.user_id}, role=${admin.role} → 5`);
+              console.log(`拠点管理者としてロールを更新: user_id=${admin.user_id}, role=${adminRole} → 5`);
               effectiveRole = 5;
               break;
             }
@@ -161,12 +166,16 @@ const adminLogin = async (username, password) => {
     await saveRefreshToken(admin.user_id, refreshToken);
 
     // レスポンスデータ（パスワードハッシュは除外）
+    // effectiveRoleが数値型であることを確認
+    const finalRole = typeof effectiveRole === 'number' ? effectiveRole : parseInt(effectiveRole, 10);
+    console.log('Admin login: 最終ロール:', finalRole, 'type:', typeof finalRole);
+    
     const responseData = {
       user_id: admin.user_id,
       user_name: admin.user_name,
       email: admin.email,
       login_code: admin.login_code,
-      role: effectiveRole, // 有効なロールを使用
+      role: finalRole, // 有効なロールを使用（数値型を保証）
       company_id: admin.company_id,
       company_name: admin.company_name,
       password_reset_required: admin.password_reset_required === 1,
