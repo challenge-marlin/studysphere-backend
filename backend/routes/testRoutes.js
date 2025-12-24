@@ -22,11 +22,25 @@ router.post('/courses', createCourse);
 router.get('/courses', getCourses);
 
 // テキスト抽出API（テスト生成用）
-router.get('/learning/extract-text/:s3Key', async (req, res) => {
+// URLパスパラメータとクエリパラメータの両方をサポート（後方互換性のため）
+router.get('/learning/extract-text/:s3Key?', async (req, res) => {
   try {
-    const { s3Key } = req.params;
+    // クエリパラメータを優先、なければパスパラメータを使用
+    const s3Key = req.query.s3Key || req.params.s3Key;
     
-    console.log('テキスト抽出リクエスト:', { s3Key });
+    if (!s3Key) {
+      return res.status(400).json({
+        success: false,
+        message: 's3Keyパラメータが指定されていません'
+      });
+    }
+    
+    console.log('テキスト抽出リクエスト:', { 
+      s3Key,
+      source: req.query.s3Key ? 'query' : 'path',
+      query: req.query.s3Key,
+      params: req.params.s3Key
+    });
     
     // 実際のPDFテキスト抽出APIを呼び出し
     const { s3, s3Utils } = require('../config/s3');
@@ -1545,6 +1559,1010 @@ router.get('/learning/exam-result-detail', authenticateToken, async (req, res) =
       success: false,
       message: '試験結果の取得に失敗しました: ' + error.message
     });
+  }
+});
+
+// findjob用: personality_resultsとtest_resultsを保存するエンドポイント
+router.post('/findjob/save-results', async (req, res) => {
+  try {
+    const { token, type, resultUrl, personalityData, questionnaireData, timestamp } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザー情報を取得
+      const [users] = await connection.execute(
+        'SELECT id, company_id FROM user_accounts WHERE login_code = ?',
+        [token]
+      );
+
+      if (!users.length) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+
+      const userId = users[0].id;
+      const companyId = users[0].company_id;
+
+      // test_resultsを保存
+      if (type && resultUrl) {
+        await connection.execute(
+          'INSERT INTO test_results (user_id, type, result_url) VALUES (?, ?, ?)',
+          [userId, type, resultUrl]
+        );
+      }
+
+      // personality_resultsを保存
+      if (personalityData) {
+        const formattedTimestamp = timestamp 
+          ? new Date(timestamp).toISOString().replace("T", " ").replace(/\.\d+Z$/, "")
+          : new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+
+        await connection.execute(
+          `INSERT INTO personality_results (
+            user_id, company_id, timestamp,
+            conscientiousness, agreeableness,
+            emotional_stability, extraversion, openness
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            company_id = VALUES(company_id),
+            timestamp = VALUES(timestamp),
+            conscientiousness = VALUES(conscientiousness),
+            agreeableness = VALUES(agreeableness),
+            emotional_stability = VALUES(emotional_stability),
+            extraversion = VALUES(extraversion),
+            openness = VALUES(openness)
+          `,
+          [
+            userId,
+            companyId,
+            formattedTimestamp,
+            personalityData["誠実性"] || 0,
+            personalityData["協調性"] || 0,
+            personalityData["情緒安定性"] || personalityData["神経症傾向"] || 0,
+            personalityData["外向性"] || 0,
+            personalityData["開放性"] || 0
+          ]
+        );
+      }
+
+      // questionnaire_resultsを保存
+      if (questionnaireData) {
+        const formattedTimestamp = timestamp 
+          ? new Date(timestamp).toISOString().replace("T", " ").replace(/\.\d+Z$/, "")
+          : new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+
+        await connection.execute(
+          `INSERT INTO questionnaire_results (
+            user_id, company_id, timestamp,
+            realistic, investigative, artistic,
+            social, enterprising, conventional
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            company_id = VALUES(company_id),
+            timestamp = VALUES(timestamp),
+            realistic = VALUES(realistic),
+            investigative = VALUES(investigative),
+            artistic = VALUES(artistic),
+            social = VALUES(social),
+            enterprising = VALUES(enterprising),
+            conventional = VALUES(conventional)
+          `,
+          [
+            userId,
+            companyId,
+            formattedTimestamp,
+            questionnaireData["現実的"] || 0,
+            questionnaireData["研究的"] || 0,
+            questionnaireData["芸術的"] || 0,
+            questionnaireData["社会的"] || 0,
+            questionnaireData["企業的"] || 0,
+            questionnaireData["慣習的"] || 0
+          ]
+        );
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'データの保存に成功しました'
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('findjob 結果保存エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'データの保存に失敗しました: ' + error.message
+    });
+  }
+});
+
+// findjob用: テスト結果の存在確認エンドポイント
+router.post('/findjob/check-attended', async (req, res) => {
+  try {
+    const { loginCode, type } = req.body;
+
+    if (!loginCode || !type) {
+      return res.status(400).json({
+        exists: false,
+        message: 'loginCodeとtypeの両方が必要です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザー情報を取得
+      const [userRows] = await connection.execute(
+        'SELECT id FROM user_accounts WHERE login_code = ?',
+        [loginCode]
+      );
+
+      if (userRows.length === 0) {
+        return res.status(200).json({
+          exists: false
+        });
+      }
+
+      const userId = userRows[0].id;
+
+      // テスト結果の存在確認
+      const [resultRows] = await connection.execute(
+        'SELECT 1 FROM test_results WHERE user_id = ? AND type = ? LIMIT 1',
+        [userId, type]
+      );
+
+      return res.status(200).json({
+        exists: resultRows.length > 0
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('findjob check-attended エラー:', error);
+    res.status(500).json({
+      exists: false,
+      message: 'エラーが発生しました: ' + error.message
+    });
+  }
+});
+
+// findjob用: GATB結果を保存するエンドポイント
+router.post('/findjob/save-gatb-results', async (req, res) => {
+  try {
+    const { token, resultUrl, gatbData, grade } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    if (!gatbData || !gatbData.scores) {
+      return res.status(400).json({
+        success: false,
+        message: 'GATBデータが不正です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザー情報を取得
+      const [users] = await connection.execute(
+        'SELECT id FROM user_accounts WHERE login_code = ?',
+        [token]
+      );
+
+      if (!users.length) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+
+      const userId = users[0].id;
+
+      // test_resultsを保存
+      if (resultUrl) {
+        await connection.execute(
+          `INSERT INTO test_results (user_id, type, result_url) VALUES (?, 'GATB', ?) 
+           ON DUPLICATE KEY UPDATE result_url = VALUES(result_url), updated_at = NOW()`,
+          [userId, resultUrl]
+        );
+      }
+
+      // gatb_resultsを保存
+      const scores = gatbData.scores;
+      const gradeValue = grade || 'その他';
+      
+      console.log('GATB結果保存データ:', {
+        userId,
+        scores,
+        gradeValue,
+        scoreG: scores?.G,
+        scoreV: scores?.V,
+        scoreN: scores?.N,
+        scoreQ: scores?.Q,
+        scoreS: scores?.S,
+        scoreP: scores?.P
+      });
+      
+      const insertParams = [
+        userId,
+        scores?.G || 0,
+        scores?.V || 0,
+        scores?.N || 0,
+        scores?.Q || 0,
+        scores?.S || 0,
+        scores?.P || 0,
+        gradeValue
+      ];
+      
+      console.log('GATB結果INSERTパラメータ:', insertParams);
+      
+      await connection.execute(
+        `INSERT INTO gatb_results
+          (user_id, score_g, score_v, score_n, score_q, score_s, score_p, grade)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          score_g = VALUES(score_g),
+          score_v = VALUES(score_v),
+          score_n = VALUES(score_n),
+          score_q = VALUES(score_q),
+          score_s = VALUES(score_s),
+          score_p = VALUES(score_p),
+          grade = VALUES(grade),
+          updated_at = CURRENT_TIMESTAMP
+        `,
+        insertParams
+      );
+      
+      console.log('GATB結果の保存に成功しました');
+
+      return res.status(200).json({
+        success: true,
+        message: 'GATB結果の保存に成功しました'
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('findjob save-gatb-results エラー:', error);
+    console.error('エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
+    res.status(500).json({
+      success: false,
+      message: 'GATB結果の保存に失敗しました: ' + error.message,
+      errorDetail: process.env.NODE_ENV === 'development' ? {
+        name: error.name,
+        message: error.message,
+        code: error.code,
+        sqlState: error.sqlState
+      } : undefined
+    });
+  }
+});
+
+// findjob用: コンサルタント結果を保存するエンドポイント
+router.post('/findjob/save-consultant-results', async (req, res) => {
+  try {
+    const { token, resultUrl } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    if (!resultUrl) {
+      return res.status(400).json({
+        success: false,
+        message: 'resultUrlが未入力です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザー情報を取得
+      const [users] = await connection.execute(
+        'SELECT id FROM user_accounts WHERE login_code = ?',
+        [token]
+      );
+
+      if (!users.length) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+
+      const userId = users[0].id;
+
+      // test_resultsを保存
+      await connection.execute(
+        `INSERT INTO test_results (user_id, type, result_url) VALUES (?, 'consultant', ?)`,
+        [userId, resultUrl]
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'コンサルタント結果の保存に成功しました'
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('findjob save-consultant-results エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: 'コンサルタント結果の保存に失敗しました: ' + error.message
+    });
+  }
+});
+
+// findjob用: コンサルタント結果を取得するエンドポイント
+router.post('/findjob/get-consultant-data', async (req, res) => {
+  try {
+    const { loginCode } = req.body;
+
+    if (!loginCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'loginCodeが未入力です'
+      });
+    }
+
+    const connection = await pool.getConnection();
+    
+    try {
+      // ユーザー情報取得
+      const [userRows] = await connection.execute(
+        "SELECT id, name, role, company_id FROM user_accounts WHERE login_code = ?",
+        [loginCode]
+      );
+
+      if (userRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
+      }
+
+      const user = userRows[0];
+      const userId = user.id;
+
+      // GATBスコア取得
+      const [gatbRows] = await connection.execute(
+        "SELECT score_g, score_v, score_n, score_q, score_s, score_p, grade FROM gatb_results WHERE user_id = ?",
+        [userId]
+      );
+
+      if (gatbRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'GATB結果が見つかりません'
+        });
+      }
+
+      const gatb = gatbRows[0];
+
+      // 興味スコア取得
+      const [questionnaireRows] = await connection.execute(
+        `SELECT realistic, investigative, artistic, social, enterprising, conventional 
+         FROM questionnaire_results 
+         WHERE user_id = ?`,
+        [userId]
+      );
+
+      if (questionnaireRows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: '興味診断結果が見つかりません'
+        });
+      }
+
+      const normalizedScores = questionnaireRows[0];
+
+      // GATB ラベル付きに整形
+      const judgement = {
+        G: gatb.score_g,
+        V: gatb.score_v,
+        N: gatb.score_n,
+        Q: gatb.score_q,
+        S: gatb.score_s,
+        P: gatb.score_p
+      };
+
+      // 返却データ
+      const result = {
+        normalizedScores,
+        judgement,
+        userInfo: {
+          name: user.name,
+          grade: gatb.grade
+        },
+      };
+
+      return res.status(200).json({
+        success: true,
+        data: result
+      });
+
+    } finally {
+      connection.release();
+    }
+
+  } catch (error) {
+    console.error('findjob get-consultant-data エラー:', error);
+    console.error('エラー詳細:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState
+    });
+    res.status(500).json({
+      success: false,
+      message: 'データの取得に失敗しました: ' + error.message,
+      errorDetail: process.env.NODE_ENV === 'development' ? {
+        name: error.name,
+        message: error.message,
+        code: error.code
+      } : undefined
+    });
+  }
+});
+
+// findjob用: 企業リスト取得（ロール9用）
+router.post('/findjob/list-companies', async (req, res) => {
+  let connection;
+  try {
+    console.log('[findjob/list-companies] リクエスト受信:', {
+      body: { ...req.body, token: req.body.token ? '***' : undefined },
+      timestamp: new Date().toISOString()
+    });
+
+    const { token } = req.body;
+
+    if (!token) {
+      console.warn('[findjob/list-companies] トークンが未入力');
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    console.log('[findjob/list-companies] データベース接続開始');
+    connection = await pool.getConnection();
+    console.log('[findjob/list-companies] データベース接続成功');
+
+    // ユーザー認証と権限チェック
+    console.log('[findjob/list-companies] ユーザー認証開始');
+    const [userRows] = await connection.execute(
+      `SELECT id, role FROM user_accounts WHERE login_code = ? AND status = 1`,
+      [token]
+    );
+    console.log('[findjob/list-companies] ユーザー認証結果:', {
+      found: userRows.length > 0,
+      userId: userRows.length > 0 ? userRows[0].id : null,
+      role: userRows.length > 0 ? userRows[0].role : null
+    });
+
+    if (userRows.length === 0) {
+      console.warn('[findjob/list-companies] 認証失敗: ユーザーが見つかりません');
+      return res.status(403).json({
+        success: false,
+        message: '認証に失敗しました'
+      });
+    }
+
+    const user = userRows[0];
+
+    if (user.role !== 9) {
+      console.warn('[findjob/list-companies] 権限不足:', { userId: user.id, role: user.role });
+      return res.status(403).json({
+        success: false,
+        message: 'アドミン権限が必要です'
+      });
+    }
+
+    // 企業リストを取得
+    console.log('[findjob/list-companies] 企業リスト取得開始');
+    const [companies] = await connection.execute(
+      `SELECT id, name FROM companies ORDER BY name`
+    );
+    console.log('[findjob/list-companies] 企業リスト取得成功:', {
+      count: companies.length
+    });
+
+    return res.status(200).json({
+      success: true,
+      companies: companies
+    });
+
+  } catch (error) {
+    console.error('[findjob/list-companies] エラー発生:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState
+    });
+    res.status(500).json({
+      success: false,
+      message: '企業リストの取得に失敗しました: ' + error.message,
+      error: process.env.NODE_ENV === 'development' ? {
+        code: error.code,
+        errno: error.errno,
+        sqlState: error.sqlState
+      } : undefined
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+      console.log('[findjob/list-companies] データベース接続解放');
+    }
+  }
+});
+
+// findjob用: 拠点リスト取得（ロール9用、企業選択時）
+router.post('/findjob/list-satellites', async (req, res) => {
+  let connection;
+  try {
+    const { token, companyId } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: '企業IDが必要です'
+      });
+    }
+
+    connection = await pool.getConnection();
+
+    // ユーザー認証と権限チェック
+    const [userRows] = await connection.execute(
+      `SELECT id, role FROM user_accounts WHERE login_code = ? AND status = 1`,
+      [token]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: '認証に失敗しました'
+      });
+    }
+
+    const user = userRows[0];
+
+    if (user.role !== 9) {
+      return res.status(403).json({
+        success: false,
+        message: 'アドミン権限が必要です'
+      });
+    }
+
+    // 拠点リストを取得
+    const [satellites] = await connection.execute(
+      `SELECT id, name FROM satellites WHERE company_id = ? AND status = 1 ORDER BY name`,
+      [companyId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      satellites: satellites
+    });
+
+  } catch (error) {
+    console.error('findjob list-satellites エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '拠点リストの取得に失敗しました: ' + error.message
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// findjob用: 所属拠点リスト取得（ロール4用）
+router.post('/findjob/get-user-satellites', async (req, res) => {
+  let connection;
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    connection = await pool.getConnection();
+
+    // ユーザー認証と権限チェック
+    const [userRows] = await connection.execute(
+      `SELECT id, role, satellite_ids FROM user_accounts WHERE login_code = ? AND status = 1`,
+      [token]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: '認証に失敗しました'
+      });
+    }
+
+    const user = userRows[0];
+
+    if (user.role !== 4) {
+      return res.status(403).json({
+        success: false,
+        message: '指導員権限が必要です'
+      });
+    }
+
+    // ユーザーのsatellite_idsを取得
+    let satelliteIds = [];
+    if (user.satellite_ids) {
+      try {
+        if (typeof user.satellite_ids === 'string') {
+          satelliteIds = JSON.parse(user.satellite_ids);
+        } else if (Array.isArray(user.satellite_ids)) {
+          satelliteIds = user.satellite_ids;
+        }
+      } catch (error) {
+        console.error('satellite_idsのパースエラー:', error);
+      }
+    }
+
+    if (satelliteIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        satellites: []
+      });
+    }
+
+    // 拠点情報を取得
+    const placeholders = satelliteIds.map(() => '?').join(',');
+    const [satellites] = await connection.execute(
+      `SELECT id, name FROM satellites WHERE id IN (${placeholders}) AND status = 1 ORDER BY name`,
+      satelliteIds
+    );
+
+    return res.status(200).json({
+      success: true,
+      satellites: satellites
+    });
+
+  } catch (error) {
+    console.error('findjob get-user-satellites エラー:', error);
+    res.status(500).json({
+      success: false,
+      message: '所属拠点リストの取得に失敗しました: ' + error.message
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+// findjob用: テスト結果取得（管理者用）
+router.post('/findjob/fetch-admin-results', async (req, res) => {
+  let connection;
+  try {
+    console.log('[findjob/fetch-admin-results] リクエスト受信:', {
+      body: { ...req.body, token: req.body.token ? '***' : undefined },
+      timestamp: new Date().toISOString()
+    });
+
+    const { token, companyId, satelliteId, targetId } = req.body;
+
+    if (!token) {
+      console.warn('[findjob/fetch-admin-results] トークンが未入力');
+      return res.status(400).json({
+        success: false,
+        message: 'トークンが未入力です'
+      });
+    }
+
+    console.log('[findjob/fetch-admin-results] データベース接続開始');
+    connection = await pool.getConnection();
+    console.log('[findjob/fetch-admin-results] データベース接続成功');
+
+    // ユーザー認証と権限チェック
+    console.log('[findjob/fetch-admin-results] ユーザー認証開始');
+    const [userRows] = await connection.execute(
+      `SELECT id, role, company_id, satellite_ids FROM user_accounts WHERE login_code = ? AND status = 1`,
+      [token]
+    );
+    console.log('[findjob/fetch-admin-results] ユーザー認証結果:', {
+      found: userRows.length > 0,
+      userId: userRows.length > 0 ? userRows[0].id : null,
+      role: userRows.length > 0 ? userRows[0].role : null,
+      satellite_ids: userRows.length > 0 ? (userRows[0].satellite_ids ? '***' : null) : null
+    });
+
+    if (userRows.length === 0) {
+      console.warn('[findjob/fetch-admin-results] 認証失敗: ユーザーが見つかりません');
+      return res.status(403).json({
+        success: false,
+        message: '認証に失敗しました'
+      });
+    }
+
+    const authUser = userRows[0];
+
+    // ロール4以上のみアクセス可能
+    if (authUser.role < 4) {
+      return res.status(403).json({
+        success: false,
+        message: '権限がありません'
+      });
+    }
+
+    let query;
+    let params = [];
+
+    // ロール9の場合
+    if (authUser.role === 9) {
+      if (satelliteId) {
+        // 拠点IDでフィルタリング
+        // satellite_idsが有効なJSON値であることを確認してから使用
+        query = `
+          SELECT u.name, r.type, r.result_url, r.updated_at
+          FROM test_results r
+          JOIN user_accounts u ON r.user_id = u.id
+          WHERE u.status = 1 AND u.role = 1
+            AND u.satellite_ids IS NOT NULL
+            AND u.satellite_ids != ''
+            AND u.satellite_ids != 'null'
+            AND u.satellite_ids != '[]'
+            AND JSON_VALID(u.satellite_ids) = 1
+            AND (
+              JSON_CONTAINS(u.satellite_ids, JSON_QUOTE(CAST(? AS CHAR)))
+              OR JSON_CONTAINS(u.satellite_ids, CAST(? AS JSON))
+              OR JSON_SEARCH(u.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
+        `;
+        params = [satelliteId, satelliteId, satelliteId];
+      } else if (companyId) {
+        // 企業IDでフィルタリング
+        query = `
+          SELECT u.name, r.type, r.result_url, r.updated_at
+          FROM test_results r
+          JOIN user_accounts u ON r.user_id = u.id
+          WHERE u.company_id = ? AND u.status = 1 AND u.role = 1
+        `;
+        params = [companyId];
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: '企業IDまたは拠点IDが必要です'
+        });
+      }
+    }
+    // ロール4の場合
+    else if (authUser.role === 4) {
+      if (satelliteId) {
+        // 選択した拠点IDでフィルタリング
+        // satellite_idsが有効なJSON値であることを確認してから使用
+        query = `
+          SELECT u.name, r.type, r.result_url, r.updated_at
+          FROM test_results r
+          JOIN user_accounts u ON r.user_id = u.id
+          WHERE u.status = 1 AND u.role = 1
+            AND u.satellite_ids IS NOT NULL
+            AND u.satellite_ids != ''
+            AND u.satellite_ids != 'null'
+            AND u.satellite_ids != '[]'
+            AND JSON_VALID(u.satellite_ids) = 1
+            AND (
+              JSON_CONTAINS(u.satellite_ids, JSON_QUOTE(CAST(? AS CHAR)))
+              OR JSON_CONTAINS(u.satellite_ids, CAST(? AS JSON))
+              OR JSON_SEARCH(u.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+            )
+        `;
+        params = [satelliteId, satelliteId, satelliteId];
+      } else {
+        // ユーザーの所属拠点すべてから取得
+        let userSatelliteIds = [];
+        if (authUser.satellite_ids) {
+          try {
+            if (typeof authUser.satellite_ids === 'string') {
+              // 無効なJSON値の場合はスキップ
+              if (authUser.satellite_ids.trim() === '' || 
+                  authUser.satellite_ids.trim() === 'null' || 
+                  authUser.satellite_ids.trim() === '[]') {
+                userSatelliteIds = [];
+              } else {
+                userSatelliteIds = JSON.parse(authUser.satellite_ids);
+              }
+            } else if (Array.isArray(authUser.satellite_ids)) {
+              userSatelliteIds = authUser.satellite_ids;
+            }
+          } catch (error) {
+            console.error('satellite_idsのパースエラー:', error, '値:', authUser.satellite_ids);
+            userSatelliteIds = [];
+          }
+        }
+
+        if (userSatelliteIds.length === 0) {
+          return res.status(200).json({
+            success: true,
+            results: []
+          });
+        }
+
+        // 所属拠点のいずれかに所属するユーザーの結果を取得
+        // satellite_idsが有効なJSON値であることを確認してから使用
+        // JSON_QUOTE、CAST(? AS JSON)、JSON_SEARCHの3つの方法でチェック（文字列・数値の両方に対応）
+        const satelliteConditions = userSatelliteIds.map(() => 
+          `(u.satellite_ids IS NOT NULL 
+            AND u.satellite_ids != '' 
+            AND u.satellite_ids != 'null' 
+            AND u.satellite_ids != '[]'
+            AND JSON_VALID(u.satellite_ids) = 1
+            AND (
+              JSON_CONTAINS(u.satellite_ids, JSON_QUOTE(CAST(? AS CHAR)))
+              OR JSON_CONTAINS(u.satellite_ids, CAST(? AS JSON))
+              OR JSON_SEARCH(u.satellite_ids, 'one', CAST(? AS CHAR)) IS NOT NULL
+            ))`
+        ).join(' OR ');
+        
+        query = `
+          SELECT u.name, r.type, r.result_url, r.updated_at
+          FROM test_results r
+          JOIN user_accounts u ON r.user_id = u.id
+          WHERE u.status = 1 AND u.role = 1
+            AND (${satelliteConditions})
+        `;
+        // 各拠点IDを3回（JSON_QUOTE、CAST(? AS JSON)、JSON_SEARCH用）追加
+        params = userSatelliteIds.flatMap(id => [id, id, id]);
+      }
+    }
+    // その他のロール（ロール5-8など）
+    else {
+      // 企業IDでフィルタリング
+      const targetCompanyId = companyId || authUser.company_id;
+      if (!targetCompanyId) {
+        return res.status(400).json({
+          success: false,
+          message: '企業IDが必要です'
+        });
+      }
+
+      query = `
+        SELECT u.name, r.type, r.result_url, r.updated_at
+        FROM test_results r
+        JOIN user_accounts u ON r.user_id = u.id
+        WHERE u.company_id = ? AND u.status = 1 AND u.role = 1
+      `;
+      params = [targetCompanyId];
+    }
+
+    console.log('[findjob/fetch-admin-results] クエリ実行:', {
+      query: query.substring(0, 100) + '...',
+      paramsCount: params.length
+    });
+    const [results] = await connection.execute(query, params);
+    console.log('[findjob/fetch-admin-results] クエリ結果:', {
+      count: results.length
+    });
+
+    // 結果をグループ化（署名付きURLの生成はLambda関数で行うため、ここでは元のURLをそのまま返す）
+    // type情報も含めて返す（Lambda関数で正しいS3キーを推測するため）
+    const grouped = {};
+    for (const row of results) {
+      if (!grouped[row.name]) {
+        grouped[row.name] = {
+          name: row.name,
+          updated: row.updated_at,
+          signedUrls: {
+            calling: null,
+            GATB: null,
+            personal: null,
+            consultant: null,
+          },
+          // type情報を保持（各URLに対応するtypeを記録）
+          urlTypes: {
+            calling: null,
+            GATB: null,
+            personal: null,
+            consultant: null,
+          },
+        };
+      }
+      
+      // typeに応じてsignedUrlsを設定（元のresult_urlをそのまま設定）
+      const typeMap = {
+        'calling': 'calling',
+        'gatb': 'GATB',
+        'personal': 'personal',
+        'consultant': 'consultant',
+      };
+      
+      const urlKey = typeMap[row.type] || row.type;
+      if (urlKey && grouped[row.name].signedUrls.hasOwnProperty(urlKey)) {
+        grouped[row.name].signedUrls[urlKey] = row.result_url;
+        // type情報も保存（データベースのtypeをそのまま保存）
+        grouped[row.name].urlTypes[urlKey] = row.type;
+      }
+
+      // 最新の更新日時を保持
+      if (new Date(row.updated_at) > new Date(grouped[row.name].updated)) {
+        grouped[row.name].updated = row.updated_at;
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      results: Object.values(grouped)
+    });
+
+  } catch (error) {
+    console.error('[findjob/fetch-admin-results] エラー発生:', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      sqlMessage: error.sqlMessage
+    });
+    res.status(500).json({
+      success: false,
+      message: 'テスト結果の取得に失敗しました: ' + error.message,
+      error: process.env.NODE_ENV === 'development' ? {
+        code: error.code,
+        errno: error.errno,
+        sqlState: error.sqlState,
+        sqlMessage: error.sqlMessage
+      } : undefined
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+      console.log('[findjob/fetch-admin-results] データベース接続解放');
+    }
   }
 });
 

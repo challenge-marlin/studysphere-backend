@@ -94,12 +94,29 @@ const getSubscriptionsForUser = async (userId) => {
   if (!isConfigured) {
     return [];
   }
+  
+  // ユーザーIDの検証
+  if (!userId || (typeof userId !== 'number' && typeof userId !== 'string')) {
+    console.error('Invalid userId provided to getSubscriptionsForUser:', userId);
+    return [];
+  }
+  
   await ensureSubscriptionTable();
+  
+  // 指定されたユーザーIDのサブスクリプションのみを取得（他のユーザーには送信しない）
   const [rows] = await pool.execute(
     'SELECT id, endpoint, p256dh, auth FROM user_push_subscriptions WHERE user_id = ?',
     [userId],
   );
-  return rows || [];
+  
+  // 取得したサブスクリプションが指定されたユーザーIDに紐づいていることを確認
+  const validRows = (rows || []).filter(row => {
+    // データベースから取得した行は既にWHERE user_id = ?でフィルタリング済み
+    // ここでは型チェックのみ実施
+    return row && row.endpoint && row.p256dh && row.auth;
+  });
+  
+  return validRows;
 };
 
 const removeSubscriptionById = async (id) => {
@@ -115,8 +132,28 @@ const sendPushNotificationToUser = async (userId, payload) => {
     return;
   }
 
+  // ユーザーIDの検証
+  if (!userId || typeof userId !== 'number' && typeof userId !== 'string') {
+    console.error('Invalid userId provided to sendPushNotificationToUser:', userId);
+    return;
+  }
+
+  // 指定されたユーザーIDのサブスクリプションのみを取得
   const subscriptions = await getSubscriptionsForUser(userId);
   if (!subscriptions.length) {
+    return;
+  }
+
+  // サブスクリプションが正しいユーザーIDに紐づいていることを確認
+  // （getSubscriptionsForUserは既にWHERE user_id = ?でフィルタリングしているが、念のため再確認）
+  const validSubscriptions = subscriptions.filter(sub => {
+    // データベースから取得したサブスクリプションは既にフィルタリング済み
+    // ここでは型チェックのみ実施
+    return sub && sub.endpoint && sub.p256dh && sub.auth;
+  });
+
+  if (!validSubscriptions.length) {
+    console.warn('No valid subscriptions found for user:', userId);
     return;
   }
 
@@ -126,7 +163,8 @@ const sendPushNotificationToUser = async (userId, payload) => {
     url: payload.url || '/',
   });
 
-  await Promise.all(subscriptions.map(async (subscription) => {
+  // 指定されたユーザーIDのサブスクリプションに対してのみ通知を送信
+  await Promise.all(validSubscriptions.map(async (subscription) => {
     const pushSubscription = {
       endpoint: subscription.endpoint,
       keys: {

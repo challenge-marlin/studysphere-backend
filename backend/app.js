@@ -214,6 +214,7 @@ const learningRoutes = require('./routes/learningRoutes');
 const submissionRoutes = require('./routes/submissionRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
 const usernameValidationRoutes = require('./routes/usernameValidationRoutes');
+const ssoRoutes = require('./routes/ssoRoutes');
 const weeklyEvaluationRoutes = loadOptionalRoute('./routes/weeklyEvaluationRoutes', '週次評価');
 const weeklyEvaluationAIAssistRoutes = loadOptionalRoute('./routes/weeklyEvaluationAIAssistRoutes', '週次評価(AIアシスト)');
 const monthlyEvaluationRoutes = loadOptionalRoute('./routes/monthlyEvaluationRoutes', '月次評価');
@@ -260,12 +261,20 @@ const isDevelopment = process.env.NODE_ENV !== 'production' ||
 const allowedOrigins = isDevelopment
   ? [
       'https://studysphere.ayatori-inc.co.jp', // 本番環境（開発中でも本番にアクセス可能）
+      'https://curriculum.myou-kou.com',       // findjob関連
+      'https://curriculum-test.myou-kou.com',  // findjob関連（テスト環境）
+      'https://findjob.myou-kou.com',          // findjob本番環境
       'http://localhost:3000',                  // 開発環境（localhost）
       'http://127.0.0.1:3000',                  // 開発環境（127.0.0.1）
       'http://localhost:3001',                  // その他の開発ポート
       'http://127.0.0.1:3001'                    // その他の開発ポート
     ]
-  : ['https://studysphere.ayatori-inc.co.jp'];
+  : [
+      'https://studysphere.ayatori-inc.co.jp',
+      'https://curriculum.myou-kou.com',
+      'https://curriculum-test.myou-kou.com',
+      'https://findjob.myou-kou.com'
+    ];
 
 console.log('=== CORS設定デバッグ ===');
 console.log('NODE_ENV:', process.env.NODE_ENV);
@@ -436,6 +445,7 @@ app.use('/api/monthly-evaluation-ai', monthlyEvaluationAIAssistRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/username', usernameValidationRoutes);
+app.use('/api/sso', ssoRoutes);
 // AIルートの条件付きマウント
 if (aiRoutes) {
   app.use('/api/ai', aiRoutes);
@@ -595,6 +605,27 @@ app.use((err, req, res, next) => {
 });
 
 // 起動時のログ出力
+// SSOチケットクリーンアップの定期実行設定（日本時間24:30 = 午前0時30分）
+const cron = require('node-cron');
+const { cleanupExpiredTickets } = require('./scripts/ssoController');
+
+// 日本時間の24:30（午前0時30分）に期限切れチケットを削除
+// cron式: 30 0 * * * (毎日0時30分) を日本時間で実行
+cron.schedule('30 0 * * *', async () => {
+  try {
+    console.log('[SSO Cleanup] 期限切れチケットのクリーンアップを開始します...');
+    const deletedCount = await cleanupExpiredTickets();
+    console.log(`[SSO Cleanup] クリーンアップ完了: ${deletedCount}件のチケットを削除しました`);
+  } catch (error) {
+    console.error('[SSO Cleanup] クリーンアップエラー:', error);
+  }
+}, {
+  scheduled: true,
+  timezone: 'Asia/Tokyo'
+});
+
+console.log('[SSO Cleanup] 定期クリーンアップジョブを登録しました（日本時間 毎日0時30分実行）');
+
 console.log('=== StudySphere Backend Starting ===');
 console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('Timestamp:', new Date().toISOString());

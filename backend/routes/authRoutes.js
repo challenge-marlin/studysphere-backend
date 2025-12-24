@@ -2,16 +2,259 @@ const express = require('express');
 const { loginValidation, handleValidationErrors } = require('../middleware/validation');
 const { adminLogin, instructorLogin, getUserCompaniesAndSatellites, getUserCompanySatelliteInfo, refreshToken, logout, restoreMasterUser, setSatelliteManager, reauthenticateForSatellite } = require('../scripts/authController');
 const { authenticateToken } = require('../middleware/auth');
+const { pool } = require('../utils/database');
 
 const router = express.Router();
 
-router.post('/login', loginValidation, handleValidationErrors, async (req, res) => {
+router.post('/login', async (req, res) => {
+  // リクエストボディのデバッグログ
+  console.log('=== /api/login リクエスト受信 ===');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  console.log('Content-Type:', req.headers['content-type']);
+  console.log('Action:', req.body?.action);
+  console.log('Token:', req.body?.token ? 'あり' : 'なし');
+  console.log('Request body keys:', Object.keys(req.body || {}));
+  
+  // findjob用のログインコード検証（action: "validate-token"の場合）
+  // このチェックを最初に実行することで、通常のログインバリデーションをスキップ
+  // action フィールドが存在し、値が 'validate-token' の場合のみ処理
+  if (req.body && typeof req.body === 'object' && req.body.action === 'validate-token') {
+    console.log('✅ findjob トークン検証モード - 通常のログインバリデーションをスキップ');
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({
+          valid: false,
+          message: 'トークンが未入力です'
+        });
+      }
+
+      const connection = await pool.getConnection();
+
+      try {
+        // ユーザー情報と企業情報、拠点情報を取得
+        // token_expiry_atはsatellitesテーブルにあるため、JOINで取得
+        // ユーザーが所属する拠点（satellite_ids）の有効期限を確認
+        const [rows] = await connection.execute(
+          `SELECT 
+            u.id,
+            u.name, 
+            u.role, 
+            u.status, 
+            u.company_id, 
+            u.login_code,
+            u.satellite_ids,
+            COALESCE(c.name, 'システム管理者') AS company_name,
+            MIN(s.token_expiry_at) AS token_expiry_at
+           FROM user_accounts u
+           LEFT JOIN companies c ON u.company_id = c.id
+           LEFT JOIN satellites s ON (
+             s.status = 1
+             AND (
+               -- ユーザーが所属する拠点を確認（satellite_idsがJSON配列の場合）
+               (u.satellite_ids IS NOT NULL AND u.satellite_ids != 'null' AND u.satellite_ids != '[]' AND (
+                 JSON_CONTAINS(u.satellite_ids, CAST(s.id AS JSON)) OR
+                 JSON_SEARCH(u.satellite_ids, 'one', CAST(s.id AS CHAR)) IS NOT NULL
+               ))
+               OR
+               -- ユーザーが企業に所属している場合、企業のすべての拠点を確認（company_idがNULLでない場合のみ）
+               ((u.satellite_ids IS NULL OR u.satellite_ids = 'null' OR u.satellite_ids = '[]')
+                AND u.company_id IS NOT NULL)
+             )
+             AND (u.company_id IS NULL OR s.company_id = u.company_id)
+             AND (s.token_expiry_at > NOW() OR s.token_expiry_at IS NULL)
+           )
+           WHERE u.login_code = ?
+           GROUP BY u.id, u.name, u.role, u.status, u.company_id, u.login_code, u.satellite_ids, c.name`,
+          [token]
+        );
+
+        if (rows.length === 0) {
+          return res.status(404).json({
+            valid: false,
+            message: 'このトークンは存在しません'
+          });
+        }
+
+        const user = rows[0];
+
+        // ユーザーステータスチェック
+        if (user.status !== 1) {
+          return res.status(403).json({
+            valid: false,
+            message: 'このトークンは停止中です'
+          });
+        }
+
+        // 有効期限チェック（satellitesテーブルから取得した有効期限を使用）
+        if (user.token_expiry_at) {
+          const now = new Date();
+          const expiry = new Date(user.token_expiry_at);
+          if (now > expiry) {
+            return res.status(403).json({
+              valid: false,
+              message: 'このトークンは有効期限切れです'
+            });
+          }
+        }
+
+        // ユーザーが所属する拠点名を取得
+        let locationNames = [];
+        if (user.satellite_ids) {
+          try {
+            const satelliteIds = typeof user.satellite_ids === 'string' 
+              ? JSON.parse(user.satellite_ids) 
+              : user.satellite_ids;
+            
+            if (Array.isArray(satelliteIds) && satelliteIds.length > 0) {
+              const placeholders = satelliteIds.map(() => '?').join(',');
+              const [satelliteRows] = await connection.execute(
+                `SELECT name FROM satellites 
+                 WHERE id IN (${placeholders}) AND status = 1 
+                 ORDER BY name`,
+                satelliteIds
+              );
+              locationNames = satelliteRows.map(row => row.name);
+            }
+          } catch (error) {
+            console.error('拠点名取得エラー:', error);
+            // エラーが発生しても処理を続行
+          }
+        }
+
+        // 拠点名が取得できない場合は、企業のすべての拠点を取得
+        // ロール9（システム管理者）の場合はすべての拠点を取得
+        if (locationNames.length === 0) {
+          try {
+            if (user.role >= 9 && !user.company_id) {
+              // ロール9以上でcompany_idがNULLの場合はすべての拠点を取得
+              const [satelliteRows] = await connection.execute(
+                `SELECT name FROM satellites 
+                 WHERE status = 1 
+                 ORDER BY name`
+              );
+              locationNames = satelliteRows.map(row => row.name);
+            } else if (user.company_id) {
+              // 企業に所属している場合は企業のすべての拠点を取得
+              const [satelliteRows] = await connection.execute(
+                `SELECT name FROM satellites 
+                 WHERE company_id = ? AND status = 1 
+                 ORDER BY name`,
+                [user.company_id]
+              );
+              locationNames = satelliteRows.map(row => row.name);
+            }
+          } catch (error) {
+            console.error('企業拠点名取得エラー:', error);
+          }
+        }
+
+        // 企業トークンと拠点トークンを取得
+        let companyToken = null;
+        let satelliteToken = null;
+        
+        try {
+          const [companyRows] = await connection.execute(
+            'SELECT token FROM companies WHERE id = ?',
+            [user.company_id]
+          );
+          if (companyRows.length && companyRows[0].token) {
+            companyToken = companyRows[0].token;
+          }
+        } catch (error) {
+          console.error('企業トークン取得エラー:', error);
+        }
+
+        // 拠点トークンを取得（satellite_idsから最初の拠点IDを使用）
+        if (user.satellite_ids) {
+          try {
+            let parsedSatelliteIds = [];
+            if (typeof user.satellite_ids === 'string') {
+              if (user.satellite_ids.includes(',')) {
+                parsedSatelliteIds = user.satellite_ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+              } else {
+                const parsed = JSON.parse(user.satellite_ids);
+                parsedSatelliteIds = Array.isArray(parsed) ? parsed : [parsed];
+              }
+            } else if (Array.isArray(user.satellite_ids)) {
+              parsedSatelliteIds = user.satellite_ids;
+            } else if (typeof user.satellite_ids === 'number') {
+              parsedSatelliteIds = [user.satellite_ids];
+            }
+
+            if (parsedSatelliteIds.length > 0) {
+              const firstSatelliteId = parsedSatelliteIds[0];
+              const [satelliteRows] = await connection.execute(
+                'SELECT token FROM satellites WHERE id = ?',
+                [firstSatelliteId]
+              );
+              if (satelliteRows.length && satelliteRows[0].token) {
+                satelliteToken = satelliteRows[0].token;
+              }
+            }
+          } catch (error) {
+            console.error('拠点トークン取得エラー:', error);
+          }
+        }
+
+        // 拠点トークンが取得できない場合は、企業の最初の拠点を取得
+        if (!satelliteToken && user.company_id) {
+          try {
+            const [fallbackSatellites] = await connection.execute(
+              'SELECT token FROM satellites WHERE company_id = ? AND status = 1 ORDER BY id LIMIT 1',
+              [user.company_id]
+            );
+            if (fallbackSatellites.length && fallbackSatellites[0].token) {
+              satelliteToken = fallbackSatellites[0].token;
+            }
+          } catch (error) {
+            console.error('フォールバック拠点トークン取得エラー:', error);
+          }
+        }
+
+        return res.status(200).json({
+          valid: true,
+          recipient: user.company_id,
+          name: user.name,
+          role: user.role,
+          companyName: user.company_name,
+          locationNames: locationNames, // 拠点名の配列
+          expiresAt: user.token_expiry_at || null,
+          userId: user.id,
+          companyId: user.company_id,
+          companyToken: companyToken,
+          satelliteToken: satelliteToken
+        });
+
+      } finally {
+        connection.release();
+      }
+
+    } catch (error) {
+      console.error('❌ findjob ログインコード検証エラー:', error);
+      return res.status(500).json({
+        valid: false,
+        message: 'サーバー内部エラーが発生しました'
+      });
+    }
+  }
+
+  // 通常の管理者ログイン処理
   console.log('=== Login Route Debug ===');
   console.log('Request body:', req.body);
   console.log('Username:', req.body.username);
   console.log('Password provided:', req.body.password ? 'Yes' : 'No');
   
   const { username, password } = req.body;
+  
+  // バリデーション
+  if (!username || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'ユーザー名とパスワードを入力してください'
+    });
+  }
   
   try {
     const result = await adminLogin(username, password);

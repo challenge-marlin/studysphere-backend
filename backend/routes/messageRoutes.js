@@ -194,13 +194,31 @@ router.post('/send', authenticateToken, async (req, res) => {
       }
 
       try {
-        await sendPushNotificationToUser(receiver_id, {
-          title: 'Study Sphere',
-          body: `${senderName}: ${truncateForNotification(sanitizedMessage, 120)}`,
-          url: targetUrl,
-        });
+        // 通知は受信者のみに送信（送信者や管理者には送らない）
+        // receiver_idが正しいことを再確認
+        if (receiver_id && receiver_id === receiver.id) {
+          await sendPushNotificationToUser(receiver_id, {
+            title: 'Study Sphere',
+            body: `${senderName}: ${truncateForNotification(sanitizedMessage, 120)}`,
+            url: targetUrl,
+          });
+          customLogger.debug('プッシュ通知送信完了:', {
+            receiver_id,
+            receiver_name: receiver.name,
+            receiver_role: receiverRole
+          });
+        } else {
+          customLogger.warn('プッシュ通知送信スキップ: 受信者ID不一致', {
+            expected_receiver_id: receiver.id,
+            provided_receiver_id: receiver_id
+          });
+        }
       } catch (pushError) {
         console.error('Failed to dispatch push notification:', pushError);
+        customLogger.error('プッシュ通知送信エラー:', {
+          receiver_id,
+          error: pushError.message
+        });
       }
     }
 

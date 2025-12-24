@@ -65,7 +65,7 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-// 管理者権限チェックミドルウェア
+// 管理者権限チェックミドルウェア（ロール9以上）
 const requireAdmin = (req, res, next) => {
   try {
     if (!req.user) {

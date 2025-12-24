@@ -679,8 +679,26 @@ router.put('/:id', async (req, res) => {
     }
 
     // mark_startとmark_endを日本時間からUTCに変換
+    customLogger.info('月次評価記録更新 - 受信した時間データ:', {
+      id,
+      mark_start_original: mark_start,
+      mark_end_original: mark_end,
+      mark_start_type: typeof mark_start,
+      mark_end_type: typeof mark_end,
+      mark_start_undefined: mark_start === undefined,
+      mark_end_undefined: mark_end === undefined
+    });
+    
     const convertedMarkStart = mark_start !== undefined ? (mark_start ? convertJSTDateTimeToUTC(mark_start) : null) : undefined;
     const convertedMarkEnd = mark_end !== undefined ? (mark_end ? convertJSTDateTimeToUTC(mark_end) : null) : undefined;
+    
+    customLogger.info('月次評価記録更新 - 変換後の時間データ:', {
+      id,
+      convertedMarkStart,
+      convertedMarkEnd,
+      convertedMarkStart_undefined: convertedMarkStart === undefined,
+      convertedMarkEnd_undefined: convertedMarkEnd === undefined
+    });
     
     // prev_evaluation_dateをMySQLのDATE型形式（YYYY-MM-DD）に変換
     const convertedPrevEvaluationDate = prev_evaluation_date !== undefined ? convertToMySQLDate(prev_evaluation_date) : undefined;
