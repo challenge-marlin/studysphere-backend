@@ -51,10 +51,14 @@ async function generateTicketRecord(userId, targetSystem, sourceSystem = null, c
     connection = await pool.getConnection();
     await connection.beginTransaction();
 
-    // 信頼システムの存在確認
-    const trustedSystem = await getTrustedSystem(targetSystem);
-    if (!trustedSystem) {
-      throw new Error(`信頼システムが見つかりません: ${targetSystem}`);
+    // インバウンドの場合（targetSystem === 'studysphere'）、信頼システムチェックをスキップ
+    // 自分自身へのリダイレクトなので、信頼システムとして登録する必要はない
+    if (targetSystem !== 'studysphere') {
+      // 外部システムへのアウトバウンド/トランスミットの場合のみ信頼システムチェック
+      const trustedSystem = await getTrustedSystem(targetSystem);
+      if (!trustedSystem) {
+        throw new Error(`信頼システムが見つかりません: ${targetSystem}`);
+      }
     }
 
     // チケット生成
@@ -255,6 +259,63 @@ async function verifyTicket(ticket, ipAddress = null, userAgent = null) {
         error: 'NO_LOGIN_CODE',
         source_system: sourceSystemInfo
       };
+    }
+
+    // ロール1（利用者）の場合、一時パスワードの存在チェック
+    // SSOインバウンドで、ロール1のユーザの場合、一時パスワードが発行されていなければ元システムに戻る
+    if (user.role === 1 && ticketRecord.target_system === 'studysphere') {
+      // 有効な一時パスワードが存在するかチェック（未使用で有効期限内）
+      const [tempPasswordRows] = await connection.execute(
+        `SELECT id FROM user_temp_passwords 
+         WHERE user_id = ? 
+         AND is_used = 0 
+         AND expires_at > NOW()
+         ORDER BY issued_at DESC 
+         LIMIT 1`,
+        [user.id]
+      );
+
+      if (tempPasswordRows.length === 0) {
+        // 一時パスワードが発行されていない場合、元システムに戻る
+        let sourceSystemInfo = null;
+        if (ticketRecord.source_system) {
+          try {
+            const sourceSystem = await getTrustedSystem(ticketRecord.source_system);
+            if (sourceSystem) {
+              sourceSystemInfo = {
+                system_key: sourceSystem.system_key,
+                system_name: sourceSystem.system_name,
+                base_url: sourceSystem.base_url,
+                landing_path: sourceSystem.landing_path || '/landing'
+              };
+            }
+          } catch (error) {
+            customLogger.error('元システム情報取得エラー:', error);
+          }
+        }
+
+        // 監査ログを記録（失敗）
+        await connection.execute(
+          `INSERT INTO sso_audit_logs 
+            (user_id, ticket_id, source_system, target_system, action, ip_address, user_agent, success, error_message)
+           VALUES (?, ?, ?, ?, 'verify', ?, ?, FALSE, ?)`,
+          [user.id, ticketRecord.id, ticketRecord.source_system, ticketRecord.target_system, ipAddress, userAgent, 'NO_TEMP_PASSWORD']
+        );
+        await connection.commit();
+        
+        customLogger.warn('SSOインバウンド: ロール1ユーザーの一時パスワードが発行されていません', {
+          userId: user.id,
+          loginCode: user.login_code,
+          sourceSystem: ticketRecord.source_system
+        });
+        
+        return {
+          valid: false,
+          error: 'NO_TEMP_PASSWORD',
+          source_system: sourceSystemInfo,
+          message: '一時パスワードが発行されていません。担当者に一時パスワードの発行を依頼してください'
+        };
+      }
     }
 
     // 拠点名を取得

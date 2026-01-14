@@ -307,6 +307,7 @@ CREATE TABLE `remote_support_daily_records` (
     `mark_lunch_end` DATETIME DEFAULT NULL COMMENT '昼休憩終了打刻',
     `mark_end` DATETIME DEFAULT NULL COMMENT '終業打刻',
     `temperature` VARCHAR(10) DEFAULT NULL COMMENT '体温（任意）',
+    `sleep_hours` VARCHAR(50) DEFAULT NULL COMMENT '睡眠時間（任意）',
     `condition` VARCHAR(10) NOT NULL COMMENT '体調（良い・普通・悪い）',
     `condition_note` TEXT DEFAULT NULL COMMENT '体調備考（任意）',
     `work_note` TEXT NOT NULL COMMENT '本日の作業内容（必須）',

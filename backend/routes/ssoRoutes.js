@@ -33,6 +33,16 @@ router.post('/ticket/generate', authenticateToken, async (req, res) => {
   try {
     const { target_system, source_system, context } = req.body;
     const userId = req.user.user_id;
+    const isServiceToken = req.user.is_service_token || false;
+
+    customLogger.info('SSOチケット生成リクエスト', {
+      userId,
+      target_system,
+      source_system,
+      context,
+      isServiceToken,
+      ipAddress: req.ip || req.connection.remoteAddress
+    });
 
     if (!target_system) {
       return res.status(400).json({
@@ -85,6 +95,138 @@ router.post('/ticket/generate', authenticateToken, async (req, res) => {
 });
 
 /**
+ * POST /api/sso/ticket/generate-by-logincode
+ * loginCodeベースのチケット生成API（パブリック）
+ * 外部システム（findjob等）からloginCodeを使ってSSOチケットを生成する際に使用
+ */
+router.post('/ticket/generate-by-logincode', async (req, res) => {
+  let connection;
+  try {
+    const { login_code, target_system, source_system, context } = req.body;
+
+    if (!login_code) {
+      return res.status(400).json({
+        success: false,
+        message: 'login_codeは必須です'
+      });
+    }
+
+    if (!target_system) {
+      return res.status(400).json({
+        success: false,
+        message: 'target_systemは必須です'
+      });
+    }
+
+    const { ipAddress, userAgent } = getRequestInfo(req);
+
+    customLogger.info('loginCodeベースのSSOチケット生成リクエスト', {
+      login_code: login_code.substring(0, 10) + '...',
+      target_system,
+      source_system,
+      context,
+      ipAddress
+    });
+
+    // loginCodeからユーザー情報を取得
+    connection = await pool.getConnection();
+    const [userRows] = await connection.execute(
+      `SELECT 
+        u.id, 
+        u.name, 
+        u.login_code, 
+        u.role, 
+        u.status,
+        u.company_id,
+        c.name as company_name
+      FROM user_accounts u
+      LEFT JOIN companies c ON u.company_id = c.id
+      WHERE u.login_code = ? AND u.status = 1`,
+      [login_code]
+    );
+
+    if (userRows.length === 0) {
+      customLogger.warn('loginCodeベースのチケット生成: ユーザーが見つかりません', {
+        login_code: login_code.substring(0, 10) + '...'
+      });
+      return res.status(404).json({
+        success: false,
+        message: 'ユーザーが見つかりません'
+      });
+    }
+
+    const user = userRows[0];
+    const userId = user.id;
+
+    // インバウンドの場合（target_system === 'studysphere'）、信頼システムチェックをスキップ
+    // 自分自身へのリダイレクトなので、信頼システムとして登録する必要はない
+    let trustedSystem = null;
+    if (target_system !== 'studysphere') {
+      // 外部システムへのアウトバウンド/トランスミットの場合のみ信頼システムチェック
+      trustedSystem = await getTrustedSystem(target_system);
+      if (!trustedSystem) {
+        return res.status(404).json({
+          success: false,
+          message: `信頼システムが見つかりません: ${target_system}`
+        });
+      }
+    }
+
+    // チケット生成
+    const result = await generateTicketRecord(
+      userId,
+      target_system,
+      source_system || 'findjob',
+      context || 'portal_click',
+      ipAddress,
+      userAgent
+    );
+
+    customLogger.info('loginCodeベースのSSOチケット生成成功', {
+      userId,
+      ticket: result.ticket.substring(0, 10) + '...',
+      target_system,
+      source_system: source_system || 'findjob'
+    });
+
+    // レスポンスデータの構築
+    const responseData = {
+      ticket: result.ticket,
+      expires_in: result.expiresIn,
+      expires_at: result.expiresAt
+    };
+
+    // 信頼システム情報がある場合のみレスポンスに含める（インバウンドの場合はnull）
+    if (trustedSystem) {
+      responseData.target_system = {
+        system_key: trustedSystem.system_key,
+        system_name: trustedSystem.system_name,
+        base_url: trustedSystem.base_url,
+        landing_path: trustedSystem.landing_path || '/landing'
+      };
+    }
+
+    res.json({
+      success: true,
+      data: responseData
+    });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+    }
+    customLogger.error('loginCodeベースのチケット生成APIエラー:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'チケット生成に失敗しました'
+    });
+  } finally {
+    if (connection) {
+      connection.release();
+    }
+  }
+});
+
+/**
  * POST /api/sso/ticket/verify
  * チケット検証API（パブリック）
  */
@@ -112,6 +254,15 @@ router.post('/ticket/verify', async (req, res) => {
       // NO_LOGIN_CODEエラーの場合、元システムの情報も返す
       if (result.error === 'NO_LOGIN_CODE' && result.source_system) {
         response.source_system = result.source_system;
+      }
+      // NO_TEMP_PASSWORDエラーの場合、元システムの情報とメッセージも返す
+      if (result.error === 'NO_TEMP_PASSWORD') {
+        if (result.source_system) {
+          response.source_system = result.source_system;
+        }
+        if (result.message) {
+          response.message = result.message;
+        }
       }
       return res.status(200).json(response);
     }
@@ -160,6 +311,15 @@ router.post('/login', async (req, res) => {
       // NO_LOGIN_CODEエラーの場合、元システムの情報も返す
       if (verifyResult.error === 'NO_LOGIN_CODE' && verifyResult.source_system) {
         response.source_system = verifyResult.source_system;
+      }
+      // NO_TEMP_PASSWORDエラーの場合、元システムの情報とメッセージも返す
+      if (verifyResult.error === 'NO_TEMP_PASSWORD') {
+        if (verifyResult.source_system) {
+          response.source_system = verifyResult.source_system;
+        }
+        if (verifyResult.message) {
+          response.message = verifyResult.message;
+        }
       }
       return res.status(200).json(response);
     }

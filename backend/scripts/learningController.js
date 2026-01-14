@@ -219,13 +219,36 @@ const getCourseProgress = async (req, res) => {
 // レッスン進捗を更新
 const updateLessonProgress = async (req, res) => {
   const { userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved, instructorId, forceUpdate } = req.body;
+  
+  // 必須パラメータのバリデーション
+  if (userId === undefined || userId === null) {
+    customLogger.error('Failed to update lesson progress: userId is required', { userId, lessonId });
+    return res.status(400).json({
+      success: false,
+      message: 'ユーザーIDは必須です'
+    });
+  }
+  
+  if (lessonId === undefined || lessonId === null) {
+    customLogger.error('Failed to update lesson progress: lessonId is required', { userId, lessonId });
+    return res.status(400).json({
+      success: false,
+      message: 'レッスンIDは必須です'
+    });
+  }
+  
+  // undefinedをnullに変換（MySQLのバインドパラメータエラーを防ぐ）
+  const normalizedUserId = userId !== undefined ? userId : null;
+  const normalizedLessonId = lessonId !== undefined ? lessonId : null;
+  const normalizedStatus = status !== undefined ? status : null;
+  
   const connection = await pool.getConnection();
   
   try {
     customLogger.info('Updating lesson progress', {
-      userId,
-      lessonId,
-      status,
+      userId: normalizedUserId,
+      lessonId: normalizedLessonId,
+      status: normalizedStatus,
       testScore,
       assignmentSubmitted,
       instructorApproved,
@@ -236,7 +259,7 @@ const updateLessonProgress = async (req, res) => {
     const [existingProgress] = await connection.execute(`
       SELECT * FROM user_lesson_progress 
       WHERE user_id = ? AND lesson_id = ?
-    `, [userId, lessonId]);
+    `, [normalizedUserId, normalizedLessonId]);
 
     if (existingProgress.length > 0) {
       // forceUpdateフラグがある場合、同じステータスでも確実に更新されるように
@@ -253,13 +276,13 @@ const updateLessonProgress = async (req, res) => {
           UPDATE user_lesson_progress 
           SET status = 'not_started', updated_at = NOW()
           WHERE user_id = ? AND lesson_id = ?
-        `, [userId, lessonId]);
+        `, [normalizedUserId, normalizedLessonId]);
         
         customLogger.info('Force update: temporarily set to not_started');
         
         // 2回目: 元のステータスに戻しつつ、他のフィールドも更新
         const forceUpdateFields = ['status = ?'];
-        const forceUpdateValues = [status];
+        const forceUpdateValues = [normalizedStatus];
         
         // testScoreがnullでない場合のみ更新
         if (testScore !== null && testScore !== undefined) {
@@ -290,14 +313,14 @@ const updateLessonProgress = async (req, res) => {
         }
         
         // completedの場合は完了日時を設定
-        if (status === 'completed') {
+        if (normalizedStatus === 'completed') {
           forceUpdateFields.push('completed_at = NOW()');
         }
         
         // updated_atは常に更新
         forceUpdateFields.push('updated_at = NOW()');
         
-        forceUpdateValues.push(userId, lessonId);
+        forceUpdateValues.push(normalizedUserId, normalizedLessonId);
         
         const forceUpdateQuery = `
           UPDATE user_lesson_progress 
@@ -315,21 +338,21 @@ const updateLessonProgress = async (req, res) => {
         // forceUpdateの場合は通常の更新をスキップ
         // コース進捗更新のみ実行
         try {
-          console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${userId}, lessonId=${lessonId}`);
-          await updateCourseProgress(connection, userId, lessonId);
+          console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${normalizedUserId}, lessonId=${normalizedLessonId}`);
+          await updateCourseProgress(connection, normalizedUserId, normalizedLessonId);
         } catch (progressError) {
           console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
           customLogger.warn('Course progress update failed, but lesson progress was updated', {
             error: progressError.message,
-            userId,
-            lessonId
+            userId: normalizedUserId,
+            lessonId: normalizedLessonId
           });
         }
 
         customLogger.info('Lesson progress force updated successfully', {
-          userId,
-          lessonId,
-          status
+          userId: normalizedUserId,
+          lessonId: normalizedLessonId,
+          status: normalizedStatus
         });
 
         res.json({
@@ -346,7 +369,7 @@ const updateLessonProgress = async (req, res) => {
       const updateValues = [];
       
       updateFields.push('status = ?');
-      updateValues.push(status);
+      updateValues.push(normalizedStatus);
       
       // testScoreがnullでない場合のみ更新
       if (testScore !== null && testScore !== undefined) {
@@ -377,7 +400,7 @@ const updateLessonProgress = async (req, res) => {
       }
       
       // completedの場合は完了日時を設定
-      if (status === 'completed') {
+      if (normalizedStatus === 'completed') {
         updateFields.push('completed_at = NOW()');
       }
       
@@ -385,7 +408,7 @@ const updateLessonProgress = async (req, res) => {
       updateFields.push('updated_at = NOW()');
       
       // WHERE句のパラメータ
-      updateValues.push(userId, lessonId);
+      updateValues.push(normalizedUserId, normalizedLessonId);
       
       const updateQuery = `
         UPDATE user_lesson_progress 
@@ -396,14 +419,20 @@ const updateLessonProgress = async (req, res) => {
       const [updateResult] = await connection.execute(updateQuery, updateValues);
       
       customLogger.info('Existing lesson progress updated', {
-        userId,
-        lessonId,
+        userId: normalizedUserId,
+        lessonId: normalizedLessonId,
         updatedFields: updateFields,
         affectedRows: updateResult.affectedRows,
         changedRows: updateResult.changedRows
       });
     } else {
       // 新しい進捗を作成
+      // undefinedをnullに変換（MySQLのバインドパラメータエラーを防ぐ）
+      const normalizedTestScore = (testScore !== undefined && testScore !== null) ? testScore : null;
+      const normalizedAssignmentSubmitted = (assignmentSubmitted !== undefined && assignmentSubmitted !== null) ? assignmentSubmitted : false;
+      const normalizedInstructorApproved = (instructorApproved !== undefined && instructorApproved !== null) ? instructorApproved : false;
+      const normalizedInstructorId = (instructorId !== undefined && instructorId !== null) ? instructorId : null;
+      
       await connection.execute(`
         INSERT INTO user_lesson_progress (
           user_id, lesson_id, status, test_score, assignment_submitted, 
@@ -416,44 +445,44 @@ const updateLessonProgress = async (req, res) => {
           NOW(), NOW()
         )
       `, [
-        userId, 
-        lessonId, 
-        status, 
-        testScore || null, 
-        assignmentSubmitted || false, 
-        instructorApproved || false, 
-        instructorId || null, 
-        status, 
-        assignmentSubmitted, 
-        instructorApproved
+        normalizedUserId, 
+        normalizedLessonId, 
+        normalizedStatus, 
+        normalizedTestScore, 
+        normalizedAssignmentSubmitted, 
+        normalizedInstructorApproved, 
+        normalizedInstructorId, 
+        normalizedStatus, 
+        normalizedAssignmentSubmitted, 
+        normalizedInstructorApproved
       ]);
       
       customLogger.info('New lesson progress created', {
-        userId,
-        lessonId,
-        status
+        userId: normalizedUserId,
+        lessonId: normalizedLessonId,
+        status: normalizedStatus
       });
     }
 
     // コース全体の進捗率を更新（エラーが発生しても処理を継続）
     try {
-      console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${userId}, lessonId=${lessonId}`);
-      await updateCourseProgress(connection, userId, lessonId);
+      console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${normalizedUserId}, lessonId=${normalizedLessonId}`);
+      await updateCourseProgress(connection, normalizedUserId, normalizedLessonId);
     } catch (progressError) {
       console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
       customLogger.warn('Course progress update failed, but lesson progress was updated', {
         error: progressError.message,
-        userId,
-        lessonId
+        userId: normalizedUserId,
+        lessonId: normalizedLessonId
       });
     }
 
 
 
     customLogger.info('Lesson progress updated successfully', {
-      userId,
-      lessonId,
-      status,
+      userId: normalizedUserId,
+      lessonId: normalizedLessonId,
+      status: normalizedStatus,
       testScore,
       assignmentSubmitted,
       instructorApproved
@@ -466,8 +495,8 @@ const updateLessonProgress = async (req, res) => {
   } catch (error) {
     customLogger.error('Failed to update lesson progress', {
       error: error.message,
-      userId,
-      lessonId
+      userId: normalizedUserId,
+      lessonId: normalizedLessonId
     });
     
     res.status(500).json({
@@ -814,8 +843,12 @@ const submitTestResult = async (req, res) => {
 
     // コース全体の進捗率を更新（エラーが発生しても処理を継続）
     try {
-      console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${userId}, lessonId=${lessonId}`);
-      await updateCourseProgress(connection, userId, lessonId);
+      if (userId !== undefined && userId !== null && lessonId !== undefined && lessonId !== null) {
+        console.log(`🔄 レッスン進捗更新後、コース進捗を更新: userId=${userId}, lessonId=${lessonId}`);
+        await updateCourseProgress(connection, userId, lessonId);
+      } else {
+        customLogger.warn('updateCourseProgress skipped: userId or lessonId is undefined', { userId, lessonId });
+      }
     } catch (progressError) {
       console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
       customLogger.warn('Course progress update failed, but lesson progress was updated', {
@@ -925,7 +958,11 @@ const approveLessonCompletion = async (req, res) => {
     
     // コース全体の進捗率を更新
     try {
-      await updateCourseProgress(connection, userId, lessonId);
+      if (userId !== undefined && userId !== null && lessonId !== undefined && lessonId !== null) {
+        await updateCourseProgress(connection, userId, lessonId);
+      } else {
+        customLogger.warn('updateCourseProgress skipped: userId or lessonId is undefined', { userId, lessonId });
+      }
     } catch (progressError) {
       console.error(`❌ コース進捗更新失敗: ${progressError.message}`);
     }
@@ -1755,6 +1792,17 @@ const getUserCertificates = async (req, res) => {
 // コース全体の進捗率を更新（内部関数）
 const updateCourseProgress = async (connection, userId, lessonId) => {
   try {
+    // undefinedチェック
+    if (userId === undefined || userId === null) {
+      customLogger.error('updateCourseProgress: userId is undefined or null', { userId, lessonId });
+      return;
+    }
+    
+    if (lessonId === undefined || lessonId === null) {
+      customLogger.error('updateCourseProgress: lessonId is undefined or null', { userId, lessonId });
+      return;
+    }
+    
     console.log(`🔄 updateCourseProgress開始: userId=${userId}, lessonId=${lessonId}`);
     
     // レッスンが属するコースIDを取得

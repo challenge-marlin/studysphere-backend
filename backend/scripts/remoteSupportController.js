@@ -461,20 +461,69 @@ class RemoteSupportController {
       }
 
       const user = users[0];
-      const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD形式
+      
+      // 日本時間を取得
+      const { getCurrentJapanTime, formatMySQLDateTime } = require('../utils/dateUtils');
+      const japanNow = getCurrentJapanTime();
+      const today = japanNow.toISOString().split('T')[0]; // YYYY-MM-DD形式
       
       // MySQLのDATETIME形式に変換（YYYY-MM-DD HH:MM:SS）
+      // タイムスタンプが指定されている場合はそれを使用、なければ現在の日本時間を使用
+      // データベースはUTCで保存するため、日本時間をUTCに変換
       let now;
       if (timestamp) {
-        const date = new Date(timestamp);
-        now = date.toISOString().slice(0, 19).replace('T', ' ');
+        // タイムスタンプをDateオブジェクトに変換（ISO形式を想定）
+        try {
+          const date = new Date(timestamp);
+          if (isNaN(date.getTime())) {
+            throw new Error('無効なタイムスタンプ');
+          }
+          // タイムスタンプを日本時間として解釈してからUTCに変換
+          // タイムスタンプがUTC形式の場合、日本時間に変換してからUTCに戻す
+          const japanTimeStr = date.toLocaleString('ja-JP', {
+            timeZone: 'Asia/Tokyo',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          });
+          // 日本時間の文字列をDateオブジェクトに変換（YYYY/MM/DD HH:MM:SS形式）
+          const [datePart, timePart] = japanTimeStr.split(' ');
+          const [year, month, day] = datePart.split('/');
+          const [hour, minute, second] = timePart.split(':');
+          const japanDate = new Date(year, month - 1, day, hour, minute, second);
+          // UTCに変換（日本時間から9時間引く）
+          const utcDate = new Date(japanDate.getTime() - (9 * 60 * 60 * 1000));
+          now = formatMySQLDateTime(utcDate);
+        } catch (error) {
+          customLogger.error(`[markAttendance] タイムスタンプ変換エラー:`, { timestamp, error: error.message });
+          // フォールバック: 現在時刻を使用
+          const utcDate = new Date(japanNow.getTime() - (9 * 60 * 60 * 1000));
+          now = formatMySQLDateTime(utcDate);
+        }
       } else {
-        now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        // 現在の日本時間をUTCに変換
+        const utcDate = new Date(japanNow.getTime() - (9 * 60 * 60 * 1000));
+        now = formatMySQLDateTime(utcDate);
+      }
+      
+      // 値の検証
+      if (!now || now === 'Invalid Date' || now.includes('Invalid') || now.includes('NaN')) {
+        customLogger.error(`[markAttendance] タイムスタンプ変換エラー: now=${now}, timestamp=${timestamp}`);
+        throw new Error(`タイムスタンプの変換に失敗しました: now=${now}`);
       }
       
       customLogger.info(`[markAttendance] タイムスタンプ変換:`, {
         original: timestamp,
-        converted: now
+        converted: now,
+        japanNow: japanNow.toISOString(),
+        today: today,
+        markType: mark_type,
+        userId: user.id,
+        loginCode: login_code
       });
 
       // 勤怠打刻のログを記録
@@ -502,6 +551,7 @@ class RemoteSupportController {
             case 'start':
               updateFields.push('mark_start = ?');
               updateParams.push(now);
+              customLogger.info(`[markAttendance] 始業打刻を更新: mark_start=${now}, レコードID=${existingRecords[0].id}`);
               break;
             case 'lunch_start':
               updateFields.push('mark_lunch_start = ?');
@@ -571,6 +621,7 @@ class RemoteSupportController {
               insertFields.push('mark_start');
               insertValues += ', ?';
               insertParams.push(now);
+              customLogger.info(`[markAttendance] 始業打刻を新規作成: mark_start=${now}, ユーザーID=${user.id}, 日付=${today}`);
               break;
             case 'lunch_start':
               insertFields.push('mark_lunch_start');
@@ -837,6 +888,29 @@ class RemoteSupportController {
       
       // conditionが空文字列の場合はデフォルト値を設定
       const conditionValue = (condition && condition.trim() !== '') ? condition.trim() : '普通';
+      
+      // sleep_hoursを50バイト以内に切り詰め（VARCHAR(50)制約対応）
+      let sleepHoursValue = null;
+      if (sleep_hours && sleep_hours.trim() !== '') {
+        const trimmed = sleep_hours.trim();
+        // UTF-8エンコーディングで50バイト以内に切り詰め
+        const buffer = Buffer.from(trimmed, 'utf8');
+        if (buffer.length > 50) {
+          // 50バイト以内になるように切り詰め（文字の途中で切れないようにする）
+          let truncated = '';
+          for (let i = 0; i < trimmed.length; i++) {
+            const testBuffer = Buffer.from(truncated + trimmed[i], 'utf8');
+            if (testBuffer.length > 50) {
+              break;
+            }
+            truncated += trimmed[i];
+          }
+          sleepHoursValue = truncated;
+          customLogger.warn(`sleep_hoursが50バイトを超えたため切り詰めました: "${trimmed}" -> "${truncated}"`);
+        } else {
+          sleepHoursValue = trimmed;
+        }
+      }
 
       // 日報データをデータベースに記録
       try {
@@ -850,9 +924,9 @@ class RemoteSupportController {
           // 既存レコードを更新（ログイン時間と睡眠時間を更新）
           await pool.execute(
             'UPDATE remote_support_daily_records SET mark_start = ?, sleep_hours = ?, updated_at = NOW() WHERE id = ?',
-            [now, sleep_hours || null, existingRecords[0].id]
+            [now, sleepHoursValue, existingRecords[0].id]
           );
-          customLogger.info(`既存の日報レコードを更新: ユーザーID ${user.id}, 日付 ${today}, 睡眠時間: ${sleep_hours || 'なし'}`);
+          customLogger.info(`既存の日報レコードを更新: ユーザーID ${user.id}, 日付 ${today}, 睡眠時間: ${sleepHoursValue || 'なし'}`);
         } else {
           // 新規レコードを作成
           await pool.execute(
@@ -868,10 +942,10 @@ class RemoteSupportController {
               conditionValue,
               (condition_note && condition_note.trim() !== '') ? condition_note.trim() : null, 
               workNoteValue, 
-              (sleep_hours && sleep_hours.trim() !== '') ? sleep_hours.trim() : null
+              sleepHoursValue
             ]
           );
-          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}, 作業内容: ${workNoteValue.substring(0, 50)}..., 睡眠時間: ${sleep_hours || 'なし'}`);
+          customLogger.info(`新規日報レコードを作成: ユーザーID ${user.id}, 日付 ${today}, 作業内容: ${workNoteValue.substring(0, 50)}..., 睡眠時間: ${sleepHoursValue || 'なし'}`);
         }
       } catch (dbError) {
         // エラーの詳細をログに記録
@@ -2294,30 +2368,53 @@ class RemoteSupportController {
       
       if (userId) {
         whereClause += ' AND ua.id = ?';
-        params.push(userId);
+        params.push(parseInt(userId));
       }
       
       // 拠点IDでフィルタリング
       if (satelliteId) {
-        whereClause += ' AND JSON_CONTAINS(ua.satellite_ids, ?)';
-        params.push(JSON.stringify(parseInt(satelliteId)));
+        whereClause += ' AND JSON_CONTAINS(ua.satellite_ids, CAST(? AS JSON))';
+        params.push(parseInt(satelliteId));
+      }
+      
+      // ユーザー情報を取得
+      // satelliteIdが指定されている場合でも、すべてのユーザーを取得するため、JOIN条件を緩和
+      let satelliteJoin = '';
+      let satelliteSelect = 'NULL as satellite_token';
+      const allParams = [...params];
+      
+      if (satelliteId) {
+        // satelliteIdが指定されている場合、そのsatelliteのtokenを取得
+        satelliteJoin = 'LEFT JOIN satellites s ON s.id = ?';
+        satelliteSelect = 's.token as satellite_token';
+        allParams.unshift(parseInt(satelliteId)); // 先頭に追加
+      } else {
+        // satelliteIdが指定されていない場合、ユーザーのsatellite_idsに含まれる最初のsatelliteを取得
+        satelliteJoin = 'LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))';
+        satelliteSelect = 's.token as satellite_token';
       }
       
       const [users] = await pool.execute(`
-        SELECT 
+        SELECT DISTINCT
           ua.id,
           ua.name,
           ua.login_code,
           ua.company_id,
           ua.satellite_ids,
           c.token as company_token,
-          s.token as satellite_token
+          ${satelliteSelect}
         FROM user_accounts ua
         LEFT JOIN companies c ON ua.company_id = c.id
-        LEFT JOIN satellites s ON JSON_CONTAINS(ua.satellite_ids, CAST(s.id AS JSON))
+        ${satelliteJoin}
         ${whereClause}
         ORDER BY ua.name
-      `, params);
+      `, allParams);
+      
+      // デバッグログ: 取得したユーザー情報を確認
+      customLogger.info(`取得したユーザー数: ${users.length}`);
+      users.forEach((user, index) => {
+        customLogger.info(`ユーザー${index + 1}: id=${user.id}, name=${user.name}, company_token=${user.company_token}, satellite_token=${user.satellite_token}`);
+      });
 
       if (users.length === 0) {
         return res.json({
@@ -2339,35 +2436,134 @@ class RemoteSupportController {
       // 各ユーザーのS3データを取得
       for (const user of users) {
         try {
+          // company_tokenとsatellite_tokenが必須
+          if (!user.company_token) {
+            customLogger.warn(`ユーザー ${user.name} (ID: ${user.id}) のcompany_tokenが不足しています`);
+            continue;
+          }
+          
+          // satellite_tokenが不足している場合、satelliteIdが指定されている場合は取得を試みる
+          if (!user.satellite_token) {
+            if (satelliteId) {
+              // satelliteIdが指定されている場合、そのsatelliteのtokenを取得
+              const [satelliteInfo] = await pool.execute(`
+                SELECT token FROM satellites WHERE id = ?
+              `, [parseInt(satelliteId)]);
+              
+              if (satelliteInfo.length > 0) {
+                user.satellite_token = satelliteInfo[0].token;
+                customLogger.info(`ユーザー ${user.name} (ID: ${user.id}) のsatellite_tokenを取得: ${user.satellite_token}`);
+              } else {
+                customLogger.warn(`ユーザー ${user.name} (ID: ${user.id}) のsatellite_tokenが取得できませんでした (satelliteId: ${satelliteId})`);
+                continue;
+              }
+            } else {
+              // satelliteIdが指定されていない場合、ユーザーのsatellite_idsから最初のsatelliteを取得
+              if (user.satellite_ids) {
+                try {
+                  const satelliteIds = typeof user.satellite_ids === 'string' 
+                    ? JSON.parse(user.satellite_ids) 
+                    : user.satellite_ids;
+                  
+                  if (Array.isArray(satelliteIds) && satelliteIds.length > 0) {
+                    const firstSatelliteId = satelliteIds[0];
+                    const [satelliteInfo] = await pool.execute(`
+                      SELECT token FROM satellites WHERE id = ?
+                    `, [parseInt(firstSatelliteId)]);
+                    
+                    if (satelliteInfo.length > 0) {
+                      user.satellite_token = satelliteInfo[0].token;
+                      customLogger.info(`ユーザー ${user.name} (ID: ${user.id}) のsatellite_tokenを取得: ${user.satellite_token}`);
+                    }
+                  }
+                } catch (e) {
+                  customLogger.warn(`ユーザー ${user.name} (ID: ${user.id}) のsatellite_idsのパースに失敗:`, e.message);
+                }
+              }
+              
+              if (!user.satellite_token) {
+                customLogger.warn(`ユーザー ${user.name} (ID: ${user.id}) のsatellite_tokenが取得できませんでした`);
+                continue;
+              }
+            }
+          }
+          
           // S3パス構造: capture/{企業トークン}/{拠点トークン}/{利用者トークン}/YYYY/MM/DD/
-          const prefix = `capture/${user.company_token}/${user.satellite_token}/${user.login_code}/`;
+          const basePrefix = `capture/${user.company_token}/${user.satellite_token}/${user.login_code}/`;
           
-          const listParams = {
-            Bucket: bucketName,
-            Prefix: prefix,
-            MaxKeys: 1000
-          };
-
-          const s3Objects = await s3.listObjectsV2(listParams).promise();
+          // 日付範囲を展開してプレフィックスリストを作成
+          let datePrefixes = [];
+          if (startDate) {
+            // endDateが指定されていない場合、本日の日付を使用
+            const effectiveEndDate = endDate || new Date().toISOString().split('T')[0];
+            
+            // startDateからeffectiveEndDateまでの日付範囲を展開
+            const start = new Date(startDate);
+            const end = new Date(effectiveEndDate);
+            const current = new Date(start);
+            
+            // 日付を1日ずつ進めながらプレフィックスを生成
+            while (current <= end) {
+              const year = current.getFullYear();
+              const month = String(current.getMonth() + 1).padStart(2, '0');
+              const day = String(current.getDate()).padStart(2, '0');
+              datePrefixes.push(`${basePrefix}${year}/${month}/${day}/`);
+              current.setDate(current.getDate() + 1);
+            }
+          } else {
+            // startDateが指定されていない場合、全件取得（ページネーション対応）
+            datePrefixes.push(basePrefix);
+          }
           
-          if (s3Objects.Contents && s3Objects.Contents.length > 0) {
+          customLogger.info(`ユーザー ${user.name} (ID: ${user.id}) のS3プレフィックス数: ${datePrefixes.length} (startDate: ${startDate}, endDate: ${endDate})`);
+          
+          // 各プレフィックスからS3オブジェクトを取得
+          let allS3Objects = [];
+          for (const prefix of datePrefixes) {
+            let continuationToken = null;
+            let hasMore = true;
+            
+            while (hasMore) {
+              const listParams = {
+                Bucket: bucketName,
+                Prefix: prefix
+              };
+              
+              if (continuationToken) {
+                listParams.ContinuationToken = continuationToken;
+              }
+              
+              const s3Response = await s3.listObjectsV2(listParams).promise();
+              
+              if (s3Response.Contents && s3Response.Contents.length > 0) {
+                allS3Objects = allS3Objects.concat(s3Response.Contents);
+              }
+              
+              hasMore = s3Response.IsTruncated === true;
+              continuationToken = s3Response.NextContinuationToken || null;
+            }
+          }
+          
+          customLogger.info(`ユーザー ${user.name} (ID: ${user.id}) のS3オブジェクト数: ${allS3Objects.length}`);
+          
+          if (allS3Objects.length > 0) {
             // 日付でグループ化
             const recordsByDate = {};
             
-            for (const obj of s3Objects.Contents) {
+            for (const obj of allS3Objects) {
               const key = obj.Key;
               const lastModified = obj.LastModified;
               
               // パスから日付を抽出: capture/company/satellite/user/YYYY/MM/DD/type/timestamp.png
               const pathParts = key.split('/');
-              if (pathParts.length >= 7) {
+              if (pathParts.length >= 8) {
                 const year = pathParts[4];
                 const month = pathParts[5];
                 const day = pathParts[6];
                 const type = pathParts[7]; // camera or screenshot
-                const dateKey = `${year}-${month}-${day}`;
+                const dateKey = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
                 
-                // 日付フィルタリング
+                // 日付フィルタリング（念のため、プレフィックスレベルでフィルタリング済みでも再チェック）
                 if (startDate && dateKey < startDate) continue;
                 if (endDate && dateKey > endDate) continue;
                 
