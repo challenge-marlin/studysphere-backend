@@ -8,7 +8,7 @@ const {
 } = require('../scripts/ssoController');
 const { pool } = require('../utils/database');
 const { customLogger } = require('../utils/logger');
-const { getCurrentJapanTime, formatMySQLDateTime } = require('../utils/dateUtils');
+const { getCurrentJapanTime, formatMySQLDateTime, convertDateTimeLocalToMySQL } = require('../utils/dateUtils');
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -692,9 +692,14 @@ router.get('/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
     });
   } catch (error) {
     customLogger.error('監査ログ取得エラー:', error);
+    // 開発環境では詳細なエラー情報を返す
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? `監査ログの取得に失敗しました: ${error.message}`
+      : '監査ログの取得に失敗しました';
     res.status(500).json({
       success: false,
-      message: '監査ログの取得に失敗しました'
+      message: errorMessage,
+      ...(process.env.NODE_ENV === 'development' && { error: error.stack })
     });
   }
 });

@@ -207,6 +207,27 @@ const getJapanTimeFromString = (timeString) => {
   return targetTime;
 };
 
+/**
+ * datetime-local形式（YYYY-MM-DDTHH:mm）をMySQL形式（YYYY-MM-DD HH:mm:ss）に変換
+ * @param {string} dateTimeString - datetime-local形式の日時文字列
+ * @returns {string} MySQL形式の日時文字列（YYYY-MM-DD HH:mm:ss）
+ */
+const convertDateTimeLocalToMySQL = (dateTimeString) => {
+  if (!dateTimeString) return null;
+  
+  // datetime-local形式（YYYY-MM-DDTHH:mm）をMySQL形式（YYYY-MM-DD HH:mm:ss）に変換
+  // Tをスペースに置換し、秒を追加（:00）
+  const mysqlFormat = dateTimeString.replace('T', ' ') + ':00';
+  
+  // 形式の検証（YYYY-MM-DD HH:mm:ss）
+  const mysqlDateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+  if (!mysqlDateTimeRegex.test(mysqlFormat)) {
+    throw new Error(`無効な日時形式: ${dateTimeString}`);
+  }
+  
+  return mysqlFormat;
+};
+
 module.exports = {
   getCurrentJapanTime,
   getTodayEndTime,
@@ -219,6 +240,7 @@ module.exports = {
   formatJapanDate,
   formatJapanTimeOnly,
   formatMySQLDateTime,
-  getJapanTimeFromString
+  getJapanTimeFromString,
+  convertDateTimeLocalToMySQL
 };
 
