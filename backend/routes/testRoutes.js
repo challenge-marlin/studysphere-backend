@@ -1126,9 +1126,37 @@ router.get('/instructor/pending-approvals', authenticateToken, async (req, res) 
         `, [satelliteId, satelliteId]);
       }
       
+      // 同じレッスンIDで複数回合格している場合、最高得点かつ最新の1回のみを返す
+      const filteredApprovals = [];
+      const approvalMap = new Map();
+      
+      // ユーザーIDとレッスンIDの組み合わせでグループ化
+      for (const approval of pendingApprovals) {
+        const key = `${approval.user_id}_${approval.lesson_id}`;
+        
+        if (!approvalMap.has(key)) {
+          approvalMap.set(key, approval);
+        } else {
+          const existing = approvalMap.get(key);
+          // 既存のものと比較して、より良い結果を選択
+          // 1. 得点が高い方を優先
+          // 2. 得点が同じ場合は、より新しい方を優先
+          if (
+            approval.score > existing.score ||
+            (approval.score === existing.score && 
+             new Date(approval.exam_date) > new Date(existing.exam_date))
+          ) {
+            approvalMap.set(key, approval);
+          }
+        }
+      }
+      
+      // Mapから配列に変換
+      filteredApprovals.push(...approvalMap.values());
+      
       res.json({
         success: true,
-        data: pendingApprovals
+        data: filteredApprovals
       });
       
     } finally {

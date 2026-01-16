@@ -1759,19 +1759,49 @@ const getUserCertificates = async (req, res) => {
       };
     }));
 
+    // 同じレッスンIDで複数回合格している場合、最高得点かつ最新の1回のみを返す
+    const filteredCertificates = [];
+    const certificateMap = new Map();
+    
+    // レッスンIDでグループ化
+    for (const certificate of certificates) {
+      const key = certificate.lessonId;
+      
+      if (!certificateMap.has(key)) {
+        certificateMap.set(key, certificate);
+      } else {
+        const existing = certificateMap.get(key);
+        // 既存のものと比較して、より良い結果を選択
+        // 1. 得点が高い方を優先
+        // 2. 得点が同じ場合は、より新しい方を優先
+        if (
+          certificate.score > existing.score ||
+          (certificate.score === existing.score && 
+           new Date(certificate.examDate) > new Date(existing.examDate))
+        ) {
+          certificateMap.set(key, certificate);
+        }
+      }
+    }
+    
+    // Mapから配列に変換
+    filteredCertificates.push(...certificateMap.values());
+
     customLogger.info('User certificates retrieved successfully', {
       userId,
-      certificateCount: certificates.length
+      certificateCount: filteredCertificates.length,
+      originalCount: certificates.length
     });
 
     console.log('=== getUserCertificates response ===');
     console.log('userId:', userId);
-    console.log('certificates count:', certificates.length);
-    console.log('certificates data:', certificates);
+    console.log('certificates count (filtered):', filteredCertificates.length);
+    console.log('certificates count (original):', certificates.length);
+    console.log('certificates data:', filteredCertificates);
 
     res.json({
       success: true,
-      data: certificates
+      data: filteredCertificates
     });
   } catch (error) {
     customLogger.error('Failed to retrieve user certificates', {
