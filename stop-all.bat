@@ -93,8 +93,16 @@ if errorlevel 1 (
     echo [OK] Build cache removed.
 )
 
+echo [INFO] Removing unused volumes (preserving studysphere-backend_mysql_data)...
+powershell -Command "$volumes = docker volume ls -q; $preserved = 'studysphere-backend_mysql_data'; $removed = 0; $errors = 0; foreach ($vol in $volumes) { if ($vol -ne $preserved) { docker volume rm $vol 2>&1 | Out-Null; if ($LASTEXITCODE -eq 0) { $removed++ } else { $errors++ } } }; if ($removed -gt 0) { Write-Host '[OK] Removed ' $removed ' volume(s).' } else { Write-Host '[INFO] No volumes to remove.' }; if ($errors -gt 0) { Write-Host '[WARNING] Failed to remove ' $errors ' volume(s).' }"
+if errorlevel 1 (
+    echo [WARNING] Failed to clean up unused volumes.
+) else (
+    echo [OK] Unused volumes removed (studysphere-backend_mysql_data preserved).
+)
+
 echo.
 echo [INFO] StudySphere Environment stopped and cleaned up.
-echo [INFO] Note: Database volumes are preserved to keep your data.
+echo [INFO] Note: Database volume (studysphere-backend_mysql_data) is preserved to keep your data.
 echo [INFO] You can restart with: start-all.bat
 pause
