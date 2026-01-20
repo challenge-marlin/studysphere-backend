@@ -1913,7 +1913,7 @@ const getCurrentLesson = async (req, res) => {
       FROM user_lesson_progress ulp
       JOIN lessons l ON ulp.lesson_id = l.id
       JOIN courses c ON l.course_id = c.id
-      WHERE ulp.user_id = ? AND ulp.status != 'not_started'
+      WHERE ulp.user_id = ? AND ulp.status = 'in_progress'
     `;
     
     const params = [userId];
@@ -1923,14 +1923,15 @@ const getCurrentLesson = async (req, res) => {
       params.push(courseId);
     }
     
-    // 未学習以外のステータスで、更新日時が最新のレッスンを取得
-    query += ' ORDER BY ulp.updated_at DESC, ulp.lesson_id DESC LIMIT 1';
+    // 進行中（in_progress）のレッスンのみを対象とし、更新日時が最新のレッスンを取得
+    // 同じupdated_atの場合は、order_indexが小さい方（先に学ぶべきレッスン）を優先
+    query += ' ORDER BY ulp.updated_at DESC, l.order_index ASC, ulp.lesson_id ASC LIMIT 1';
     
     const [currentLessons] = await connection.execute(query, params);
 
-    // 未学習以外のレッスンがない場合は、現在受講中タグは表示しない
+    // 進行中のレッスンがない場合は、現在受講中タグは表示しない
     if (currentLessons.length === 0) {
-      customLogger.info('No active lessons found - no current lesson will be displayed', {
+      customLogger.info('No in-progress lessons found - no current lesson will be displayed', {
         userId,
         courseId
       });

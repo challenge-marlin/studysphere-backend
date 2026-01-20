@@ -176,6 +176,134 @@ const effectiveLogLevel = ['error', 'warn', 'info', 'debug'].includes(logLevel) 
 
 console.log(`Logger initialized with level: ${effectiveLogLevel}`);
 
+// 日付ベースの動的ファイルトランスポート
+// 日付が変わったときに自動的に新しいディレクトリに切り替える
+class DateBasedFileTransport extends winston.Transport {
+  constructor(options) {
+    super(options);
+    
+    // ベースファイル名を保存（例: 'error.log'）
+    this.baseFilename = path.basename(options.filename);
+    this.level = options.level || 'info';
+    this.maxsize = options.maxsize || 5242880; // 5MB
+    this.maxFiles = options.maxFiles || 5;
+    this.handleExceptions = options.handleExceptions || false;
+    this.handleRejections = options.handleRejections || false;
+    this.format = options.format || logFormat; // 既存のログフォーマットを使用
+    
+    // 初期日付を設定
+    this.currentDate = this.getCurrentDateString();
+    this.currentStream = null;
+    this.currentFilename = null;
+    
+    // 初期ストリームを作成
+    this.ensureStream();
+  }
+
+  getCurrentDateString() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  getCurrentLogDir() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    
+    const logDir = path.join(__dirname, '../logs', String(year), month, day);
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+    
+    return logDir;
+  }
+
+  ensureStream() {
+    const currentDate = this.getCurrentDateString();
+    const newLogDir = this.getCurrentLogDir();
+    const newFilename = path.join(newLogDir, this.baseFilename);
+    
+    // 日付が変わった、またはストリームが存在しない場合
+    if (currentDate !== this.currentDate || !this.currentStream || newFilename !== this.currentFilename) {
+      // 既存のストリームを閉じる
+      if (this.currentStream) {
+        try {
+          if (!this.currentStream.destroyed && this.currentStream.writable) {
+            this.currentStream.end();
+          }
+        } catch (error) {
+          console.error('Error closing log stream:', error);
+        }
+      }
+      
+      // 新しいストリームを作成
+      try {
+        this.currentDate = currentDate;
+        this.currentFilename = newFilename;
+        this.currentStream = fs.createWriteStream(newFilename, { 
+          flags: 'a',
+          encoding: 'utf8'
+        });
+        
+        // ストリームエラーのハンドリング
+        this.currentStream.on('error', (error) => {
+          console.error('Log stream error:', error);
+          this.emit('error', error);
+        });
+      } catch (error) {
+        console.error('Error creating log stream:', error);
+        this.emit('error', error);
+      }
+    }
+  }
+
+  log(info, callback) {
+    setImmediate(() => {
+      this.emit('logged', info);
+    });
+    
+    // 日付をチェックしてストリームを更新
+    this.ensureStream();
+    
+    // ストリームが存在する場合のみ書き込み
+    if (this.currentStream && this.currentStream.writable) {
+      try {
+        // 既存のログフォーマットを適用
+        const formattedMessage = this.format.transform(info, { all: true });
+        const logLine = typeof formattedMessage === 'string' 
+          ? formattedMessage 
+          : JSON.stringify(formattedMessage);
+        
+        this.currentStream.write(logLine + '\n');
+      } catch (error) {
+        // フォーマットエラーの場合は、フォールバックとして直接書き込み
+        try {
+          const fallbackMessage = `${info.timestamp || new Date().toISOString()} [${info.level || 'info'}]: ${info.message || ''}\n`;
+          this.currentStream.write(fallbackMessage);
+        } catch (writeError) {
+          console.error('Error writing to log stream:', writeError);
+          this.emit('error', writeError);
+        }
+      }
+    }
+    
+    if (callback) {
+      callback();
+    }
+  }
+
+  close() {
+    if (this.currentStream) {
+      this.currentStream.end();
+      this.currentStream = null;
+    }
+  }
+}
+
 // Winstonロガーの設定
 const logger = winston.createLogger({
   level: effectiveLogLevel,
@@ -183,7 +311,7 @@ const logger = winston.createLogger({
   defaultMeta: { service: 'curriculum-portal-backend' },
   transports: [
     // エラーログファイル
-    new winston.transports.File({
+    new DateBasedFileTransport({
       filename: path.join(getLogDir(), 'error.log'),
       level: 'error',
       maxsize: 5242880, // 5MB
@@ -193,7 +321,7 @@ const logger = winston.createLogger({
     }),
     
     // 全ログファイル
-    new winston.transports.File({
+    new DateBasedFileTransport({
       filename: path.join(getLogDir(), 'combined.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 5,
@@ -203,7 +331,7 @@ const logger = winston.createLogger({
     
     // デバッグログファイル（開発環境のみ）
     ...(process.env.NODE_ENV === 'development' ? [
-      new winston.transports.File({
+      new DateBasedFileTransport({
         filename: path.join(getLogDir(), 'debug.log'),
         level: 'debug',
         maxsize: 5242880, // 5MB
@@ -215,7 +343,7 @@ const logger = winston.createLogger({
     
     // 本番環境用の追加ログファイル
     ...(process.env.NODE_ENV === 'production' ? [
-      new winston.transports.File({
+      new DateBasedFileTransport({
         filename: path.join(getLogDir(), 'production.log'),
         level: 'info',
         maxsize: 10485760, // 10MB
@@ -227,14 +355,14 @@ const logger = winston.createLogger({
   ],
   // 例外処理の設定
   exceptionHandlers: [
-    new winston.transports.File({
+    new DateBasedFileTransport({
       filename: path.join(getLogDir(), 'exceptions.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 3,
     })
   ],
   rejectionHandlers: [
-    new winston.transports.File({
+    new DateBasedFileTransport({
       filename: path.join(getLogDir(), 'rejections.log'),
       maxsize: 5242880, // 5MB
       maxFiles: 3,
