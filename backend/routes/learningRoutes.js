@@ -263,6 +263,33 @@ router.post('/upload-assignment', authenticateToken, upload.single('file'), asyn
         }
       };
 
+      // 既存の提出物がある場合は削除（再提出の場合）
+      const [existingDeliverables] = await connection.execute(`
+        SELECT id, file_url FROM deliverables 
+        WHERE user_id = ? AND lesson_id = ?
+      `, [userId, lessonId]);
+
+      // 既存のファイルをS3から削除
+      if (existingDeliverables.length > 0) {
+        const { s3Utils } = require('../config/s3');
+        for (const deliverable of existingDeliverables) {
+          try {
+            if (deliverable.file_url) {
+              await s3Utils.deleteFile(deliverable.file_url);
+              console.log(`既存ファイル削除成功: ${deliverable.file_url}`);
+            }
+          } catch (s3Error) {
+            console.warn('既存ファイル削除エラー（処理は続行）:', s3Error.message);
+          }
+        }
+        
+        // deliverablesテーブルから既存レコードを削除
+        await connection.execute(`
+          DELETE FROM deliverables 
+          WHERE user_id = ? AND lesson_id = ?
+        `, [userId, lessonId]);
+      }
+
       await s3.upload(uploadParams).promise();
 
       // データベースに提出記録を保存
@@ -287,7 +314,7 @@ router.post('/upload-assignment', authenticateToken, upload.single('file'), asyn
         `, [userId, lessonId]);
       }
 
-      // deliverablesテーブルにファイル情報を保存
+      // deliverablesテーブルにファイル情報を保存（再提出の場合は未承認ステータスで保存）
       try {
         console.log('=== deliverablesテーブル挿入開始 ===');
         console.log('挿入データ:', {
@@ -300,8 +327,8 @@ router.post('/upload-assignment', authenticateToken, upload.single('file'), asyn
         
         const [deliverableResult] = await connection.execute(`
           INSERT INTO deliverables 
-          (user_id, lesson_id, curriculum_name, session_number, file_url, file_type, file_name, file_size, uploaded_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+          (user_id, lesson_id, curriculum_name, session_number, file_url, file_type, file_name, file_size, uploaded_at, instructor_approved)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), FALSE)
         `, [userId, lessonId, lesson.course_title, lessonId, s3Key, 'other', file.originalname, file.size]);
         
         console.log('=== deliverablesテーブル挿入成功 ===');

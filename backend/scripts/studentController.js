@@ -124,7 +124,12 @@ const getStudentLessons = async (req, res) => {
         ulp.assignment_submitted_at,
         ulp.updated_at,
         cp.name as curriculum_path_name,
-        cp.description as curriculum_path_description
+        cp.description as curriculum_path_description,
+        (SELECT d.instructor_approved 
+         FROM deliverables d 
+         WHERE d.lesson_id = l.id AND d.user_id = uc.user_id 
+         ORDER BY d.uploaded_at DESC 
+         LIMIT 1) as assignment_approved
       FROM lessons l
       JOIN courses c ON l.course_id = c.id
       JOIN user_courses uc ON c.id = uc.course_id
