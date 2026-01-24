@@ -618,7 +618,7 @@ router.get('/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
     });
     
     const {
-      user_id,
+      user_name,
       source_system,
       target_system,
       action,
@@ -666,35 +666,45 @@ router.get('/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
     const startDate = start_date || defaultStartDate;
     const endDate = end_date || defaultEndDate;
 
-    // WHERE条件の構築（COUNT用：エイリアスなし）
-    const whereConditionsForCount = ['created_at >= ?', 'created_at <= ?'];
-    // WHERE条件の構築（SELECT用：エイリアス付き）
+    // WHERE条件の構築（COUNT用：JOINが必要な場合はエイリアス付き、そうでない場合はエイリアスなし）
+    const whereConditionsForCount = [];
+    // WHERE条件の構築（SELECT用：常にエイリアス付き）
     const whereConditionsForSelect = ['sal.created_at >= ?', 'sal.created_at <= ?'];
     const params = [startDate, endDate];
+    let needsJoin = false;
 
-    if (user_id) {
-      whereConditionsForCount.push('user_id = ?');
-      whereConditionsForSelect.push('sal.user_id = ?');
-      // user_idは数値として扱う
-      const userIdNum = parseInt(user_id);
-      if (!isNaN(userIdNum)) {
-        params.push(userIdNum);
-      } else {
-        params.push(user_id); // 数値変換できない場合は文字列のまま
-      }
+    if (user_name) {
+      needsJoin = true;
+      whereConditionsForCount.push('sal.created_at >= ?', 'sal.created_at <= ?');
+      whereConditionsForSelect.push('ua.name LIKE ?');
+      params.push(`%${user_name}%`); // 部分一致検索
+    } else {
+      whereConditionsForCount.push('created_at >= ?', 'created_at <= ?');
     }
     if (source_system) {
-      whereConditionsForCount.push('source_system = ?');
+      if (needsJoin) {
+        whereConditionsForCount.push('sal.source_system = ?');
+      } else {
+        whereConditionsForCount.push('source_system = ?');
+      }
       whereConditionsForSelect.push('sal.source_system = ?');
       params.push(source_system);
     }
     if (target_system) {
-      whereConditionsForCount.push('target_system = ?');
+      if (needsJoin) {
+        whereConditionsForCount.push('sal.target_system = ?');
+      } else {
+        whereConditionsForCount.push('target_system = ?');
+      }
       whereConditionsForSelect.push('sal.target_system = ?');
       params.push(target_system);
     }
     if (action) {
-      whereConditionsForCount.push('action = ?');
+      if (needsJoin) {
+        whereConditionsForCount.push('sal.action = ?');
+      } else {
+        whereConditionsForCount.push('action = ?');
+      }
       whereConditionsForSelect.push('sal.action = ?');
       params.push(action);
     }
@@ -778,11 +788,11 @@ router.get('/audit-logs', authenticateToken, requireAdmin, async (req, res) => {
       customLogger.info('監査ログ取得パラメータ検証', debugInfo);
     }
 
-    // 総件数を取得
-    const [countResult] = await pool.execute(
-      `SELECT COUNT(*) as total FROM sso_audit_logs WHERE ${whereClauseForCount}`,
-      validatedParams
-    );
+    // 総件数を取得（user_nameフィルタがある場合はJOINが必要）
+    const countQuery = needsJoin
+      ? `SELECT COUNT(*) as total FROM sso_audit_logs sal LEFT JOIN user_accounts ua ON sal.user_id = ua.id WHERE ${whereClauseForCount}`
+      : `SELECT COUNT(*) as total FROM sso_audit_logs sal WHERE ${whereClauseForCount}`;
+    const [countResult] = await pool.execute(countQuery, validatedParams);
     const total = countResult[0].total;
 
     // ログを取得
