@@ -2066,6 +2066,131 @@ const assignCourseToUser = async (req, res) => {
   }
 };
 
+// レッスンまとめテスト（30問）合格後の「次のレッスン」を取得
+// 条件: 同じコース、まだ30問テスト未合格、該当レッスンの次に order_index が大きいレッスン
+const getNextLessonAfterPass = async (req, res) => {
+  const userId = req.user?.user_id;
+  const lessonId = parseInt(req.params.lessonId, 10);
+  const connection = await pool.getConnection();
+
+  try {
+    if (!userId || !lessonId || isNaN(lessonId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'レッスンIDが不正です'
+      });
+    }
+
+    const [currentRows] = await connection.execute(`
+      SELECT course_id, order_index FROM lessons WHERE id = ? AND status = 'active'
+    `, [lessonId]);
+
+    if (currentRows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+
+    const { course_id: courseId, order_index: currentOrder } = currentRows[0];
+
+    const [nextRows] = await connection.execute(`
+      SELECT l.id, l.title, l.course_id, l.has_assignment,
+        COALESCE(ulp.assignment_submitted, 0) AS assignment_submitted
+      FROM lessons l
+      LEFT JOIN user_lesson_progress ulp ON l.id = ulp.lesson_id AND ulp.user_id = ?
+      WHERE l.course_id = ? AND l.status = 'active'
+        AND l.order_index > ?
+        AND (ulp.test_score IS NULL OR ulp.test_score < 29)
+      ORDER BY l.order_index ASC
+      LIMIT 1
+    `, [userId, courseId, currentOrder]);
+
+    if (nextRows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+
+    const next = nextRows[0];
+    res.json({
+      success: true,
+      data: {
+        id: next.id,
+        title: next.title,
+        courseId: next.course_id,
+        hasAssignment: !!next.has_assignment,
+        assignmentSubmitted: !!next.assignment_submitted
+      }
+    });
+  } catch (error) {
+    customLogger.error('getNextLessonAfterPass failed', { error: error.message, lessonId, userId: req.user?.user_id });
+    res.status(500).json({
+      success: false,
+      message: '次のレッスンの取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+// セクションまとめテスト（10問）合格後の「次のセクション」を取得
+// 同一レッスン内で sectionIndex+1 が存在する場合に hasNext, nextSectionIndex, courseId を返す
+const getNextSectionAfterPass = async (req, res) => {
+  const lessonId = parseInt(req.params.lessonId, 10);
+  const sectionIndex = parseInt(req.params.sectionIndex, 10);
+  const connection = await pool.getConnection();
+
+  try {
+    if (!lessonId || isNaN(lessonId) || isNaN(sectionIndex) || sectionIndex < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'レッスンIDまたはセクションインデックスが不正です'
+      });
+    }
+
+    const [lessonRows] = await connection.execute(
+      'SELECT course_id FROM lessons WHERE id = ? AND status = \'active\'',
+      [lessonId]
+    );
+    if (lessonRows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+    const courseId = lessonRows[0].course_id;
+
+    // セクション数: lesson_text_video_links の件数（学習画面のセクションと同一定義に合わせる場合は getTextVideoLinks 相当の集計が必要）
+    const [countRows] = await connection.execute(
+      'SELECT COUNT(*) AS cnt FROM lesson_text_video_links WHERE lesson_id = ?',
+      [lessonId]
+    );
+    const sectionCount = (countRows[0] && countRows[0].cnt) || 0;
+    const nextIdx = sectionIndex + 1;
+    const hasNext = nextIdx < sectionCount;
+
+    if (!hasNext) {
+      return res.json({ success: true, data: null });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        courseId,
+        nextSectionIndex: nextIdx,
+        hasNext: true
+      }
+    });
+  } catch (error) {
+    customLogger.error('getNextSectionAfterPass failed', {
+      error: error.message,
+      lessonId,
+      sectionIndex
+    });
+    res.status(500).json({
+      success: false,
+      message: '次のセクションの取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUserProgress,
   updateLessonProgress,
@@ -2077,5 +2202,7 @@ module.exports = {
   getCurrentLesson,
   approveLessonCompletion,
   getCertificateData,
-  getUserCertificates
+  getUserCertificates,
+  getNextLessonAfterPass,
+  getNextSectionAfterPass
 };

@@ -13,7 +13,9 @@ const {
   getCurrentLesson,
   approveLessonCompletion,
   getCertificateData,
-  getUserCertificates
+  getUserCertificates,
+  getNextLessonAfterPass,
+  getNextSectionAfterPass
 } = require('../scripts/learningController');
 const multer = require('multer');
 const { pool } = require('../utils/database');
@@ -602,6 +604,12 @@ router.get('/test/results/:userId', authenticateToken, getTestResults);
 
 // 指導員承認関連
 router.post('/approve-completion', authenticateToken, approveLessonCompletion);
+
+// レッスンまとめテスト合格後の「次のレッスン」取得（同一コース・30問未合格・次の order_index）
+router.get('/next-lesson/:lessonId', authenticateToken, getNextLessonAfterPass);
+
+// セクションまとめテスト（10問）合格後の「次のセクション」取得（同一レッスン内の次の section_index）
+router.get('/next-section/:lessonId/:sectionIndex', authenticateToken, getNextSectionAfterPass);
 
 // レッスンコンテンツ取得
 router.get('/lesson/:lessonId/content', authenticateToken, getLessonContent);
