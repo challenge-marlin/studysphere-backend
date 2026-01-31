@@ -123,6 +123,7 @@ const getStudentLessons = async (req, res) => {
         ulp.assignment_submitted,
         ulp.assignment_submitted_at,
         ulp.updated_at,
+        ulp.last_accessed_at,
         cp.name as curriculum_path_name,
         cp.description as curriculum_path_description,
         (SELECT d.instructor_approved 

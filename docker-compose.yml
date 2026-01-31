@@ -13,8 +13,8 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # 開発時は初期化SQLのマウントを無効にする
-      # - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # 初回起動時のみ実行（既存ボリュームがある場合はスキップされる）
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - app-network
     command: >

@@ -218,7 +218,7 @@ const getCourseProgress = async (req, res) => {
 
 // レッスン進捗を更新
 const updateLessonProgress = async (req, res) => {
-  const { userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved, instructorId, forceUpdate } = req.body;
+  const { userId, lessonId, status, testScore, assignmentSubmitted, instructorApproved, instructorId, forceUpdate, lastViewedSectionIndex, lastViewedSectionTextKey } = req.body;
   
   // 必須パラメータのバリデーション
   if (userId === undefined || userId === null) {
@@ -241,6 +241,14 @@ const updateLessonProgress = async (req, res) => {
   const normalizedUserId = userId !== undefined ? userId : null;
   const normalizedLessonId = lessonId !== undefined ? lessonId : null;
   const normalizedStatus = status !== undefined ? status : null;
+  const normalizedLastViewedSectionIndex =
+    lastViewedSectionIndex !== undefined && lastViewedSectionIndex !== null && !Number.isNaN(Number(lastViewedSectionIndex))
+      ? parseInt(lastViewedSectionIndex, 10)
+      : null;
+  const normalizedLastViewedSectionTextKey =
+    typeof lastViewedSectionTextKey === 'string' && lastViewedSectionTextKey.trim().length > 0
+      ? lastViewedSectionTextKey.trim()
+      : null;
   
   const connection = await pool.getConnection();
   
@@ -252,7 +260,9 @@ const updateLessonProgress = async (req, res) => {
       testScore,
       assignmentSubmitted,
       instructorApproved,
-      forceUpdate
+      forceUpdate,
+      lastViewedSectionIndex: normalizedLastViewedSectionIndex,
+      lastViewedSectionTextKey: normalizedLastViewedSectionTextKey
     });
 
     // 既存の進捗を確認
@@ -315,6 +325,23 @@ const updateLessonProgress = async (req, res) => {
         // completedの場合は完了日時を設定
         if (normalizedStatus === 'completed') {
           forceUpdateFields.push('completed_at = NOW()');
+        }
+
+        // in_progress の場合は「最終アクセス日時」を更新（ミリ秒精度）
+        if (normalizedStatus === 'in_progress') {
+          forceUpdateFields.push('last_accessed_at = NOW(3)');
+        }
+
+        // 最後に閲覧したセクション（0始まり）
+        if (normalizedLastViewedSectionIndex !== null && normalizedLastViewedSectionIndex >= 0) {
+          forceUpdateFields.push('last_viewed_section_index = ?');
+          forceUpdateValues.push(normalizedLastViewedSectionIndex);
+        }
+
+        // 最後に閲覧したセクションのテキストキー（S3キー）
+        if (normalizedLastViewedSectionTextKey) {
+          forceUpdateFields.push('last_viewed_section_text_key = ?');
+          forceUpdateValues.push(normalizedLastViewedSectionTextKey);
         }
         
         // updated_atは常に更新
@@ -403,6 +430,23 @@ const updateLessonProgress = async (req, res) => {
       if (normalizedStatus === 'completed') {
         updateFields.push('completed_at = NOW()');
       }
+
+      // in_progress の場合は「最終アクセス日時」を更新（ミリ秒精度）
+      if (normalizedStatus === 'in_progress') {
+        updateFields.push('last_accessed_at = NOW(3)');
+      }
+
+      // 最後に閲覧したセクション（0始まり）
+      if (normalizedLastViewedSectionIndex !== null && normalizedLastViewedSectionIndex >= 0) {
+        updateFields.push('last_viewed_section_index = ?');
+        updateValues.push(normalizedLastViewedSectionIndex);
+      }
+
+      // 最後に閲覧したセクションのテキストキー（S3キー）
+      if (normalizedLastViewedSectionTextKey) {
+        updateFields.push('last_viewed_section_text_key = ?');
+        updateValues.push(normalizedLastViewedSectionTextKey);
+      }
       
       // updated_atは常に更新
       updateFields.push('updated_at = NOW()');
@@ -432,17 +476,23 @@ const updateLessonProgress = async (req, res) => {
       const normalizedAssignmentSubmitted = (assignmentSubmitted !== undefined && assignmentSubmitted !== null) ? assignmentSubmitted : false;
       const normalizedInstructorApproved = (instructorApproved !== undefined && instructorApproved !== null) ? instructorApproved : false;
       const normalizedInstructorId = (instructorId !== undefined && instructorId !== null) ? instructorId : null;
+      const normalizedInsertLastViewedSectionIndex = (normalizedLastViewedSectionIndex !== null && normalizedLastViewedSectionIndex >= 0)
+        ? normalizedLastViewedSectionIndex
+        : null;
       
       await connection.execute(`
         INSERT INTO user_lesson_progress (
           user_id, lesson_id, status, test_score, assignment_submitted, 
           instructor_approved, instructor_id, completed_at, assignment_submitted_at, instructor_approved_at,
-          created_at, updated_at
+          created_at, updated_at, last_accessed_at, last_viewed_section_index, last_viewed_section_text_key
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 
           CASE WHEN ? = 'completed' THEN NOW() ELSE NULL END,
           CASE WHEN ? = 1 THEN NOW() ELSE NULL END,
           CASE WHEN ? = 1 THEN NOW() ELSE NULL END,
-          NOW(), NOW()
+          NOW(), NOW(),
+          CASE WHEN ? = 'in_progress' THEN NOW(3) ELSE NULL END,
+          ?,
+          ?
         )
       `, [
         normalizedUserId, 
@@ -454,7 +504,10 @@ const updateLessonProgress = async (req, res) => {
         normalizedInstructorId, 
         normalizedStatus, 
         normalizedAssignmentSubmitted, 
-        normalizedInstructorApproved
+        normalizedInstructorApproved,
+        normalizedStatus,
+        normalizedInsertLastViewedSectionIndex,
+        normalizedLastViewedSectionTextKey
       ]);
       
       customLogger.info('New lesson progress created', {
@@ -1216,6 +1269,7 @@ const getTestResults = async (req, res) => {
 // レッスンコンテンツを取得
 const getLessonContent = async (req, res) => {
   const { lessonId } = req.params;
+  const userId = req.user?.user_id;
   const connection = await pool.getConnection();
   
   try {
@@ -1225,11 +1279,15 @@ const getLessonContent = async (req, res) => {
     const [lessonRows] = await connection.execute(`
       SELECT 
         l.*,
-        c.title as course_title
+        c.title as course_title,
+        ulp.last_viewed_section_index as last_viewed_section_index,
+        ulp.last_viewed_section_text_key as last_viewed_section_text_key
       FROM lessons l
       JOIN courses c ON l.course_id = c.id
+      LEFT JOIN user_lesson_progress ulp
+        ON ulp.lesson_id = l.id AND ulp.user_id = ?
       WHERE l.id = ? AND l.status = 'active'
-    `, [lessonId]);
+    `, [userId, lessonId]);
 
     if (lessonRows.length === 0) {
       console.log('❌ レッスンが見つかりません');
@@ -1923,9 +1981,9 @@ const getCurrentLesson = async (req, res) => {
       params.push(courseId);
     }
     
-    // 進行中（in_progress）のレッスンのみを対象とし、更新日時が最新のレッスンを取得
-    // 同じupdated_atの場合は、order_indexが小さい方（先に学ぶべきレッスン）を優先
-    query += ' ORDER BY ulp.updated_at DESC, l.order_index ASC, ulp.lesson_id ASC LIMIT 1';
+    // 進行中（in_progress）のレッスンのみを対象とし、最終アクセス日時が最新のレッスンを取得
+    // last_accessed_at が NULL の既存データは updated_at をフォールバックとして使用
+    query += " ORDER BY COALESCE(ulp.last_accessed_at, ulp.updated_at) DESC, ulp.updated_at DESC, ulp.lesson_id DESC LIMIT 1";
     
     const [currentLessons] = await connection.execute(query, params);
 

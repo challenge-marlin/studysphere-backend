@@ -1222,75 +1222,69 @@ class RemoteSupportController {
         });
       }
 
-      // まず保存された通知データを取得
-      let notificationData = global.tempPasswordNotifications?.[loginCode];
+      // NOTE:
+      // 以前は global.tempPasswordNotifications を優先して返していましたが、
+      // サーバープロセスが生き続けると「古い一時パスワード」が固定で返り、
+      // 自動ログインに失敗する原因になり得ます。
+      // ここでは必ずDBの最新（is_used=0 かつ expires_at>NOW）を参照し、結果をキャッシュ更新します。
 
-      // 通知データがない場合は、データベースから直接取得
-      if (!notificationData) {
-        customLogger.info(`通知データが見つからないため、データベースから直接取得: ${loginCode}`);
-        
-        try {
-          // ユーザーIDを取得
-          const [users] = await pool.execute(
-            'SELECT id, name FROM user_accounts WHERE login_code = ?',
-            [loginCode]
-          );
+      // ユーザーIDを取得
+      const [users] = await pool.execute(
+        'SELECT id, name FROM user_accounts WHERE login_code = ?',
+        [loginCode]
+      );
 
-          if (users.length === 0) {
-            return res.status(404).json({
-              success: false,
-              message: 'ユーザーが見つかりません'
-            });
-          }
-
-          const userId = users[0].id;
-          const userName = users[0].name;
-
-          // 有効な一時パスワードを取得
-          const [tempPasswords] = await pool.execute(`
-            SELECT temp_password, expires_at, issued_at
-            FROM user_temp_passwords 
-            WHERE user_id = ? AND is_used = 0 AND expires_at > NOW()
-            ORDER BY issued_at DESC
-            LIMIT 1
-          `, [userId]);
-
-          if (tempPasswords.length === 0) {
-            return res.status(404).json({
-              success: false,
-              message: '有効な一時パスワードが見つかりません'
-            });
-          }
-
-          const tempPassword = tempPasswords[0];
-          
-          // 通知データを構築
-          notificationData = {
-            loginCode,
-            tempPassword: tempPassword.temp_password,
-            userName,
-            timestamp: tempPassword.issued_at,
-            receivedAt: new Date().toISOString()
-          };
-
-          // グローバル通知データにも保存（次回の取得を高速化）
-          global.tempPasswordNotifications = global.tempPasswordNotifications || {};
-          global.tempPasswordNotifications[loginCode] = notificationData;
-
-          customLogger.info(`データベースから一時パスワードを取得: ${loginCode}`);
-        } catch (dbError) {
-          customLogger.error('データベースからの一時パスワード取得エラー:', dbError);
-          return res.status(500).json({
-            success: false,
-            message: '一時パスワードの取得に失敗しました',
-            error: dbError.message
-          });
+      if (users.length === 0) {
+        // 念のためキャッシュも削除
+        if (global.tempPasswordNotifications?.[loginCode]) {
+          delete global.tempPasswordNotifications[loginCode];
         }
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
       }
 
-      customLogger.info(`一時パスワード通知を取得: ${loginCode}`);
+      const userId = users[0].id;
+      const userName = users[0].name;
 
-      res.json({
+      // 有効な一時パスワードを取得（DBを正とする）
+      const [tempPasswords] = await pool.execute(`
+        SELECT temp_password, expires_at, issued_at
+        FROM user_temp_passwords 
+        WHERE user_id = ? AND is_used = 0 AND expires_at > NOW()
+        ORDER BY issued_at DESC
+        LIMIT 1
+      `, [userId]);
+
+      if (tempPasswords.length === 0) {
+        // 有効なものが無い場合はキャッシュをクリアして 404 を返す
+        if (global.tempPasswordNotifications?.[loginCode]) {
+          delete global.tempPasswordNotifications[loginCode];
+        }
+        return res.status(404).json({
+          success: false,
+          message: '有効な一時パスワードが見つかりません'
+        });
+      }
+
+      const latest = tempPasswords[0];
+      const notificationData = {
+        loginCode,
+        tempPassword: latest.temp_password,
+        userName,
+        timestamp: latest.issued_at,
+        expiresAt: latest.expires_at,
+        receivedAt: new Date().toISOString()
+      };
+
+      // グローバル通知データにも保存（次回の取得を高速化）
+      global.tempPasswordNotifications = global.tempPasswordNotifications || {};
+      global.tempPasswordNotifications[loginCode] = notificationData;
+
+      customLogger.info(`一時パスワード通知を取得（DB最新）: ${loginCode}`);
+
+      return res.json({
         success: true,
         message: '一時パスワード通知を取得しました',
         data: notificationData

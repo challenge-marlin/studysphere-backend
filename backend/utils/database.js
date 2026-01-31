@@ -22,20 +22,23 @@ let pool = mysql.createPool({
 });
 
 // 接続プールの状態監視（簡素化）
-pool.on('connection', async (connection) => {
-  // 接続時に文字セットを明示的に設定（ENUM値の文字化け対策）
-  try {
-    await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
-    await connection.query('SET CHARACTER SET utf8mb4');
-    customLogger.info('新しいデータベース接続が作成されました（文字セット設定済み）', {
-      threadId: connection.threadId
-    });
-  } catch (error) {
-    customLogger.warn('接続時の文字セット設定に失敗', {
-      threadId: connection.threadId,
-      error: error.message
-    });
-  }
+// 注意: pool.on('connection') で渡る connection はコールバック形式のため、promise() で Promise 版を使う
+pool.on('connection', (connection) => {
+  const conn = connection.promise ? connection.promise() : connection;
+  (async () => {
+    try {
+      await conn.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await conn.query('SET CHARACTER SET utf8mb4');
+      customLogger.info('新しいデータベース接続が作成されました（文字セット設定済み）', {
+        threadId: connection.threadId
+      });
+    } catch (error) {
+      customLogger.warn('接続時の文字セット設定に失敗', {
+        threadId: connection.threadId,
+        error: error.message
+      });
+    }
+  })();
 });
 
 // プールエラーの監視（簡素化）

@@ -211,6 +211,8 @@ CREATE TABLE `user_lesson_progress` (
   `instructor_id` INT DEFAULT NULL COMMENT '承認した指導員ID',
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
   `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日時',
+  `last_accessed_at` DATETIME(3) DEFAULT NULL COMMENT '最終アクセス日時（現在受講中判定用）',
+  `last_viewed_section_index` INT DEFAULT NULL COMMENT '最後に閲覧したセクションインデックス（0始まり）',
   UNIQUE KEY `unique_user_lesson` (`user_id`, `lesson_id`),
   FOREIGN KEY (`user_id`) REFERENCES `user_accounts`(`id`) ON DELETE CASCADE,
   FOREIGN KEY (`lesson_id`) REFERENCES `lessons`(`id`) ON DELETE CASCADE,
@@ -219,7 +221,8 @@ CREATE TABLE `user_lesson_progress` (
   INDEX `idx_lesson_id` (`lesson_id`),
   INDEX `idx_status` (`status`),
   INDEX `idx_completed_at` (`completed_at`),
-  INDEX `idx_instructor_approved` (`instructor_approved`)
+  INDEX `idx_instructor_approved` (`instructor_approved`),
+  INDEX `idx_last_accessed_at` (`last_accessed_at`)
 ) COMMENT = '利用者のレッスン進捗管理テーブル';
 
 -- リフレッシュトークン管理テーブル

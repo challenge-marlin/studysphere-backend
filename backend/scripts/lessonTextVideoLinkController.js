@@ -21,6 +21,16 @@ const getTextVideoLinks = async (req, res) => {
         message: 'レッスンが見つかりません'
       });
     }
+
+    // レッスン本体のテキスト（s3_key / file_type）を取得
+    // lesson_text_video_links の text_file_key が「ファイル名のみ」で保存されているケースでも、
+    // ここでフルS3キーへ正規化できるようにする（特にセクション0がレッスン本文を指す場合）
+    const [lessonRows] = await connection.execute(
+      'SELECT s3_key, file_type FROM lessons WHERE id = ?',
+      [lessonId]
+    );
+    const lessonMainS3Key = lessonRows?.[0]?.s3_key || null;
+    const lessonMainFileType = lessonRows?.[0]?.file_type || null;
     
     // レッスンIDに一致するすべての紐づけを取得
     const query = `
@@ -101,18 +111,42 @@ const getTextVideoLinks = async (req, res) => {
           finalFileType: finalFileType
         });
       } else {
-        // file_typeを拡張子から判定
-        const lowerKey = link.text_file_key.toLowerCase();
-        if (lowerKey.endsWith('.md')) {
-          finalFileType = 'text/markdown';
-        } else if (lowerKey.endsWith('.txt')) {
-          finalFileType = 'text/plain';
-        } else if (lowerKey.endsWith('.pdf')) {
-          finalFileType = 'application/pdf';
-        } else if (lowerKey.endsWith('.rtf')) {
-          finalFileType = 'application/rtf';
+        // lesson_text_files に見つからない場合でも、レッスン本体の s3_key とファイル名が一致するなら、
+        // フルS3キーへ正規化して返す（= フロントが確実に取得できるようにする）
+        const mainFileName = extractFileName(lessonMainS3Key);
+        if (lessonMainS3Key && mainFileName && mainFileName === linkFileName) {
+          finalTextFileKey = lessonMainS3Key;
+          // file_type は lessons.file_type を優先し、必要なら拡張子フォールバック
+          let ft = lessonMainFileType;
+          const lowerKey = String(finalTextFileKey).toLowerCase();
+          if (!ft || String(ft).toLowerCase() === 'md') {
+            if (lowerKey.endsWith('.md')) ft = 'text/markdown';
+            else if (lowerKey.endsWith('.txt')) ft = 'text/plain';
+            else if (lowerKey.endsWith('.pdf')) ft = 'application/pdf';
+            else if (lowerKey.endsWith('.rtf')) ft = 'application/rtf';
+            else ft = ft || 'text/plain';
+          }
+          finalFileType = ft;
+          customLogger.info('Resolved link text_file_key using lesson main s3_key', {
+            lessonId,
+            linkTextFileKey: link.text_file_key,
+            resolvedS3Key: finalTextFileKey,
+            resolvedFileType: finalFileType
+          });
         } else {
-          finalFileType = 'text/plain';
+          // file_typeを拡張子から判定（最後のフォールバック）
+          const lowerKey = String(link.text_file_key || '').toLowerCase();
+          if (lowerKey.endsWith('.md')) {
+            finalFileType = 'text/markdown';
+          } else if (lowerKey.endsWith('.txt')) {
+            finalFileType = 'text/plain';
+          } else if (lowerKey.endsWith('.pdf')) {
+            finalFileType = 'application/pdf';
+          } else if (lowerKey.endsWith('.rtf')) {
+            finalFileType = 'application/rtf';
+          } else {
+            finalFileType = 'text/plain';
+          }
         }
       }
       
