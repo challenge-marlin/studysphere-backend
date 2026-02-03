@@ -1269,25 +1269,61 @@ const getTestResults = async (req, res) => {
 // レッスンコンテンツを取得
 const getLessonContent = async (req, res) => {
   const { lessonId } = req.params;
-  const userId = req.user?.user_id;
+  // プレビュー等で user_id が取れないケースに備えてフォールバック
+  const userId = Number(req.user?.user_id) || 0;
   const connection = await pool.getConnection();
   
   try {
     console.log(`=== レッスンコンテンツ取得開始: レッスンID ${lessonId} ===`);
+    if (!req.user?.user_id) {
+      console.warn('getLessonContent: req.user.user_id が未設定のため 0 を使用します', {
+        hasUser: !!req.user,
+        user: req.user
+      });
+    }
     
     // レッスン基本情報を取得
-    const [lessonRows] = await connection.execute(`
-      SELECT 
-        l.*,
-        c.title as course_title,
-        ulp.last_viewed_section_index as last_viewed_section_index,
-        ulp.last_viewed_section_text_key as last_viewed_section_text_key
-      FROM lessons l
-      JOIN courses c ON l.course_id = c.id
-      LEFT JOIN user_lesson_progress ulp
-        ON ulp.lesson_id = l.id AND ulp.user_id = ?
-      WHERE l.id = ? AND l.status = 'active'
-    `, [userId, lessonId]);
+    // 注意: DBスキーマが古い環境だと last_viewed_section_* 列が存在しない可能性があるため、
+    // Unknown column の場合は列を含めないクエリにフォールバックする。
+    let lessonRows;
+    try {
+      const [rows] = await connection.execute(`
+        SELECT 
+          l.*,
+          c.title as course_title,
+          ulp.last_viewed_section_index as last_viewed_section_index,
+          ulp.last_viewed_section_text_key as last_viewed_section_text_key
+        FROM lessons l
+        JOIN courses c ON l.course_id = c.id
+        LEFT JOIN user_lesson_progress ulp
+          ON ulp.lesson_id = l.id AND ulp.user_id = ?
+        WHERE l.id = ? AND l.status = 'active'
+      `, [userId, lessonId]);
+      lessonRows = rows;
+    } catch (e) {
+      const msg = String(e?.message || e?.sqlMessage || '');
+      const code = e?.code;
+      const isBadField = code === 'ER_BAD_FIELD_ERROR' || msg.toLowerCase().includes('unknown column');
+      if (isBadField && msg.toLowerCase().includes('last_viewed_section')) {
+        console.warn('getLessonContent: DBに last_viewed_section_* が無いためフォールバックします', { message: msg });
+        const [rows] = await connection.execute(`
+          SELECT 
+            l.*,
+            c.title as course_title
+          FROM lessons l
+          JOIN courses c ON l.course_id = c.id
+          WHERE l.id = ? AND l.status = 'active'
+        `, [lessonId]);
+        // 後続のフロント/ロジック互換のため、フィールドを補完
+        lessonRows = rows.map(r => ({
+          ...r,
+          last_viewed_section_index: null,
+          last_viewed_section_text_key: null
+        }));
+      } else {
+        throw e;
+      }
+    }
 
     if (lessonRows.length === 0) {
       console.log('❌ レッスンが見つかりません');
