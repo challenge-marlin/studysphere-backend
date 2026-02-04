@@ -41,16 +41,10 @@ const getSupportPlanByUserId = async (req, res) => {
     
     const result = await query(sql, [userId]);
     
-    if (result.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '個別支援計画が見つかりません'
-      });
-    }
-    
+    // 計画がなくても200で返す（新規作成前は data: null）
     res.json({
       success: true,
-      data: result[0]
+      data: result.length > 0 ? result[0] : null
     });
   } catch (error) {
     customLogger.error('個別支援計画取得エラー:', error);
@@ -66,7 +60,15 @@ const getSupportPlanByUserId = async (req, res) => {
 const createSupportPlan = async (req, res) => {
   try {
     const { user_id, long_term_goal, short_term_goal, needs, support_content, goal_date } = req.body;
-    
+    const normalizedGoalDate = goal_date && `${goal_date}`.trim() !== '' ? goal_date : null;
+
+    if (normalizedGoalDate == null || normalizedGoalDate === '') {
+      return res.status(400).json({
+        success: false,
+        message: '目標達成予定日は必須です'
+      });
+    }
+
     // 既存の個別支援計画があるかチェック
     const checkSql = 'SELECT id FROM support_plans WHERE user_id = ?';
     const existing = await query(checkSql, [user_id]);
@@ -83,7 +85,7 @@ const createSupportPlan = async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?)
     `;
     
-    const result = await query(sql, [user_id, long_term_goal, short_term_goal, needs, support_content, goal_date]);
+    const result = await query(sql, [user_id, long_term_goal, short_term_goal, needs, support_content, normalizedGoalDate]);
     
     res.status(201).json({
       success: true,
@@ -95,7 +97,7 @@ const createSupportPlan = async (req, res) => {
         short_term_goal,
         needs,
         support_content,
-        goal_date
+        goal_date: normalizedGoalDate
       }
     });
   } catch (error) {
@@ -113,14 +115,22 @@ const updateSupportPlan = async (req, res) => {
   try {
     const { id } = req.params;
     const { long_term_goal, short_term_goal, needs, support_content, goal_date } = req.body;
-    
+    const normalizedGoalDate = goal_date && `${goal_date}`.trim() !== '' ? goal_date : null;
+
+    if (normalizedGoalDate == null || normalizedGoalDate === '') {
+      return res.status(400).json({
+        success: false,
+        message: '目標達成予定日は必須です'
+      });
+    }
+
     const sql = `
       UPDATE support_plans 
       SET long_term_goal = ?, short_term_goal = ?, needs = ?, support_content = ?, goal_date = ?
       WHERE id = ?
     `;
     
-    const result = await query(sql, [long_term_goal, short_term_goal, needs, support_content, goal_date, id]);
+    const result = await query(sql, [long_term_goal, short_term_goal, needs, support_content, normalizedGoalDate, id]);
     
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -176,7 +186,16 @@ const deleteSupportPlan = async (req, res) => {
 const upsertSupportPlan = async (req, res) => {
   try {
     const { user_id, long_term_goal, short_term_goal, needs, support_content, goal_date } = req.body;
-    
+    const normalizedGoalDate = goal_date && `${goal_date}`.trim() !== '' ? goal_date : null;
+
+    // 目標達成予定日は必須（DBでnull不可のため）
+    if (normalizedGoalDate == null || normalizedGoalDate === '') {
+      return res.status(400).json({
+        success: false,
+        message: '目標達成予定日は必須です'
+      });
+    }
+
     // 既存の個別支援計画があるかチェック
     const checkSql = 'SELECT id FROM support_plans WHERE user_id = ?';
     const existing = await query(checkSql, [user_id]);
@@ -189,7 +208,7 @@ const upsertSupportPlan = async (req, res) => {
         WHERE user_id = ?
       `;
       
-      await query(updateSql, [long_term_goal, short_term_goal, needs, support_content, goal_date, user_id]);
+      await query(updateSql, [long_term_goal, short_term_goal, needs, support_content, normalizedGoalDate, user_id]);
       
       res.json({
         success: true,
@@ -203,7 +222,7 @@ const upsertSupportPlan = async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?)
       `;
       
-      const result = await query(insertSql, [user_id, long_term_goal, short_term_goal, needs, support_content, goal_date]);
+      const result = await query(insertSql, [user_id, long_term_goal, short_term_goal, needs, support_content, normalizedGoalDate]);
       
       res.status(201).json({
         success: true,

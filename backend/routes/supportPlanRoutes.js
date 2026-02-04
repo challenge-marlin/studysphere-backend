@@ -22,4 +22,10 @@ router.delete('/:id', authenticateToken, supportPlanController.deleteSupportPlan
 // 個別支援計画作成または更新（upsert）
 router.post('/upsert', authenticateToken, supportPlanController.upsertSupportPlan);
 
+// 拠点内の在宅支援利用者の個別支援計画の目標達成予定日一覧
+router.get('/satellite/:satelliteId/goal-dates', authenticateToken, supportPlanController.getSatelliteSupportPlanGoalDates);
+
+// 拠点内の在宅支援利用者の個別支援計画状況（記録なし含む）
+router.get('/satellite/:satelliteId/status', authenticateToken, supportPlanController.getSatelliteSupportPlanStatus);
+
 module.exports = router;

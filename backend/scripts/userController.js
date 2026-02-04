@@ -1580,6 +1580,12 @@ const updateUser = async (userId, updateData) => {
       updateFields.push('email = ?');
       updateValues.push(updateData.email.trim() || null);
     }
+
+    if (updateData.recipient_number !== undefined) {
+      const recipientNumber = `${updateData.recipient_number}`.trim();
+      updateFields.push('recipient_number = ?');
+      updateValues.push(recipientNumber === '' ? null : recipientNumber);
+    }
     
     if (updateData.role !== undefined) {
       updateFields.push('role = ?');
@@ -3096,6 +3102,7 @@ const getSatelliteHomeSupportUsersWithDailyRecords = async (req, res) => {
         ua.id,
         ua.name,
         ua.login_code,
+        ua.recipient_number,
         CASE WHEN ua.is_remote_user = 1 THEN TRUE ELSE FALSE END AS is_remote_user,
         ua.instructor_id,
         instructor.name AS instructor_name,
