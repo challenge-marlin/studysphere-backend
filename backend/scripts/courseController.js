@@ -243,16 +243,17 @@ const updateCourse = async (req, res) => {
   }
 };
 
-// コース削除（論理削除）
+// コース削除（物理削除。関連する lessons / curriculum_path_courses / user_courses は DB の ON DELETE CASCADE で自動削除）
 const deleteCourse = async (req, res) => {
   const { id } = req.params;
   const connection = await pool.getConnection();
   
   try {
-    // コース存在確認
-    const [existingRows] = await connection.execute(`
-      SELECT * FROM courses WHERE id = ? AND status != 'deleted'
-    `, [id]);
+    // コース存在確認（削除前の情報をログ用に取得）
+    const [existingRows] = await connection.execute(
+      'SELECT * FROM courses WHERE id = ?',
+      [id]
+    );
 
     if (existingRows.length === 0) {
       return res.status(404).json({
@@ -261,17 +262,20 @@ const deleteCourse = async (req, res) => {
       });
     }
 
-    // 関連するレッスンも論理削除
-    await connection.execute(`
-      UPDATE lessons SET status = 'deleted', updated_by = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE course_id = ?
-    `, [req.user?.user_id, id]);
+    const title = existingRows[0].title;
 
-    // コースを論理削除
-    await connection.execute(`
-      UPDATE courses SET status = 'deleted', updated_by = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `, [req.user?.user_id, id]);
+    // 物理削除（CASCADE で関連レッスン・カリキュラム紐づけ・受講履歴も削除される）
+    const [result] = await connection.execute(
+      'DELETE FROM courses WHERE id = ?',
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'コースが見つかりません'
+      });
+    }
 
     // 操作ログ記録
     await recordOperationLogDirect({
@@ -279,12 +283,12 @@ const deleteCourse = async (req, res) => {
       action: 'delete_course',
       targetType: 'course',
       targetId: id,
-      details: { title: existingRows[0].title }
+      details: { title }
     });
 
     customLogger.info('Course deleted successfully', {
       courseId: id,
-      title: existingRows[0].title,
+      title,
       userId: req.user?.user_id
     });
 

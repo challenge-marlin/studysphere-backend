@@ -208,6 +208,43 @@ const getJapanTimeFromString = (timeString) => {
 };
 
 /**
+ * HH:MM形式の日本時間から有効期限のUTC Dateを取得
+ * サーバーのタイムゾーンに依存せず、入力を常に日本時間として解釈する
+ * @param {string} timeString - 時間文字列（HH:MM形式、日本時間）
+ * @returns {Date} 有効期限（UTCのDateオブジェクト、DB保存用）
+ */
+const getExpiryDateFromJapanTimeString = (timeString) => {
+  const [hours, minutes] = timeString.split(':').map(Number);
+  const now = new Date();
+  
+  // 日本時間の今日の日付を取得
+  const japanDateStr = now.toLocaleString('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour12: false
+  });
+  const datePart = japanDateStr.replace(/\//g, '-').split(' ')[0];
+  const [y, m, d] = datePart.split('-').map((p) => p.padStart(2, '0'));
+  const japanDateOnly = `${y}-${m}-${d}`;
+  
+  // 日本時間 "YYYY-MM-DD HH:MM:59" をローカルとしてパースし、9時間引いてUTCに変換
+  // （toLocaleString で得た日付 + 指定時刻 を JST として扱うため）
+  const targetJapanString = `${japanDateOnly} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:59`;
+  const parsedAsLocal = new Date(targetJapanString.replace(' ', 'T'));
+  const jstOffsetMs = 9 * 60 * 60 * 1000;
+  let expiryDate = new Date(parsedAsLocal.getTime() - jstOffsetMs);
+  
+  // 過去の時間の場合は翌日に設定
+  if (expiryDate <= now) {
+    expiryDate = new Date(expiryDate.getTime() + 24 * 60 * 60 * 1000);
+  }
+  
+  return expiryDate;
+};
+
+/**
  * datetime-local形式（YYYY-MM-DDTHH:mm）をMySQL形式（YYYY-MM-DD HH:mm:ss）に変換
  * @param {string} dateTimeString - datetime-local形式の日時文字列
  * @returns {string} MySQL形式の日時文字列（YYYY-MM-DD HH:mm:ss）
@@ -241,6 +278,7 @@ module.exports = {
   formatJapanTimeOnly,
   formatMySQLDateTime,
   getJapanTimeFromString,
+  getExpiryDateFromJapanTimeString,
   convertDateTimeLocalToMySQL
 };
 

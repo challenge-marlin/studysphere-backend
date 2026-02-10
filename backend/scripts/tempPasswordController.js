@@ -8,7 +8,7 @@ const {
   isExpired,
   formatJapanTime,
   formatMySQLDateTime,
-  getJapanTimeFromString
+  getExpiryDateFromJapanTimeString
 } = require('../utils/dateUtils');
 
 class TempPasswordController {
@@ -450,20 +450,15 @@ class TempPasswordController {
             let japanEndTime;
             
             if (expiry_time) {
-                // HH:DD形式の時間を解析
+                // HH:MM形式の時間を解析（日本時間として解釈）
                 const timeMatch = expiry_time.match(/^(\d{1,2}):(\d{2})$/);
                 if (timeMatch) {
                     const hours = parseInt(timeMatch[1]);
                     const minutes = parseInt(timeMatch[2]);
                     
                     if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-                        expiryDate = new Date(now);
-                        expiryDate.setHours(hours, minutes, 59, 999);
-                        
-                        // 過去の時間の場合は翌日に設定
-                        if (expiryDate <= now) {
-                            expiryDate.setDate(expiryDate.getDate() + 1);
-                        }
+                        // 入力を日本時間として解釈し、UTCで保存（サーバータイムゾーンに依存しない）
+                        expiryDate = getExpiryDateFromJapanTimeString(`${hours}:${String(minutes).padStart(2, '0')}`);
                     } else {
                         return res.status(400).json({
                             success: false,

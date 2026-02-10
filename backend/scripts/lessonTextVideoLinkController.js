@@ -2,8 +2,8 @@ const { customLogger } = require('../utils/logger');
 const { pool } = require('../utils/database');
 
 // テキストと動画の紐づけ一覧取得
-// レッスンIDに一致するすべての紐づけを取得
-// 動画のないセクション（lesson_text_filesに存在するがlesson_text_video_linksに紐づけられていないテキストファイル）も含める
+// レッスンIDに一致する紐づけを取得（動画が紐づいているもののみ表示）
+// 動画のないテキストはリストに含めない（新しい紐づけは「新しい紐づけを追加」から作成可能）
 const getTextVideoLinks = async (req, res) => {
   const { lessonId } = req.params;
   const connection = await pool.getConnection();
@@ -157,184 +157,22 @@ const getTextVideoLinks = async (req, res) => {
       };
     }));
     
-    // lesson_text_video_linksに存在するtext_file_keyのセットを作成（重複チェック用）
-    // ファイル名のみを抽出して比較（text_file_keyはファイル名のみ、s3_keyは完全パスの可能性がある）
-    // 大文字小文字を区別せず、前後の空白を削除して比較
-    const extractFileName = (key) => {
-      if (!key) return '';
-      // スラッシュで分割して最後の部分（ファイル名）を取得
-      const parts = key.split('/');
-      return parts[parts.length - 1].trim().toLowerCase();
-    };
+    // 動画が紐づいている紐づけのみを表示する（動画のないテキストは含めない）
+    // 新しい紐づけは「新しい紐づけを追加」ボタンから作成可能
+    const linkedSections = processedLinks
+      .filter(link => link.video_id != null) // 動画が紐づいているもののみ
+      .map(link => ({
+        ...link,
+        source: 'lesson_text_video_links'
+      }));
     
-    const linkedTextFileKeys = new Set(
-      links
-        .map(link => link.text_file_key)
-        .filter(key => key != null && key !== '')
-        .map(key => extractFileName(key)) // ファイル名のみを抽出
-    );
+    const allSections = linkedSections;
     
-    customLogger.info('Linked text file keys for duplicate check', {
-      lessonId: lessonId,
-      linkedKeys: Array.from(linkedTextFileKeys),
-      linkedCount: linkedTextFileKeys.size,
-      originalLinks: links.map(l => ({ text_file_key: l.text_file_key, extracted: extractFileName(l.text_file_key) }))
-    });
-    
-    // 動画のないセクションを取得（lesson_text_filesに存在するがlesson_text_video_linksに紐づけられていないテキストファイル）
-    let textFilesWithoutVideo = [];
-    try {
-      // lesson_text_filesテーブルからすべてのテキストファイルを取得
-      const [textFiles] = await connection.execute(`
-        SELECT 
-          ltf.id,
-          ltf.lesson_id,
-          ltf.file_name,
-          ltf.s3_key as text_file_key,
-          ltf.file_type,
-          ltf.order_index as link_order,
-          ltf.created_at,
-          ltf.updated_at
-        FROM lesson_text_files ltf
-        WHERE ltf.lesson_id = ? 
-          AND ltf.status = 'active'
-        ORDER BY ltf.order_index ASC, ltf.created_at ASC
-      `, [lessonId]);
-      
-      customLogger.info('Text files from lesson_text_files', {
-        lessonId: lessonId,
-        textFilesCount: textFiles.length,
-        textFileKeys: textFiles.map(f => f.text_file_key)
-      });
-      
-      // lesson_text_video_linksに紐づけられていないテキストファイルのみをフィルタリング
-      // ファイル名のみを抽出して比較（s3_keyは完全パス、text_file_keyはファイル名のみの可能性がある）
-      // 大文字小文字を区別せず、前後の空白を削除して比較
-      const unlinkedTextFiles = textFiles.filter(file => {
-        if (!file.text_file_key) {
-          customLogger.warn('Text file without text_file_key found', {
-            fileId: file.id,
-            fileName: file.file_name
-          });
-          return false;
-        }
-        // s3_keyからファイル名を抽出
-        const fileName = extractFileName(file.text_file_key);
-        const isLinked = linkedTextFileKeys.has(fileName);
-        
-        if (isLinked) {
-          customLogger.info('Text file already linked, excluding from textFilesWithoutVideo', {
-            fileId: file.id,
-            fileName: file.file_name,
-            s3_key: file.text_file_key,
-            extractedFileName: fileName,
-            matchedLinkedKey: Array.from(linkedTextFileKeys).find(k => k === fileName)
-          });
-        }
-        
-        return fileName !== '' && !isLinked;
-      });
-      
-      customLogger.info('Unlinked text files after filtering', {
-        lessonId: lessonId,
-        unlinkedCount: unlinkedTextFiles.length,
-        unlinkedKeys: unlinkedTextFiles.map(f => f.text_file_key)
-      });
-      
-      // 動画のないセクションをフォーマット
-      textFilesWithoutVideo = unlinkedTextFiles.map(file => {
-        // file_typeを正しく設定（拡張子から判定するフォールバックも含む）
-        let fileType = file.file_type;
-        const originalFileType = fileType;
-        
-        if (!fileType && file.text_file_key) {
-          const lowerKey = file.text_file_key.toLowerCase();
-          if (lowerKey.endsWith('.md')) {
-            fileType = 'text/markdown';
-          } else if (lowerKey.endsWith('.txt')) {
-            fileType = 'text/plain';
-          } else if (lowerKey.endsWith('.pdf')) {
-            fileType = 'application/pdf';
-          } else if (lowerKey.endsWith('.rtf')) {
-            fileType = 'application/rtf';
-          } else {
-            fileType = 'text/plain'; // デフォルト
-          }
-        }
-        
-        // file_typeが'text/markdown'以外の値（例: 'md'）の場合は正規化
-        if (fileType && fileType.toLowerCase() === 'md') {
-          fileType = 'text/markdown';
-        }
-        
-        customLogger.info('Text file without video - file_type設定', {
-          lessonId: file.lesson_id,
-          fileName: file.file_name,
-          s3Key: file.text_file_key,
-          originalFileType: originalFileType,
-          finalFileType: fileType
-        });
-        
-        return {
-          id: null, // lesson_text_video_linksに存在しないためIDはnull
-          lesson_id: file.lesson_id,
-          text_file_key: file.text_file_key, // 完全パス（s3_key）
-          file_type: fileType, // file_typeを追加
-          video_id: null,
-          link_order: file.link_order,
-          created_at: file.created_at,
-          updated_at: file.updated_at,
-          video_title: null,
-          youtube_url: null,
-          video_description: null,
-          video_duration: null,
-          thumbnail_url: null,
-          section_title: file.file_name // ファイル名をセクションタイトルとして使用
-        };
-      });
-    } catch (textFilesError) {
-      // lesson_text_filesテーブルが存在しない場合やエラーが発生した場合は無視
-      customLogger.warn('Failed to retrieve text files without video (table may not exist)', {
-        error: textFilesError.message,
-        lessonId: lessonId
-      });
-    }
-    
-    // すべてのセクションを結合（単独登録を先、複数登録を後）
-    // 単独登録（lesson_text_video_links）にソース情報を追加
-    const linkedSections = processedLinks.map(link => ({
-      ...link,
-      source: 'lesson_text_video_links' // 単独登録
-    }));
-    
-    // 複数登録（lesson_text_files）にソース情報を追加
-    const textFileSections = textFilesWithoutVideo.map(file => ({
-      ...file,
-      source: 'lesson_text_files' // 複数登録
-    }));
-    
-    const allSections = [...linkedSections, ...textFileSections];
-    
-    // ソート: まずソース（単独登録を先）、次にlink_order、最後にcreated_at
+    // ソート: link_order、次にcreated_at
     allSections.sort((a, b) => {
-      // 1. ソースでソート（lesson_text_video_linksを先、lesson_text_filesを後）
-      const sourceOrder = { 'lesson_text_video_links': 0, 'lesson_text_files': 1 };
-      const sourceA = sourceOrder[a.source] ?? 1;
-      const sourceB = sourceOrder[b.source] ?? 1;
-      
-      if (sourceA !== sourceB) {
-        return sourceA - sourceB;
-      }
-      
-      // 2. link_orderでソート（link_orderがNULLの場合は最後に配置）
       const orderA = a.link_order != null ? Number(a.link_order) : 999999;
       const orderB = b.link_order != null ? Number(b.link_order) : 999999;
-      
-      if (orderA !== orderB) {
-        return orderA - orderB;
-      }
-      
-      // 3. link_orderが同じ場合はcreated_atでソート
+      if (orderA !== orderB) return orderA - orderB;
       const dateA = a.created_at ? new Date(a.created_at) : new Date(0);
       const dateB = b.created_at ? new Date(b.created_at) : new Date(0);
       return dateA - dateB;
@@ -343,8 +181,6 @@ const getTextVideoLinks = async (req, res) => {
     customLogger.info('Text video links retrieved successfully', {
       lessonId: lessonId,
       count: allSections.length,
-      withVideo: links.length,
-      withoutVideo: textFilesWithoutVideo.length,
       userId: req.user?.user_id || null
     });
     
