@@ -27,7 +27,7 @@ async function checkUserAnnouncements() {
             ORDER BY id
         `);
         
-        console.log('\n=== 学生ユーザー一覧 ===');
+        console.log('\n=== 利用者ユーザー一覧 ===');
         users.forEach(user => {
             console.log(`ID: ${user.id}, 名前: ${user.name}, メール: ${user.email}, 役割: ${user.role}`);
         });
@@ -57,7 +57,7 @@ async function checkUserAnnouncements() {
             }
         }
 
-        // アナウンスを作成して全学生に送信するテスト
+        // アナウンスを作成して全利用者に送信するテスト
         console.log('\n=== テストアナウンスの作成 ===');
         
         // 管理者ユーザーを取得
@@ -86,7 +86,7 @@ async function checkUserAnnouncements() {
         const announcementId = announcementResult.insertId;
         console.log(`新しいアナウンスを作成しました。ID: ${announcementId}`);
         
-        // 全学生にアナウンスを関連付け
+        // 全利用者にアナウンスを関連付け
         const studentIds = users.map(user => user.id);
         if (studentIds.length > 0) {
             const placeholders = studentIds.map(() => '(?, ?)').join(', ');
@@ -100,7 +100,7 @@ async function checkUserAnnouncements() {
                 VALUES ${placeholders}
             `, values);
             
-            console.log(`${studentIds.length}人の学生にアナウンスを関連付けました`);
+            console.log(`${studentIds.length}人の利用者にアナウンスを関連付けました`);
         }
 
         // 再度確認

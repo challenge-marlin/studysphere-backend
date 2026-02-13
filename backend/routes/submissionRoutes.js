@@ -84,7 +84,7 @@ router.get('/instructor/pending-submissions/:satelliteId', authenticateToken, as
   }
 });
 
-// 指導員用：特定学生の提出物一覧取得
+// 指導員用：特定利用者の提出物一覧取得
 router.get('/instructor/student/:studentId/submissions', authenticateToken, async (req, res) => {
   try {
     const { studentId } = req.params;
@@ -101,7 +101,7 @@ router.get('/instructor/student/:studentId/submissions', authenticateToken, asyn
     const connection = await pool.getConnection();
     
     try {
-      // 学生の提出物一覧を取得
+      // 利用者の提出物一覧を取得
       const [submissions] = await connection.execute(`
         SELECT 
           d.id as submission_id,
@@ -133,7 +133,7 @@ router.get('/instructor/student/:studentId/submissions', authenticateToken, asyn
       res.json({
         success: true,
         data: submissions,
-        message: '学生の提出物一覧を取得しました'
+        message: '利用者の提出物一覧を取得しました'
       });
 
     } finally {
@@ -141,7 +141,7 @@ router.get('/instructor/student/:studentId/submissions', authenticateToken, asyn
     }
 
   } catch (error) {
-    console.error('学生提出物取得エラー:', error);
+    console.error('利用者提出物取得エラー:', error);
     console.error('エラー詳細:', {
       message: error.message,
       stack: error.stack,
@@ -150,7 +150,7 @@ router.get('/instructor/student/:studentId/submissions', authenticateToken, asyn
     });
     res.status(500).json({
       success: false,
-      message: '学生の提出物取得に失敗しました',
+      message: '利用者の提出物取得に失敗しました',
       error: process.env.NODE_ENV === 'development' ? {
         message: error.message,
         stack: error.stack,

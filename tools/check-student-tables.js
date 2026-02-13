@@ -2,7 +2,7 @@ const { pool } = require('../backend/utils/database');
 
 async function checkStudentTables() {
   try {
-    console.log('=== 学生関連テーブル構造確認 ===');
+    console.log('=== 利用者関連テーブル構造確認 ===');
     
     // coursesテーブルの構造を確認
     console.log('\n--- coursesテーブル ---');
@@ -59,7 +59,7 @@ async function checkStudentTables() {
     console.log(`レッスン数: ${lessonCount[0].count}件`);
     
     const [userCount] = await pool.execute(`SELECT COUNT(*) as count FROM user_accounts WHERE role = 1`);
-    console.log(`学生ユーザー数: ${userCount[0].count}件`);
+    console.log(`利用者ユーザー数: ${userCount[0].count}件`);
     
     const [tempPasswordCount] = await pool.execute(`SELECT COUNT(*) as count FROM user_temp_passwords`);
     console.log(`一時パスワード数: ${tempPasswordCount[0].count}件`);

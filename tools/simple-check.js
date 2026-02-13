@@ -15,9 +15,9 @@ async function simpleCheck() {
         connection = await mysql.createConnection(config);
         console.log('接続成功');
 
-        // 学生ユーザーを取得
+        // 利用者ユーザーを取得
         const [users] = await connection.execute("SELECT id, name FROM user_accounts WHERE role = 'student' LIMIT 5");
-        console.log('学生ユーザー:', users);
+        console.log('利用者ユーザー:', users);
 
         // アナウンスを取得
         const [announcements] = await connection.execute("SELECT id, title FROM announcements WHERE expires_at > NOW()");

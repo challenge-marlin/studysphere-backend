@@ -941,14 +941,14 @@ function generateExamResultMarkdown({ user, lesson, testType, sectionIndex, test
   return markdown;
 }
 
-// 指導員用：学生のレッスン進捗とテスト結果を取得
+// 指導員用：利用者のレッスン進捗とテスト結果を取得
 router.get('/instructor/student/:studentId/lesson-progress', async (req, res) => {
   try {
     const { studentId } = req.params;
     const connection = await pool.getConnection();
     
     try {
-      // 学生のレッスン進捗を取得
+      // 利用者のレッスン進捗を取得
       const [progressData] = await connection.execute(`
         SELECT 
           ulp.lesson_id,
@@ -967,7 +967,7 @@ router.get('/instructor/student/:studentId/lesson-progress', async (req, res) =>
         ORDER BY l.id ASC
       `, [studentId]);
       
-      // 学生情報を取得
+      // 利用者情報を取得
       const [studentInfo] = await connection.execute(`
         SELECT id, name, login_code, email
         FROM user_accounts
@@ -986,10 +986,10 @@ router.get('/instructor/student/:studentId/lesson-progress', async (req, res) =>
       connection.release();
     }
   } catch (error) {
-    console.error('学生進捗取得エラー:', error);
+    console.error('利用者進捗取得エラー:', error);
     res.status(500).json({
       success: false,
-      message: '学生進捗の取得に失敗しました'
+      message: '利用者進捗の取得に失敗しました'
     });
   }
 });

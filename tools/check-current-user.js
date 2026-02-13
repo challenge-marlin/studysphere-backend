@@ -15,7 +15,7 @@ async function checkCurrentUser() {
         connection = await mysql.createConnection(config);
         console.log('=== 現在のユーザー状況確認 ===');
 
-        // 全学生ユーザー（role=1）の一覧を取得
+        // 全利用者ユーザー（role=1）の一覧を取得
         const [students] = await connection.execute(`
             SELECT id, name, email, role 
             FROM user_accounts 
@@ -23,13 +23,13 @@ async function checkCurrentUser() {
             ORDER BY id
         `);
         
-        console.log('\n=== 学生ユーザー一覧 ===');
+        console.log('\n=== 利用者ユーザー一覧 ===');
         students.forEach(student => {
             console.log(`ID: ${student.id}, 名前: ${student.name}, メール: ${student.email}`);
         });
 
-        // 各学生のアナウンス関連付けを確認
-        console.log('\n=== 各学生のアナウンス関連付け ===');
+        // 各利用者のアナウンス関連付けを確認
+        console.log('\n=== 各利用者のアナウンス関連付け ===');
         for (const student of students) {
             const [userAnnouncements] = await connection.execute(`
                 SELECT 
@@ -43,7 +43,7 @@ async function checkCurrentUser() {
                 AND a.expires_at > NOW()
             `, [student.id]);
             
-            console.log(`\n学生ID ${student.id} (${student.name}):`);
+            console.log(`\n利用者ID ${student.id} (${student.name}):`);
             if (userAnnouncements.length === 0) {
                 console.log('  アナウンスなし');
             } else {
@@ -53,8 +53,8 @@ async function checkCurrentUser() {
             }
         }
 
-        // アナウンスが関連付けられていない学生を特定
-        console.log('\n=== アナウンスが関連付けられていない学生 ===');
+        // アナウンスが関連付けられていない利用者を特定
+        console.log('\n=== アナウンスが関連付けられていない利用者 ===');
         const studentsWithoutAnnouncements = [];
         for (const student of students) {
             const [userAnnouncements] = await connection.execute(`
@@ -72,8 +72,8 @@ async function checkCurrentUser() {
         }
 
         if (studentsWithoutAnnouncements.length > 0) {
-            console.log(`\n${studentsWithoutAnnouncements.length}人の学生にアナウンスが関連付けられていません。`);
-            console.log('これらの学生がログインしている場合、アナウンスが表示されません。');
+            console.log(`\n${studentsWithoutAnnouncements.length}人の利用者にアナウンスが関連付けられていません。`);
+            console.log('これらの利用者がログインしている場合、アナウンスが表示されません。');
         }
 
     } catch (error) {

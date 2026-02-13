@@ -62,7 +62,7 @@ async function testSubmissionApproval() {
       if (pendingSubmissions.length > 0) {
         const testSubmission = pendingSubmissions[0];
         
-        console.log('\n2. 特定学生の提出物一覧取得テスト');
+        console.log('\n2. 特定利用者の提出物一覧取得テスト');
         const [studentSubmissions] = await connection.execute(`
           SELECT 
             d.id as submission_id,
@@ -90,8 +90,8 @@ async function testSubmissionApproval() {
           ORDER BY d.uploaded_at DESC
         `, [testSubmission.user_id]);
         
-        console.log('学生の提出物数:', studentSubmissions.length);
-        console.log('学生の提出物一覧:', studentSubmissions);
+        console.log('利用者の提出物数:', studentSubmissions.length);
+        console.log('利用者の提出物一覧:', studentSubmissions);
         
         console.log('\n3. 提出物承認テスト');
         console.log('承認対象:', {

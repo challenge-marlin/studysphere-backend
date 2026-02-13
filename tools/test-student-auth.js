@@ -3,7 +3,7 @@ const { verifyTemporaryPassword } = require('../backend/scripts/userController')
 
 async function testStudentAuth() {
   try {
-    console.log('=== 学生認証テスト ===');
+    console.log('=== 利用者認証テスト ===');
     
     const loginCode = 'RMWI-WlAm-vbyT';
     const tempPassword = '7AL1-9MDD';
