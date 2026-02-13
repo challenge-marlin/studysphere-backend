@@ -210,7 +210,7 @@ class AnnouncementController {
 
                 customLogger.debug('現在のユーザー企業・拠点情報:', { currentCompanyId, currentSatelliteIds });
 
-                // 企業・拠点フィルタリング用のクエリ
+                // 企業・拠点フィルタリング用のクエリ（有効期限切れは表示しない）
                 query = `
                     SELECT 
                         a.id,
@@ -226,7 +226,7 @@ class AnnouncementController {
                     FROM announcements a
                     LEFT JOIN user_accounts ua ON a.created_by = ua.id
                     LEFT JOIN user_announcements ua2 ON a.id = ua2.announcement_id
-                    WHERE 1=1
+                    WHERE 1=1 AND a.expires_at > NOW()
                 `;
 
                 // 企業フィルタリング
@@ -279,7 +279,7 @@ class AnnouncementController {
                     FROM announcements a
                     LEFT JOIN user_accounts ua ON a.created_by = ua.id
                     LEFT JOIN user_announcements ua2 ON a.id = ua2.announcement_id
-                    WHERE a.created_by = ?
+                    WHERE a.created_by = ? AND a.expires_at > NOW()
                     GROUP BY a.id
                     ORDER BY a.created_at DESC
                 `;
@@ -491,7 +491,7 @@ class AnnouncementController {
                 const tomorrow = new Date(now);
                 tomorrow.setDate(tomorrow.getDate() + 1);
                 tomorrow.setHours(0, 30, 0, 0); // 24:30（翌日の0:30）
-                
+
                 // アナウンス作成（サニタイズ処理を追加）
                 const sanitizedTitle = sanitizeInput(title.trim());
                 const sanitizedMessage = sanitizeInput(message.trim());

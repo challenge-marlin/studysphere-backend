@@ -15,7 +15,12 @@ const {
   getCertificateData,
   getUserCertificates,
   getNextLessonAfterPass,
-  getNextSectionAfterPass
+  getNextSectionAfterPass,
+  getLessonCourseId,
+  getWorkspaceLayout,
+  updateWorkspaceLayout,
+  getWidgetVisibility,
+  updateWidgetVisibility
 } = require('../scripts/learningController');
 const multer = require('multer');
 const { pool } = require('../utils/database');
@@ -43,6 +48,14 @@ router.get('/', (req, res) => {
   console.log('=== Learning Routes Root ===');
   res.json({ message: 'Learning routes are active', timestamp: new Date().toISOString() });
 });
+
+// 学習ワークスペースレイアウト取得・保存（認証ユーザー本人のみ）
+router.get('/workspace-layout', authenticateToken, getWorkspaceLayout);
+router.put('/workspace-layout', authenticateToken, updateWorkspaceLayout);
+
+// 学習ウィジェット表示設定取得・保存（認証ユーザー本人のみ）
+router.get('/widget-visibility', authenticateToken, getWidgetVisibility);
+router.put('/widget-visibility', authenticateToken, updateWidgetVisibility);
 
 // 成果物アップロード（リクエストボディベース）
 router.post('/upload-assignment', authenticateToken, upload.single('file'), async (req, res) => {
@@ -610,6 +623,9 @@ router.get('/next-lesson/:lessonId', authenticateToken, getNextLessonAfterPass);
 
 // セクションまとめテスト（10問）合格後の「次のセクション」取得（同一レッスン内の次の section_index）
 router.get('/next-section/:lessonId/:sectionIndex', authenticateToken, getNextSectionAfterPass);
+
+// レッスンに属するコースID取得（テスト結果画面の「学習画面に戻る」用）
+router.get('/lesson/:lessonId/course', authenticateToken, getLessonCourseId);
 
 // レッスンコンテンツ取得
 router.get('/lesson/:lessonId/content', authenticateToken, getLessonContent);

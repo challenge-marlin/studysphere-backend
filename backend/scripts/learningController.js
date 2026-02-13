@@ -2285,6 +2285,154 @@ const getNextSectionAfterPass = async (req, res) => {
   }
 };
 
+// 学習ワークスペースレイアウト取得（認証ユーザー本人用）
+const getWorkspaceLayout = async (req, res) => {
+  const userId = req.user && req.user.user_id;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      'SELECT learning_workspace_layout FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+    if (!rows || rows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+    const raw = rows[0].learning_workspace_layout;
+    const data = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    res.json({ success: true, data });
+  } catch (error) {
+    customLogger.error('getWorkspaceLayout failed', { error: error.message, userId });
+    res.status(500).json({
+      success: false,
+      message: 'レイアウトの取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// 学習ワークスペースレイアウト保存（認証ユーザー本人用）
+const updateWorkspaceLayout = async (req, res) => {
+  const userId = req.user && req.user.user_id;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
+  const layouts = req.body && req.body.layouts;
+  if (layouts === undefined) {
+    return res.status(400).json({ success: false, message: 'layouts は必須です' });
+  }
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const payload = JSON.stringify(layouts);
+    await connection.execute(
+      'UPDATE user_accounts SET learning_workspace_layout = ? WHERE id = ?',
+      [payload, userId]
+    );
+    res.json({ success: true, message: 'レイアウトを保存しました' });
+  } catch (error) {
+    customLogger.error('updateWorkspaceLayout failed', { error: error.message, userId });
+    res.status(500).json({
+      success: false,
+      message: 'レイアウトの保存に失敗しました',
+      error: error.message
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// 学習ウィジェット表示設定取得（認証ユーザー本人用）
+const getWidgetVisibility = async (req, res) => {
+  const userId = req.user && req.user.user_id;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const [rows] = await connection.execute(
+      'SELECT learning_widget_visibility FROM user_accounts WHERE id = ?',
+      [userId]
+    );
+    if (!rows || rows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+    const raw = rows[0].learning_widget_visibility;
+    const data = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    res.json({ success: true, data });
+  } catch (error) {
+    customLogger.error('getWidgetVisibility failed', { error: error.message, userId });
+    res.status(500).json({
+      success: false,
+      message: 'ウィジェット表示設定の取得に失敗しました',
+      error: error.message
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// 学習ウィジェット表示設定保存（認証ユーザー本人用）
+const updateWidgetVisibility = async (req, res) => {
+  const userId = req.user && req.user.user_id;
+  if (!userId) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
+  const visibility = req.body && req.body.visibility;
+  if (visibility === undefined || typeof visibility !== 'object') {
+    return res.status(400).json({ success: false, message: 'visibility オブジェクトは必須です' });
+  }
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    const payload = JSON.stringify(visibility);
+    await connection.execute(
+      'UPDATE user_accounts SET learning_widget_visibility = ? WHERE id = ?',
+      [payload, userId]
+    );
+    res.json({ success: true, message: 'ウィジェット表示設定を保存しました' });
+  } catch (error) {
+    customLogger.error('updateWidgetVisibility failed', { error: error.message, userId });
+    res.status(500).json({
+      success: false,
+      message: 'ウィジェット表示設定の保存に失敗しました',
+      error: error.message
+    });
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+// レッスンIDからコースIDを取得（テスト結果画面の「学習画面に戻る」用）
+const getLessonCourseId = async (req, res) => {
+  const lessonId = parseInt(req.params.lessonId, 10);
+  if (!lessonId || isNaN(lessonId)) {
+    return res.status(400).json({ success: false, message: 'レッスンIDが不正です' });
+  }
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(
+      'SELECT course_id FROM lessons WHERE id = ? AND status = \'active\'',
+      [lessonId]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'レッスンが見つかりません' });
+    }
+    res.json({ success: true, courseId: rows[0].course_id });
+  } catch (error) {
+    customLogger.error('getLessonCourseId failed', { error: error.message, lessonId });
+    res.status(500).json({ success: false, message: 'コースIDの取得に失敗しました' });
+  } finally {
+    connection.release();
+  }
+};
+
 module.exports = {
   getUserProgress,
   updateLessonProgress,
@@ -2298,5 +2446,10 @@ module.exports = {
   getCertificateData,
   getUserCertificates,
   getNextLessonAfterPass,
-  getNextSectionAfterPass
+  getNextSectionAfterPass,
+  getWorkspaceLayout,
+  updateWorkspaceLayout,
+  getWidgetVisibility,
+  updateWidgetVisibility,
+  getLessonCourseId
 };

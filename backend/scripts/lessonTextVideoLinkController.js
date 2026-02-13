@@ -2,10 +2,11 @@ const { customLogger } = require('../utils/logger');
 const { pool } = require('../utils/database');
 
 // テキストと動画の紐づけ一覧取得
-// レッスンIDに一致する紐づけを取得（動画が紐づいているもののみ表示）
-// 動画のないテキストはリストに含めない（新しい紐づけは「新しい紐づけを追加」から作成可能）
+// レッスンIDに一致する紐づけを取得（デフォルトは動画が紐づいているもののみ）
+// includeNoVideo=true のときは動画未紐づけのテキストも含める（セクションテスト等でPDFのみレッスン用）
 const getTextVideoLinks = async (req, res) => {
   const { lessonId } = req.params;
+  const includeNoVideo = req.query.includeNoVideo === 'true' || req.query.includeNoVideo === '1';
   const connection = await pool.getConnection();
   
   try {
@@ -157,10 +158,9 @@ const getTextVideoLinks = async (req, res) => {
       };
     }));
     
-    // 動画が紐づいている紐づけのみを表示する（動画のないテキストは含めない）
-    // 新しい紐づけは「新しい紐づけを追加」ボタンから作成可能
+    // 動画が紐づいている紐づけを表示。includeNoVideo のときは動画未紐づけも含める（PDFのみレッスンのセクションテスト用）
     const linkedSections = processedLinks
-      .filter(link => link.video_id != null) // 動画が紐づいているもののみ
+      .filter(link => includeNoVideo || link.video_id != null)
       .map(link => ({
         ...link,
         source: 'lesson_text_video_links'
