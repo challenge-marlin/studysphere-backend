@@ -169,15 +169,22 @@ const s3Utils = {
 
       const result = await s3.getObject(params).promise();
       
-      // メタデータのBase64デコード
+      // メタデータのBase64デコード（UTF-8で保存した値を復元）
       const decodedMetadata = {};
       if (result.Metadata) {
         Object.keys(result.Metadata).forEach(key => {
+          const raw = result.Metadata[key];
           try {
-            decodedMetadata[key] = Buffer.from(result.Metadata[key], 'base64').toString('utf8');
+            // Base64として保存されている場合はデコード、既にUTF-8の場合はそのまま
+            const looksLikeBase64 = /^[A-Za-z0-9+/]+=*$/.test(raw) && raw.length > 0;
+            if (looksLikeBase64) {
+              const decoded = Buffer.from(raw, 'base64').toString('utf8');
+              decodedMetadata[key] = decoded;
+            } else {
+              decodedMetadata[key] = raw;
+            }
           } catch (error) {
-            // デコードに失敗した場合は元の値を保持
-            decodedMetadata[key] = result.Metadata[key];
+            decodedMetadata[key] = raw;
           }
         });
       }
@@ -417,10 +424,20 @@ const s3Utils = {
           const relativePath = file.Key.replace(prefix, '').replace(/^\//, '');
           const fileName = relativePath || file.Key.split('/').pop();
           
-          // 元のファイル名を復元
+          // 元のファイル名を復元（UTF-8として確実に扱う）
           let originalFileName = fileName;
           if (fileResult.metadata && fileResult.metadata['original-name']) {
             originalFileName = fileResult.metadata['original-name'];
+          }
+          // Node.jsの文字列としてUTF-8であることを保証（ZIP内のファイル名の文字化け防止）
+          if (typeof originalFileName === 'string') {
+            try {
+              Buffer.from(originalFileName, 'utf8');
+            } catch (_) {
+              originalFileName = Buffer.from(fileName, 'utf8').toString('utf8');
+            }
+          } else {
+            originalFileName = Buffer.from(fileName, 'utf8').toString('utf8');
           }
           
           zip.file(originalFileName, fileResult.data);
@@ -437,7 +454,7 @@ const s3Utils = {
         }
       }
 
-      // ZIPファイルを生成
+      // ZIPファイルを生成（JSZipのデフォルトUTF-8エンコード＋EFSビットでWindows等の文字化けを防止）
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
       
       customLogger.info(`S3 folder download successful: ${prefix}`, {
