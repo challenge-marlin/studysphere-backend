@@ -84,6 +84,24 @@ const encodeRFC5987 = (str) => {
   }
 };
 
+// UTF-8がLatin-1と誤解釈されて文字化けした文字列を復元する
+// "ã ®" → "の"、二重mojibake "Ã£ÂÂ®" → "の" にも対応（反復復元）
+const tryFixUtf8Mojibake = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(str)) return str; // 既に正しい
+  let current = str;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const bytes = Buffer.from(current, 'latin1');
+      const recovered = bytes.toString('utf8');
+      if (recovered === current) break;
+      if (/[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(recovered)) return recovered;
+      current = recovered;
+    } catch (_) { break; }
+  }
+  return str;
+};
+
 // ファイル名を安全にエンコードする関数（ブラウザ互換性重視）
 const encodeFileName = (str) => {
   if (!str) return '';
@@ -127,7 +145,7 @@ const s3Utils = {
         ContentType: file.mimetype,
         ContentDisposition: `attachment; filename*=UTF-8''${encodeRFC5987(utf8FileName)}`,
         Metadata: {
-          'original-name': Buffer.from(file.originalname || originalFileName, 'utf8').toString('base64'),
+          'original-name': Buffer.from(originalFileName || file.originalname, 'utf8').toString('base64'),
           'upload-date': new Date().toISOString(),
           'course-name': Buffer.from(courseName, 'utf8').toString('base64'),
           'lesson-name': Buffer.from(lessonName, 'utf8').toString('base64')
@@ -424,21 +442,12 @@ const s3Utils = {
           const relativePath = file.Key.replace(prefix, '').replace(/^\//, '');
           const fileName = relativePath || file.Key.split('/').pop();
           
-          // 元のファイル名を復元（UTF-8として確実に扱う）
-          let originalFileName = fileName;
-          if (fileResult.metadata && fileResult.metadata['original-name']) {
-            originalFileName = fileResult.metadata['original-name'];
-          }
-          // Node.jsの文字列としてUTF-8であることを保証（ZIP内のファイル名の文字化け防止）
-          if (typeof originalFileName === 'string') {
-            try {
-              Buffer.from(originalFileName, 'utf8');
-            } catch (_) {
-              originalFileName = Buffer.from(fileName, 'utf8').toString('utf8');
-            }
-          } else {
-            originalFileName = Buffer.from(fileName, 'utf8').toString('utf8');
-          }
+          // ファイル名の取得: メタデータoriginal-name（Base64→UTF-8直接デコード）を優先
+          // S3のKeyはAWS SDKのレスポンスで文字化けする可能性があるため、メタデータを優先
+          const metaName = fileResult.metadata && fileResult.metadata['original-name'] ? fileResult.metadata['original-name'] : null;
+          let originalFileName = metaName || fileName;
+          // まだ日本語が含まれない場合はLatin-1誤解釈の復元を試行
+          originalFileName = tryFixUtf8Mojibake(originalFileName);
           
           zip.file(originalFileName, fileResult.data);
           
@@ -454,7 +463,8 @@ const s3Utils = {
         }
       }
 
-      // ZIPファイルを生成（JSZipのデフォルトUTF-8エンコード＋EFSビットでWindows等の文字化けを防止）
+      // ZIPファイルを生成（UTF-8＋EFSフラグ／Info-ZIP Unicode Path Extra Field）
+      // Windows 11はUTF-8をサポートするため、JSZipのデフォルトUTF-8出力を使用
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
       
       customLogger.info(`S3 folder download successful: ${prefix}`, {
