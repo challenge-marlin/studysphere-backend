@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS courses (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='コース管理テーブル';
 
 -- レッスン管理テーブル
+
 CREATE TABLE IF NOT EXISTS lessons (
     id INT AUTO_INCREMENT PRIMARY KEY,
     course_id INT NOT NULL COMMENT '関連コースID',
